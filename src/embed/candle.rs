@@ -73,8 +73,10 @@ impl EmbedderInner {
         postprocess_embedding(&flat, tok.seq_len, &tok.attention_mask)
     }
 
-    // candle backend: sequential inference per document (no batched forward pass)
     pub(super) fn embed_batch(&mut self, texts: &[&str]) -> Result<Vec<Vec<f32>>, EmbedError> {
+        if texts.is_empty() {
+            return Ok(Vec::new());
+        }
         texts
             .iter()
             .map(|t| self.embed_with_prefix(t, DOCUMENT_PREFIX))

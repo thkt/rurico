@@ -262,16 +262,26 @@ impl ModernBert {
         batch_size: i32,
         seq_len: i32,
     ) -> Result<Array, Exception> {
-        debug_assert_eq!(
-            input_ids.len(),
-            (batch_size * seq_len) as usize,
-            "input_ids length must equal batch_size * seq_len"
-        );
-        debug_assert_eq!(
-            attention_mask.len(),
-            (batch_size * seq_len) as usize,
-            "attention_mask length must equal batch_size * seq_len"
-        );
+        let expected_len = batch_size
+            .checked_mul(seq_len)
+            .ok_or_else(|| Exception::custom("batch_size * seq_len overflows i32"))?
+            as usize;
+        if input_ids.len() != expected_len {
+            return Err(Exception::custom(format!(
+                "input_ids length {} != batch_size ({}) * seq_len ({})",
+                input_ids.len(),
+                batch_size,
+                seq_len
+            )));
+        }
+        if attention_mask.len() != expected_len {
+            return Err(Exception::custom(format!(
+                "attention_mask length {} != batch_size ({}) * seq_len ({})",
+                attention_mask.len(),
+                batch_size,
+                seq_len
+            )));
+        }
 
         let ids = Array::from_slice(input_ids, &[batch_size, seq_len]);
         let mask = Array::from_slice(attention_mask, &[batch_size, seq_len]);

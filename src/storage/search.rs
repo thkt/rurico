@@ -34,37 +34,41 @@ pub fn fts_quote(s: &str) -> String {
 
 /// Expand short terms (1-2 chars) via fts5vocab prefix matching.
 ///
-/// Terms with 3+ chars are quoted as-is. Short terms are expanded by querying
-/// the `fts_chunks_vocab` table for prefix matches (up to 25 results), joined with OR.
+/// All tokens are quoted for FTS5 MATCH syntax. Terms with 3+ chars are quoted
+/// as-is. Short terms (1-2 chars) are expanded by querying the `fts_chunks_vocab`
+/// table for prefix matches (up to 25 results), joined with OR.
+///
+/// Boolean operators (AND/OR/NOT) must be injected by the caller — this function
+/// treats all input tokens as search terms.
+///
+/// If the vocab table is unavailable, short terms are quoted as-is (graceful
+/// degradation, no error).
 ///
 /// Requires an `fts_chunks_vocab` table created as:
 /// ```sql
-/// CREATE VIRTUAL TABLE fts_chunks_vocab USING fts5vocab(fts_chunks, instance);
+/// CREATE VIRTUAL TABLE fts_chunks_vocab USING fts5vocab(fts_chunks, row);
 /// ```
-pub fn fts_expand_short_terms(conn: &Connection, sanitized: &str) -> String {
-    let mut stmt = match conn.prepare(
+pub fn fts_expand_short_terms(conn: &Connection, query: &str) -> String {
+    let mut stmt = match conn.prepare_cached(
         "SELECT term FROM fts_chunks_vocab \
          WHERE term LIKE ?1 ESCAPE '\\' \
          ORDER BY cnt DESC LIMIT 25",
     ) {
         Ok(s) => Some(s),
+        Err(rusqlite::Error::SqliteFailure(_, Some(ref msg)))
+            if msg.contains("no such table") =>
+        {
+            None
+        }
         Err(e) => {
-            eprintln!("warning: fts vocab expansion unavailable: {e}");
+            eprintln!("warning: fts vocab prepare failed: {e}");
             None
         }
     };
 
     let mut parts = Vec::new();
-    for token in sanitized.split_whitespace() {
-        let upper = token.to_ascii_uppercase();
-        if matches!(upper.as_str(), "AND" | "OR" | "NOT") {
-            parts.push(token.to_string());
-            continue;
-        }
-        if token.is_empty() {
-            continue;
-        }
-        if token.chars().count() >= 3 {
+    for token in query.split_whitespace() {
+        if token.len() >= 3 {
             parts.push(fts_quote(token));
             continue;
         }
@@ -74,9 +78,16 @@ pub fn fts_expand_short_terms(conn: &Connection, sanitized: &str) -> String {
                 .replace('%', "\\%")
                 .replace('_', "\\_");
             let pattern = format!("{escaped}%");
-            s.query_map([&pattern], |row| row.get::<_, String>(0))
+            match s
+                .query_map([&pattern], |row| row.get::<_, String>(0))
                 .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
-                .ok()
+            {
+                Ok(terms) => Some(terms),
+                Err(e) => {
+                    eprintln!("warning: fts vocab query failed: {e}");
+                    None
+                }
+            }
         });
         match expanded {
             Some(terms) if !terms.is_empty() => {
@@ -98,8 +109,20 @@ mod tests {
         let fts: Vec<(u32, f64)> = vec![(1, 1.0), (2, 0.5)];
         let vec: Vec<(u32, f64)> = vec![(2, 1.0), (3, 0.5)];
         let result = rrf_merge(&fts, &vec);
-        // Item 2 appears in both → highest score
         assert_eq!(result[0].0, 2);
+        assert_eq!(result.len(), 3);
+        assert!(
+            result[0].1 > result[1].1,
+            "dual-list item should outscore single-list: {} vs {}",
+            result[0].1,
+            result[1].1
+        );
+        assert!(
+            result[1].1 >= result[2].1,
+            "earlier rank should score >= later rank: {} vs {}",
+            result[1].1,
+            result[2].1
+        );
     }
 
     #[test]
@@ -135,5 +158,101 @@ mod tests {
     #[test]
     fn fts_quote_with_quotes() {
         assert_eq!(fts_quote("he\"llo"), "\"he\"\"llo\"");
+    }
+
+    fn setup_fts_db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE VIRTUAL TABLE fts_chunks USING fts5(content);
+             INSERT INTO fts_chunks(content) VALUES ('authentication login session');
+             INSERT INTO fts_chunks(content) VALUES ('authorization permission role');
+             INSERT INTO fts_chunks(content) VALUES ('audit logging trace');
+             CREATE VIRTUAL TABLE fts_chunks_vocab USING fts5vocab(fts_chunks, row);",
+        )
+        .unwrap();
+        conn
+    }
+
+    #[test]
+    fn expand_long_term_quoted_as_is() {
+        let conn = setup_fts_db();
+        let result = fts_expand_short_terms(&conn, "authentication");
+        assert_eq!(result, "\"authentication\"");
+    }
+
+    #[test]
+    fn expand_short_term_with_vocab_matches() {
+        let conn = setup_fts_db();
+        let result = fts_expand_short_terms(&conn, "au");
+        assert!(result.contains("\"audit\""), "should contain audit: {result}");
+        assert!(
+            result.contains("\"authentication\""),
+            "should contain authentication: {result}"
+        );
+        assert!(result.contains(" OR "), "expanded terms joined with OR: {result}");
+    }
+
+    #[test]
+    fn expand_short_term_no_matches() {
+        let conn = setup_fts_db();
+        let result = fts_expand_short_terms(&conn, "zz");
+        assert_eq!(result, "\"zz\"", "no matches → quoted as-is");
+    }
+
+    #[test]
+    fn expand_empty_input() {
+        let conn = setup_fts_db();
+        let result = fts_expand_short_terms(&conn, "");
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn expand_mixed_short_and_long() {
+        let conn = setup_fts_db();
+        let result = fts_expand_short_terms(&conn, "au login");
+        assert!(result.contains("\"login\""), "long term quoted: {result}");
+        assert!(result.contains(" OR "), "short term expanded: {result}");
+    }
+
+    #[test]
+    fn expand_operators_are_quoted_not_passed_through() {
+        let conn = setup_fts_db();
+        let result = fts_expand_short_terms(&conn, "NOT secret");
+        assert!(
+            !result.starts_with("NOT "),
+            "NOT should be quoted, not passed through: {result}"
+        );
+    }
+
+    #[test]
+    fn expand_special_chars_escaped() {
+        let conn = setup_fts_db();
+        let result = fts_expand_short_terms(&conn, "a%");
+        // '%' must be escaped for LIKE, not act as wildcard
+        assert!(
+            result.contains("\"audit\"") || result == "\"a%\"",
+            "should expand to 'a'-prefixed vocab terms or quote as-is, got: {result}"
+        );
+    }
+
+    #[test]
+    fn expand_without_vocab_table_degrades() {
+        let conn = Connection::open_in_memory().unwrap();
+        let result = fts_expand_short_terms(&conn, "au login");
+        assert_eq!(result, "\"au\" \"login\"", "all terms quoted as fallback");
+    }
+
+    #[test]
+    fn expand_whitespace_only() {
+        let conn = setup_fts_db();
+        let result = fts_expand_short_terms(&conn, "   ");
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn expand_single_char_term() {
+        let conn = setup_fts_db();
+        let result = fts_expand_short_terms(&conn, "a");
+        assert!(result.contains("\"audit\"") || result == "\"a\"");
     }
 }

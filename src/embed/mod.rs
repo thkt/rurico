@@ -74,7 +74,7 @@ pub struct ModelPaths {
 }
 
 impl ModelPaths {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn from_dir(dir: &std::path::Path) -> Self {
         Self {
             model: dir.join("model.safetensors"),
