@@ -68,7 +68,7 @@ pub fn fts_expand_short_terms(conn: &Connection, query: &str) -> String {
 
     let mut parts = Vec::new();
     for token in query.split_whitespace() {
-        if token.len() >= 3 {
+        if token.chars().count() >= 3 {
             parts.push(fts_quote(token));
             continue;
         }
