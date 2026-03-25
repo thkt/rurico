@@ -2,6 +2,17 @@ use std::path::Path;
 
 use super::*;
 
+fn reorder_by_indices<T>(sorted: Vec<T>, sorted_indices: &[usize]) -> Vec<T> {
+    let mut results: Vec<Option<T>> = (0..sorted_indices.len()).map(|_| None).collect();
+    for (sorted_pos, item) in sorted.into_iter().enumerate() {
+        results[sorted_indices[sorted_pos]] = Some(item);
+    }
+    results
+        .into_iter()
+        .map(|o| o.expect("all positions filled"))
+        .collect()
+}
+
 #[test]
 fn mean_pooling_excludes_masked_tokens() {
     #[rustfmt::skip]
@@ -50,7 +61,6 @@ fn mean_pooling_single_token() {
 
 #[test]
 fn mean_pooling_weighted_mask() {
-    // mask=2 should weight token 1 double
     #[rustfmt::skip]
     let data: Vec<f32> = vec![
         1.0, 0.0,   // token 0, mask=1
@@ -157,85 +167,78 @@ fn embedder_new_model_not_found() {
 }
 
 #[test]
-fn mock_embedder_query_returns_correct_dims() {
-    let embedder = MockEmbedder;
-    let result = embedder.embed_query("test").unwrap();
-    assert_eq!(result.len(), EMBEDDING_DIMS as usize);
-}
-
-#[test]
-fn mock_embedder_documents_returns_distinct_vectors() {
-    let embedder = MockEmbedder;
-    let result = embedder.embed_documents_batch(&["a", "b"]).unwrap();
-    assert_eq!(result.len(), 2);
-    assert_ne!(result[0], result[1]);
-}
-
-#[test]
-fn failing_embedder_all_fail() {
-    let embedder = FailingEmbedder::all_fail("test failure");
-    let err = embedder.embed_query("test").unwrap_err();
-    assert!(
-        matches!(err, EmbedError::Inference(ref msg) if msg.contains("test failure")),
-        "expected Inference with 'test failure', got: {err}"
-    );
-    let err = embedder.embed_document("a").unwrap_err();
-    assert!(
-        matches!(err, EmbedError::Inference(ref msg) if msg.contains("test failure")),
-        "expected Inference with 'test failure', got: {err}"
-    );
-}
-
-#[test]
-fn failing_embedder_query_only() {
-    let embedder = FailingEmbedder::query_only("test failure");
-    let err = embedder.embed_query("test").unwrap_err();
-    assert!(
-        matches!(err, EmbedError::Inference(ref msg) if msg.contains("test failure")),
-        "expected Inference with 'test failure', got: {err}"
-    );
-    assert!(embedder.embed_document("a").is_ok());
-}
-
-#[test]
-fn failing_embedder_batch_propagates_error() {
-    let embedder = FailingEmbedder::all_fail("batch fail");
-    let err = embedder.embed_documents_batch(&["a", "b"]).unwrap_err();
-    assert!(
-        matches!(err, EmbedError::Inference(ref msg) if msg.contains("batch fail")),
-        "expected Inference with 'batch fail', got: {err}"
-    );
-}
-
-#[test]
-fn mismatch_embedder_returns_single_vector() {
-    let embedder = MismatchEmbedder;
-    let result = embedder.embed_documents_batch(&["a", "b", "c"]).unwrap();
-    assert_eq!(result.len(), 1, "MismatchEmbedder always returns exactly 1 vector");
-}
-
-#[test]
-fn alternating_embedder_alternates_fail_success() {
-    let embedder = AlternatingEmbedder::new();
-    assert!(embedder.embed_document("a").is_err());
-    assert!(embedder.embed_document("b").is_ok());
-    assert!(embedder.embed_document("c").is_err());
-    assert!(embedder.embed_query("q").is_ok());
-}
-
-#[test]
-fn mock_embedder_empty_batch_returns_empty() {
-    let embedder = MockEmbedder;
-    let result = embedder.embed_documents_batch(&[]).unwrap();
-    assert!(result.is_empty(), "empty input should produce empty output");
-}
-
-#[test]
 fn mean_pooling_short_mask_truncates_safely() {
     let data = vec![1.0f32, 2.0, 3.0, 4.0]; // 2 tokens, hidden_size=2
     let mask = vec![1u32]; // 1 mask element for 2 tokens
     let result = mean_pooling(&data, 2, 2, &mask);
     assert_eq!(result, vec![1.0, 2.0], "short mask should use available entries only");
+}
+
+#[test]
+fn sort_indices_by_char_count_orders_by_length() {
+    let texts = &["long text here", "hi", "medium"];
+    let indices = sort_indices_by_char_count(texts);
+    assert_eq!(indices, vec![1, 2, 0]);
+}
+
+#[test]
+fn sort_indices_by_char_count_single_item() {
+    let texts = &["only"];
+    let indices = sort_indices_by_char_count(texts);
+    assert_eq!(indices, vec![0]);
+}
+
+#[test]
+fn sort_indices_by_char_count_same_length() {
+    let texts = &["abc", "def", "ghi"];
+    let indices = sort_indices_by_char_count(texts);
+    assert_eq!(indices, vec![0, 1, 2]);
+}
+
+#[test]
+fn sort_indices_by_char_count_multibyte() {
+    let texts = &["ab", "あ", "abcde"];
+    let indices = sort_indices_by_char_count(texts);
+    assert_eq!(indices, vec![1, 0, 2]);
+}
+
+#[test]
+fn reorder_by_indices_round_trip() {
+    let texts = &["long text here", "hi", "medium"];
+    let sorted_indices = sort_indices_by_char_count(texts);
+
+    let sorted_results: Vec<&str> = sorted_indices.iter().map(|&i| texts[i]).collect();
+    assert_eq!(sorted_results, vec!["hi", "medium", "long text here"]);
+
+    let reordered = reorder_by_indices(sorted_results, &sorted_indices);
+    assert_eq!(reordered, vec!["long text here", "hi", "medium"]);
+}
+
+#[test]
+fn postprocess_embedding_happy_path() {
+    let hidden_size = EMBEDDING_DIMS as usize;
+    let seq_len = 2;
+    let mut data = vec![0.0f32; seq_len * hidden_size];
+    data[0] = 1.0;
+    data[1] = 2.0;
+    data[hidden_size] = 3.0;
+    data[hidden_size + 1] = 4.0;
+    let mask = vec![1u32; seq_len];
+
+    let result = postprocess_embedding(&data, seq_len, &mask).unwrap();
+    assert_eq!(result.len(), hidden_size, "output should be 768-dim");
+
+    let norm: f32 = result.iter().map(|x| x * x).sum::<f32>().sqrt();
+    assert!(
+        (norm - 1.0).abs() < 1e-5,
+        "output should be L2-normalized, got norm={norm}"
+    );
+    let ratio = result[0] / result[1];
+    let expected_ratio = 2.0 / 3.0;
+    assert!(
+        (ratio - expected_ratio).abs() < 1e-5,
+        "expected ratio {expected_ratio}, got {ratio}"
+    );
 }
 
 #[test]

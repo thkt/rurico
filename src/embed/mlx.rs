@@ -1,7 +1,14 @@
 use super::{
     DOCUMENT_PREFIX, EmbedError, ModelPaths, load_tokenizer, postprocess_embedding, read_config,
-    tokenize_with_prefix,
+    sort_indices_by_char_count, tokenize_with_prefix,
 };
+
+struct PaddedBatch {
+    sorted_indices: Vec<usize>,
+    input_ids: Vec<u32>,
+    attention_mask: Vec<u32>,
+    max_seq_len: usize,
+}
 
 pub(super) struct EmbedderInner {
     model: crate::modernbert::ModernBert,
@@ -15,7 +22,7 @@ impl EmbedderInner {
         let config: crate::modernbert::Config = read_config(&paths.config)?;
 
         let model = crate::modernbert::ModernBert::load(&paths.model, &config)
-            .map_err(|e| EmbedError::Inference(e.to_string()))?;
+            .map_err(EmbedError::inference)?;
 
         let tokenizer = load_tokenizer(&paths.tokenizer)?;
 
@@ -32,33 +39,33 @@ impl EmbedderInner {
         let output = self
             .model
             .forward(&tok.input_ids, &tok.attention_mask, 1, tok.seq_len as i32)
-            .map_err(|e| EmbedError::Inference(e.to_string()))?;
+            .map_err(EmbedError::inference)?;
 
-        output
-            .eval()
-            .map_err(|e| EmbedError::Inference(e.to_string()))?;
+        output.eval().map_err(EmbedError::inference)?;
         let flat: &[f32] = output.as_slice();
 
         postprocess_embedding(flat, tok.seq_len, &tok.attention_mask)
     }
 
-    pub(super) fn embed_batch(&mut self, texts: &[&str]) -> Result<Vec<Vec<f32>>, EmbedError> {
-        if texts.is_empty() {
-            return Ok(Vec::new());
-        }
+    fn prepare_batch(&self, texts: &[&str], prefix: &str) -> Result<PaddedBatch, EmbedError> {
+        let sorted_indices = sort_indices_by_char_count(texts);
 
-        let prefixed: Vec<String> = texts
+        let prefixed: Vec<String> = sorted_indices
             .iter()
-            .map(|t| format!("{DOCUMENT_PREFIX}{t}"))
+            .map(|&i| format!("{prefix}{}", texts[i]))
             .collect();
         let encodings = self
             .tokenizer
             .encode_batch(prefixed, true)
-            .map_err(|e| EmbedError::Tokenizer(e.to_string()))?;
+            .map_err(EmbedError::tokenizer)?;
+
+        let max_seq_len = encodings
+            .iter()
+            .map(|e| e.get_ids().len())
+            .max()
+            .ok_or_else(|| EmbedError::inference("tokenizer returned no encodings"))?;
 
         let batch_size = encodings.len();
-        let max_seq_len = encodings.iter().map(|e| e.get_ids().len()).max().unwrap();
-
         let mut input_ids = vec![0u32; batch_size * max_seq_len];
         let mut attention_mask = vec![0u32; batch_size * max_seq_len];
         for (i, enc) in encodings.iter().enumerate() {
@@ -69,30 +76,43 @@ impl EmbedderInner {
             attention_mask[offset..offset + mask.len()].copy_from_slice(mask);
         }
 
+        Ok(PaddedBatch {
+            sorted_indices,
+            input_ids,
+            attention_mask,
+            max_seq_len,
+        })
+    }
+
+    pub(super) fn embed_batch(&mut self, texts: &[&str]) -> Result<Vec<Vec<f32>>, EmbedError> {
+        if texts.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let batch = self.prepare_batch(texts, DOCUMENT_PREFIX)?;
+
         let output = self
             .model
             .forward(
-                &input_ids,
-                &attention_mask,
-                batch_size as i32,
-                max_seq_len as i32,
+                &batch.input_ids,
+                &batch.attention_mask,
+                batch.sorted_indices.len() as i32,
+                batch.max_seq_len as i32,
             )
-            .map_err(|e| EmbedError::Inference(e.to_string()))?;
+            .map_err(EmbedError::inference)?;
 
-        output
-            .eval()
-            .map_err(|e| EmbedError::Inference(e.to_string()))?;
+        output.eval().map_err(EmbedError::inference)?;
         let flat: &[f32] = output.as_slice();
 
-        let hidden_size = flat.len() / (batch_size * max_seq_len);
-        let stride = max_seq_len * hidden_size;
-        let mut results = Vec::with_capacity(batch_size);
-        for i in 0..batch_size {
-            let seq_data = &flat[i * stride..(i + 1) * stride];
-            let mask_slice = &attention_mask[i * max_seq_len..(i + 1) * max_seq_len];
-            results.push(postprocess_embedding(seq_data, max_seq_len, mask_slice)?);
+        let hidden_size = flat.len() / (batch.sorted_indices.len() * batch.max_seq_len);
+        let stride = batch.max_seq_len * hidden_size;
+        let mut results = vec![Vec::new(); batch.sorted_indices.len()];
+        for (sorted_pos, &orig_idx) in batch.sorted_indices.iter().enumerate() {
+            let seq_data = &flat[sorted_pos * stride..(sorted_pos + 1) * stride];
+            let mask_slice = &batch.attention_mask
+                [sorted_pos * batch.max_seq_len..(sorted_pos + 1) * batch.max_seq_len];
+            results[orig_idx] = postprocess_embedding(seq_data, batch.max_seq_len, mask_slice)?;
         }
-
         Ok(results)
     }
 }

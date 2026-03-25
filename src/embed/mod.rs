@@ -1,11 +1,6 @@
-#[cfg(all(feature = "candle", feature = "mlx"))]
-compile_error!("features `candle` and `mlx` are mutually exclusive — enable only one");
+#[cfg(not(feature = "mlx"))]
+compile_error!("enable the `mlx` feature");
 
-#[cfg(not(any(feature = "candle", feature = "mlx")))]
-compile_error!("enable either `mlx` or `candle` feature");
-
-#[cfg(feature = "candle")]
-mod candle;
 #[cfg(feature = "mlx")]
 mod mlx;
 
@@ -17,8 +12,6 @@ mod test_support;
 #[cfg(test)]
 mod tests;
 
-#[cfg(feature = "candle")]
-use self::candle::EmbedderInner;
 #[cfg(feature = "mlx")]
 use self::mlx::EmbedderInner;
 
@@ -49,6 +42,22 @@ pub enum EmbedError {
     Inference(String),
     #[error("tokenizer error: {0}")]
     Tokenizer(String),
+    #[error("download failed: {0}")]
+    Download(String),
+}
+
+impl EmbedError {
+    pub(crate) fn inference(e: impl std::fmt::Display) -> Self {
+        Self::Inference(e.to_string())
+    }
+
+    pub(crate) fn tokenizer(e: impl std::fmt::Display) -> Self {
+        Self::Tokenizer(e.to_string())
+    }
+
+    pub(crate) fn download(e: impl std::fmt::Display) -> Self {
+        Self::Download(e.to_string())
+    }
 }
 
 /// Embedding provider. Returns [`EMBEDDING_DIMS`]-dimensional f32 vectors.
@@ -96,22 +105,21 @@ impl ModelPaths {
 /// Download model files from Hugging Face Hub (cached after first download).
 pub fn download_model() -> Result<ModelPaths, EmbedError> {
     let api = hf_hub::api::sync::Api::new()
-        .map_err(|e| EmbedError::Inference(format!("HF Hub init failed: {e}")))?;
+        .map_err(|e| EmbedError::download(format!("HF Hub init failed: {e}")))?;
     let repo = api.repo(hf_hub::Repo::with_revision(
         MODEL_REPO.to_string(),
         hf_hub::RepoType::Model,
         MODEL_REVISION.to_string(),
     ));
 
-    let model = repo
-        .get("model.safetensors")
-        .map_err(|e| EmbedError::Inference(format!("model download failed: {e}")))?;
-    let config = repo
-        .get("config.json")
-        .map_err(|e| EmbedError::Inference(format!("config download failed: {e}")))?;
-    let tokenizer = repo
-        .get("tokenizer.json")
-        .map_err(|e| EmbedError::Inference(format!("tokenizer download failed: {e}")))?;
+    let get = |name: &str| {
+        repo.get(name)
+            .map_err(|e| EmbedError::download(format!("{name} download failed: {e}")))
+    };
+
+    let model = get("model.safetensors")?;
+    let config = get("config.json")?;
+    let tokenizer = get("tokenizer.json")?;
 
     Ok(ModelPaths {
         model,
@@ -123,14 +131,13 @@ pub fn download_model() -> Result<ModelPaths, EmbedError> {
 pub fn read_config<T: serde::de::DeserializeOwned>(
     path: &std::path::Path,
 ) -> Result<T, EmbedError> {
-    let text =
-        std::fs::read_to_string(path).map_err(|e| EmbedError::Inference(e.to_string()))?;
+    let text = std::fs::read_to_string(path).map_err(EmbedError::inference)?;
     serde_json::from_str(&text)
-        .map_err(|e| EmbedError::Inference(format!("config.json parse error: {e}")))
+        .map_err(|e| EmbedError::inference(format!("config.json parse error: {e}")))
 }
 
 pub fn load_tokenizer(path: &std::path::Path) -> Result<tokenizers::Tokenizer, EmbedError> {
-    tokenizers::Tokenizer::from_file(path).map_err(|e| EmbedError::Tokenizer(e.to_string()))
+    tokenizers::Tokenizer::from_file(path).map_err(EmbedError::tokenizer)
 }
 
 pub struct TokenizedInput {
@@ -147,7 +154,7 @@ pub fn tokenize_with_prefix(
     let prefixed = format!("{prefix}{text}");
     let encoding = tokenizer
         .encode(prefixed, true)
-        .map_err(|e| EmbedError::Tokenizer(e.to_string()))?;
+        .map_err(EmbedError::tokenizer)?;
     let input_ids = encoding.get_ids().to_vec();
     let attention_mask = encoding.get_attention_mask().to_vec();
     let seq_len = input_ids.len();
@@ -156,6 +163,13 @@ pub fn tokenize_with_prefix(
         attention_mask,
         seq_len,
     })
+}
+
+/// Shorter texts first reduces wasted padding in batched tokenization.
+pub(crate) fn sort_indices_by_char_count(texts: &[&str]) -> Vec<usize> {
+    let mut indices: Vec<usize> = (0..texts.len()).collect();
+    indices.sort_unstable_by_key(|&i| texts[i].chars().count());
+    indices
 }
 
 pub struct Embedder {
@@ -175,21 +189,24 @@ impl Embedder {
             inner: Mutex::new(inner),
         })
     }
+
+    fn lock_inner(&self) -> Result<std::sync::MutexGuard<'_, EmbedderInner>, EmbedError> {
+        self.inner
+            .lock()
+            .map_err(|_| EmbedError::inference("embedder lock poisoned"))
+    }
 }
 
 impl Embed for Embedder {
     fn embed_query(&self, text: &str) -> Result<Vec<f32>, EmbedError> {
-        let mut inner = self.inner.lock().expect("embedder lock poisoned");
-        inner.embed_with_prefix(text, QUERY_PREFIX)
+        self.lock_inner()?.embed_with_prefix(text, QUERY_PREFIX)
     }
 
     fn embed_document(&self, text: &str) -> Result<Vec<f32>, EmbedError> {
-        let mut inner = self.inner.lock().expect("embedder lock poisoned");
-        inner.embed_with_prefix(text, DOCUMENT_PREFIX)
+        self.lock_inner()?.embed_with_prefix(text, DOCUMENT_PREFIX)
     }
 
     fn embed_documents_batch(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>, EmbedError> {
-        let mut inner = self.inner.lock().expect("embedder lock poisoned");
-        inner.embed_batch(texts)
+        self.lock_inner()?.embed_batch(texts)
     }
 }

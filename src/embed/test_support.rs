@@ -2,36 +2,32 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use super::{EMBEDDING_DIMS, Embed, EmbedError};
 
-/// Mock embedder returning deterministic vectors for offline tests.
+fn one_hot(index: usize) -> Vec<f32> {
+    let mut v = vec![0.0_f32; EMBEDDING_DIMS as usize];
+    v[index % EMBEDDING_DIMS as usize] = 1.0;
+    v
+}
+
 pub struct MockEmbedder;
 
 impl Embed for MockEmbedder {
     fn embed_query(&self, _text: &str) -> Result<Vec<f32>, EmbedError> {
-        let mut v = vec![0.0_f32; EMBEDDING_DIMS as usize];
-        v[0] = 1.0;
-        Ok(v)
+        Ok(one_hot(0))
     }
 
     fn embed_document(&self, _text: &str) -> Result<Vec<f32>, EmbedError> {
-        let mut v = vec![0.0_f32; EMBEDDING_DIMS as usize];
-        v[0] = 1.0;
-        Ok(v)
+        Ok(one_hot(0))
     }
 
     fn embed_documents_batch(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>, EmbedError> {
         Ok(texts
             .iter()
             .enumerate()
-            .map(|(i, _)| {
-                let mut v = vec![0.0_f32; EMBEDDING_DIMS as usize];
-                v[i % EMBEDDING_DIMS as usize] = 1.0;
-                v
-            })
+            .map(|(i, _)| one_hot(i))
             .collect())
     }
 }
 
-/// Embedder that always fails.
 pub struct FailingEmbedder {
     message: &'static str,
     docs_fail: bool,
@@ -62,37 +58,27 @@ impl Embed for FailingEmbedder {
         if self.docs_fail {
             Err(EmbedError::Inference(self.message.into()))
         } else {
-            let mut v = vec![0.0_f32; EMBEDDING_DIMS as usize];
-            v[0] = 1.0;
-            Ok(v)
+            Ok(one_hot(0))
         }
     }
 }
 
-/// Embedder that always returns exactly 1 vector regardless of input count.
 pub struct MismatchEmbedder;
 
 impl Embed for MismatchEmbedder {
     fn embed_query(&self, _text: &str) -> Result<Vec<f32>, EmbedError> {
-        let mut v = vec![0.0_f32; EMBEDDING_DIMS as usize];
-        v[0] = 1.0;
-        Ok(v)
+        Ok(one_hot(0))
     }
 
     fn embed_document(&self, _text: &str) -> Result<Vec<f32>, EmbedError> {
-        let mut v = vec![0.0_f32; EMBEDDING_DIMS as usize];
-        v[0] = 1.0;
-        Ok(v)
+        Ok(one_hot(0))
     }
 
     fn embed_documents_batch(&self, _texts: &[&str]) -> Result<Vec<Vec<f32>>, EmbedError> {
-        let mut v = vec![0.0_f32; EMBEDDING_DIMS as usize];
-        v[0] = 1.0;
-        Ok(vec![v])
+        Ok(vec![one_hot(0)])
     }
 }
 
-/// Embedder that alternates: fail on even calls (0, 2, 4…), succeed on odd (1, 3, 5…).
 pub struct AlternatingEmbedder {
     call_count: AtomicU32,
 }
@@ -107,9 +93,7 @@ impl AlternatingEmbedder {
 
 impl Embed for AlternatingEmbedder {
     fn embed_query(&self, _text: &str) -> Result<Vec<f32>, EmbedError> {
-        let mut v = vec![0.0_f32; EMBEDDING_DIMS as usize];
-        v[0] = 1.0;
-        Ok(v)
+        Ok(one_hot(0))
     }
 
     fn embed_document(&self, _text: &str) -> Result<Vec<f32>, EmbedError> {
@@ -117,9 +101,7 @@ impl Embed for AlternatingEmbedder {
         if n % 2 == 0 {
             Err(EmbedError::Inference("alternating failure".into()))
         } else {
-            let mut v = vec![0.0_f32; EMBEDDING_DIMS as usize];
-            v[0] = 1.0;
-            Ok(v)
+            Ok(one_hot(0))
         }
     }
 }
