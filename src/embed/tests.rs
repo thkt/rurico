@@ -215,6 +215,19 @@ fn reorder_by_indices_round_trip() {
 }
 
 #[test]
+fn postprocess_embedding_rejects_indivisible_length() {
+    let hidden_size = EMBEDDING_DIMS as usize;
+    let seq_len = 2;
+    let data = vec![0.0f32; seq_len * hidden_size + 1];
+    let mask = vec![1u32; seq_len];
+    let err = postprocess_embedding(&data, seq_len, &mask).unwrap_err();
+    assert!(
+        matches!(err, EmbedError::DimensionMismatch { .. }),
+        "expected DimensionMismatch for indivisible length, got: {err}"
+    );
+}
+
+#[test]
 fn postprocess_embedding_happy_path() {
     let hidden_size = EMBEDDING_DIMS as usize;
     let seq_len = 2;

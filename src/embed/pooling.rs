@@ -49,6 +49,12 @@ pub fn postprocess_embedding(
             actual: 0,
         });
     }
+    if flat.len() % seq_len != 0 {
+        return Err(EmbedError::DimensionMismatch {
+            expected: EMBEDDING_DIMS as usize,
+            actual: flat.len(),
+        });
+    }
     let hidden_size = flat.len() / seq_len;
     if hidden_size != EMBEDDING_DIMS as usize {
         return Err(EmbedError::DimensionMismatch {
