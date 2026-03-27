@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use super::mlx::unpack_batch_output;
 use super::*;
 
 #[test]
@@ -93,7 +94,7 @@ fn postprocess_embedding_wrong_dims() {
 fn read_config_missing_file() {
     let err = read_config::<serde_json::Value>(Path::new("/nonexistent/config.json")).unwrap_err();
     assert!(
-        matches!(err, EmbedError::Inference(ref msg) if msg.contains("No such file")),
+        matches!(err, EmbedError::Config { ref reason, .. } if reason.contains("No such file")),
         "{err}"
     );
 }
@@ -105,7 +106,7 @@ fn read_config_invalid_json() {
     std::fs::write(&path, b"not valid json {{{").unwrap();
     let err = read_config::<serde_json::Value>(&path).unwrap_err();
     assert!(
-        matches!(err, EmbedError::Inference(ref msg) if msg.contains("parse error")),
+        matches!(err, EmbedError::Config { ref reason, .. } if reason.contains("parse error")),
         "{err}"
     );
 }
@@ -117,7 +118,7 @@ fn read_config_missing_fields() {
     std::fs::write(&path, b"{ \"vocab_size\": 1000 }").unwrap();
     let err = read_config::<crate::modernbert::Config>(&path).unwrap_err();
     assert!(
-        matches!(err, EmbedError::Inference(ref msg) if msg.contains("parse error")),
+        matches!(err, EmbedError::Config { ref reason, .. } if reason.contains("parse error")),
         "{err}"
     );
 }
@@ -284,7 +285,7 @@ fn probe_rejects_invalid_config() {
     let paths = ModelPaths::from_dir(dir.path());
     let err = Embedder::probe(&paths).unwrap_err();
     assert!(
-        matches!(err, EmbedError::Inference(ref msg) if msg.contains("parse error")),
+        matches!(err, EmbedError::Config { ref reason, .. } if reason.contains("parse error")),
         "{err}"
     );
 }
@@ -339,6 +340,62 @@ fn probe_env_to_paths_returns_paths_when_all_present() {
     assert_eq!(paths.model, PathBuf::from("/m"));
     assert_eq!(paths.config, PathBuf::from("/c"));
     assert_eq!(paths.tokenizer, PathBuf::from("/t"));
+}
+
+#[test]
+fn unpack_batch_output_rejects_indivisible_shape() {
+    let flat = vec![0.0f32; 10];
+    let sorted = vec![0usize, 1];
+    let mask = vec![1u32; 6];
+    let err = unpack_batch_output(&flat, &sorted, 3, &mask).unwrap_err();
+    assert!(
+        matches!(
+            err,
+            EmbedError::DimensionMismatch {
+                expected: 6,
+                actual: 10
+            }
+        ),
+        "{err}"
+    );
+}
+
+#[test]
+fn unpack_batch_output_rejects_zero_total() {
+    let flat = vec![0.0f32; 10];
+    let err = unpack_batch_output(&flat, &[], 0, &[]).unwrap_err();
+    assert!(
+        matches!(
+            err,
+            EmbedError::DimensionMismatch {
+                expected: 0,
+                actual: 10
+            }
+        ),
+        "{err}"
+    );
+}
+
+#[test]
+fn unpack_batch_output_happy_path() {
+    let hidden = EMBEDDING_DIMS as usize;
+    let batch_size = 2;
+    let max_seq_len = 1;
+    let mut flat = vec![0.0f32; batch_size * max_seq_len * hidden];
+    // Give each item a distinct nonzero value so postprocess produces different unit vectors
+    flat[0] = 1.0;
+    flat[hidden] = 2.0;
+    // sorted_indices: [1, 0] means sorted_pos 0 → orig 1, sorted_pos 1 → orig 0
+    let sorted = vec![1usize, 0];
+    let mask = vec![1u32; batch_size * max_seq_len];
+    let results = unpack_batch_output(&flat, &sorted, max_seq_len, &mask).unwrap();
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0].len(), hidden);
+    assert_eq!(results[1].len(), hidden);
+    // orig 0 came from sorted_pos 1 (flat[hidden]=2.0), orig 1 from sorted_pos 0 (flat[0]=1.0)
+    // Both are L2 normalized, so first nonzero element should be 1.0 (single nonzero in 768-dim)
+    assert!((results[0][0] - 1.0).abs() < 1e-6);
+    assert!((results[1][0] - 1.0).abs() < 1e-6);
 }
 
 fn exit_status(code: i32) -> std::process::ExitStatus {

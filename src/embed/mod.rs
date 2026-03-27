@@ -31,6 +31,8 @@ pub enum EmbedError {
     ModelNotFound { path: PathBuf },
     #[error("dimension mismatch: expected {expected}, got {actual}")]
     DimensionMismatch { expected: usize, actual: usize },
+    #[error("config error at {path}: {reason}")]
+    Config { path: PathBuf, reason: String },
     #[error("inference error: {0}")]
     Inference(String),
     #[error("tokenizer error: {0}")]
@@ -42,6 +44,13 @@ pub enum EmbedError {
 }
 
 impl EmbedError {
+    pub(crate) fn config(path: &std::path::Path, e: impl std::fmt::Display) -> Self {
+        Self::Config {
+            path: path.to_path_buf(),
+            reason: e.to_string(),
+        }
+    }
+
     pub(crate) fn inference(e: impl std::fmt::Display) -> Self {
         Self::Inference(e.to_string())
     }
@@ -162,9 +171,8 @@ fn model_paths_from_cache(cache: &hf_hub::Cache) -> Result<Option<ModelPaths>, E
 pub fn read_config<T: serde::de::DeserializeOwned>(
     path: &std::path::Path,
 ) -> Result<T, EmbedError> {
-    let text = std::fs::read_to_string(path).map_err(EmbedError::inference)?;
-    serde_json::from_str(&text)
-        .map_err(|e| EmbedError::inference(format!("config.json parse error: {e}")))
+    let text = std::fs::read_to_string(path).map_err(|e| EmbedError::config(path, e))?;
+    serde_json::from_str(&text).map_err(|e| EmbedError::config(path, format!("parse error: {e}")))
 }
 
 pub fn load_tokenizer(path: &std::path::Path) -> Result<tokenizers::Tokenizer, EmbedError> {

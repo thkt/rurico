@@ -104,7 +104,7 @@ pub fn fts_expand_short_terms(conn: &Connection, query: &str) -> String {
             None
         }
         Err(e) => {
-            eprintln!("warning: fts vocab prepare failed: {e}");
+            log::warn!("fts vocab prepare failed: {e}");
             None
         }
     };
@@ -127,7 +127,7 @@ pub fn fts_expand_short_terms(conn: &Connection, query: &str) -> String {
             {
                 Ok(terms) => Some(terms),
                 Err(e) => {
-                    eprintln!("warning: fts vocab query failed: {e}");
+                    log::warn!("fts vocab query failed: {e}");
                     None
                 }
             }
