@@ -1,8 +1,8 @@
 mod search;
 
 pub use search::{
-    SanitizeError, SanitizedFtsQuery, fts_expand_short_terms, fts_quote, recency_decay, rrf_merge,
-    sanitize_fts_query,
+    MatchFtsQuery, SanitizeError, SanitizedFtsQuery, fts_expand_short_terms, fts_quote,
+    recency_decay, rrf_merge, sanitize_fts_query,
 };
 
 use rusqlite::ffi::sqlite3_auto_extension;
