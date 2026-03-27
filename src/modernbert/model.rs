@@ -214,6 +214,7 @@ pub struct ModernBert {
     #[param]
     final_norm: nn::LayerNorm,
     local_attention_half: usize,
+    max_seq_len: usize,
     local_mask_cache: Option<(i32, Array)>,
 }
 
@@ -243,11 +244,19 @@ impl ModernBert {
             layers,
             final_norm,
             local_attention_half: config.local_attention / 2,
+            max_seq_len: config.max_position_embeddings,
             local_mask_cache: None,
         })
     }
 
     pub fn load(path: impl AsRef<Path>, config: &Config) -> Result<Self, Exception> {
+        let path = path.as_ref();
+        if !path.exists() {
+            return Err(Exception::custom(format!(
+                "model file not found: {}",
+                path.display()
+            )));
+        }
         let mut model = Self::new(config)?;
         model
             .load_safetensors(path)
@@ -262,6 +271,15 @@ impl ModernBert {
         batch_size: i32,
         seq_len: i32,
     ) -> Result<Array, Exception> {
+        if seq_len < 0 {
+            return Err(Exception::custom("seq_len must be non-negative"));
+        }
+        let max_seq = self.max_seq_len as i32;
+        if seq_len > max_seq {
+            return Err(Exception::custom(format!(
+                "seq_len ({seq_len}) exceeds maximum ({max_seq})"
+            )));
+        }
         let expected_len = batch_size
             .checked_mul(seq_len)
             .ok_or_else(|| Exception::custom("batch_size * seq_len overflows i32"))?
@@ -343,7 +361,17 @@ mod tests {
     use crate::modernbert::config::tests::test_config;
 
     #[cfg(feature = "mlx")]
-    mod mlx_tests {
+    #[test]
+    fn load_nonexistent_path_errors() {
+        let config = test_config();
+        let result = ModernBert::load("/nonexistent/model.safetensors", &config);
+        assert!(result.is_err());
+    }
+
+    /// MLX runtime tests — may abort due to foreign exceptions from mlx-rs FFI.
+    /// Run with `cargo test --features test-mlx`.
+    #[cfg(all(feature = "mlx", feature = "test-mlx"))]
+    mod mlx_runtime_tests {
         use serial_test::serial;
 
         use super::*;
@@ -459,14 +487,6 @@ mod tests {
                     }
                 }
             }
-        }
-
-        #[test]
-        #[serial]
-        fn load_nonexistent_path_errors() {
-            let config = test_config();
-            let result = ModernBert::load("/nonexistent/model.safetensors", &config);
-            assert!(result.is_err());
         }
     }
 }

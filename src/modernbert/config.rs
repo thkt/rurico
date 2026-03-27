@@ -8,7 +8,6 @@ pub struct Config {
     pub num_hidden_layers: usize,
     pub num_attention_heads: usize,
     pub intermediate_size: usize,
-    #[allow(dead_code)]
     pub max_position_embeddings: usize,
     pub layer_norm_eps: f64,
     #[allow(dead_code)]
@@ -35,6 +34,9 @@ impl Config {
         }
         if self.vocab_size == 0 {
             return Err("vocab_size must be > 0".into());
+        }
+        if self.max_position_embeddings == 0 {
+            return Err("max_position_embeddings must be > 0".into());
         }
         Ok(())
     }
@@ -97,6 +99,17 @@ pub mod tests {
         let mut c = test_config();
         c.vocab_size = 0;
         assert!(c.validate().unwrap_err().contains("vocab_size"));
+    }
+
+    #[test]
+    fn config_validate_zero_max_position_embeddings() {
+        let mut c = test_config();
+        c.max_position_embeddings = 0;
+        assert!(
+            c.validate()
+                .unwrap_err()
+                .contains("max_position_embeddings")
+        );
     }
 
     #[test]

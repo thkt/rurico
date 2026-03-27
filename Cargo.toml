@@ -9,6 +9,7 @@ repository = "https://github.com/thkt/rurico"
 [features]
 default = ["mlx"]
 mlx = ["dep:mlx-rs"]
+test-mlx = []
 test-support = []
 
 [dependencies]
