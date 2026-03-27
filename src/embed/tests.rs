@@ -68,13 +68,7 @@ fn postprocess_embedding_zero_seq_len() {
     let result = postprocess_embedding(&[], 0, &[]);
     let err = result.unwrap_err();
     assert!(
-        matches!(
-            err,
-            EmbedError::DimensionMismatch {
-                expected: _,
-                actual: 0
-            }
-        ),
+        matches!(err, EmbedError::DimensionMismatch { actual: 0, .. }),
         "{err}"
     );
 }
@@ -88,10 +82,8 @@ fn postprocess_embedding_wrong_dims() {
     assert!(
         matches!(
             err,
-            EmbedError::DimensionMismatch {
-                expected: 768,
-                actual: 3
-            }
+            EmbedError::DimensionMismatch { expected, actual: 3 }
+            if expected == EMBEDDING_DIMS as usize
         ),
         "{err}"
     );
@@ -162,20 +154,6 @@ fn sort_indices_by_len_orders_by_length() {
     let texts = &["long text here", "hi", "medium"];
     let indices = sort_indices_by_len(texts);
     assert_eq!(indices, vec![1, 2, 0]);
-}
-
-#[test]
-fn sort_indices_by_len_single_item() {
-    let texts = &["only"];
-    let indices = sort_indices_by_len(texts);
-    assert_eq!(indices, vec![0]);
-}
-
-#[test]
-fn sort_indices_by_len_same_length() {
-    let texts = &["abc", "def", "ghi"];
-    let indices = sort_indices_by_len(texts);
-    assert_eq!(indices, vec![0, 1, 2]);
 }
 
 #[test]

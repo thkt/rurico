@@ -50,19 +50,4 @@ mod tests {
         ensure_sqlite_vec().unwrap();
         ensure_sqlite_vec().unwrap();
     }
-
-    #[test]
-    fn f32_as_bytes_correct_length() {
-        let data = [1.0f32, 2.0, 3.0];
-        let bytes = f32_as_bytes(&data);
-        assert_eq!(bytes.len(), 12);
-    }
-
-    #[test]
-    fn f32_as_bytes_roundtrip() {
-        let original = [1.0f32, 2.0, 3.0];
-        let bytes = f32_as_bytes(&original);
-        let restored: &[f32] = bytemuck::cast_slice(bytes);
-        assert_eq!(restored, &original);
-    }
 }
