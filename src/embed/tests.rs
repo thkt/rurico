@@ -349,7 +349,13 @@ fn unpack_batch_output_rejects_indivisible_shape() {
     let mask = vec![1u32; 6];
     let err = unpack_batch_output(&flat, &sorted, 3, &mask).unwrap_err();
     assert!(
-        matches!(err, EmbedError::DimensionMismatch { expected: 6, actual: 10 }),
+        matches!(
+            err,
+            EmbedError::DimensionMismatch {
+                expected: 6,
+                actual: 10
+            }
+        ),
         "{err}"
     );
 }
@@ -359,7 +365,13 @@ fn unpack_batch_output_rejects_zero_total() {
     let flat = vec![0.0f32; 10];
     let err = unpack_batch_output(&flat, &[], 0, &[]).unwrap_err();
     assert!(
-        matches!(err, EmbedError::DimensionMismatch { expected: 0, actual: 10 }),
+        matches!(
+            err,
+            EmbedError::DimensionMismatch {
+                expected: 0,
+                actual: 10
+            }
+        ),
         "{err}"
     );
 }

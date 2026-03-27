@@ -132,8 +132,7 @@ pub(super) fn unpack_batch_output(
     let mut results = vec![Vec::new(); sorted_indices.len()];
     for (sorted_pos, &orig_idx) in sorted_indices.iter().enumerate() {
         let seq_data = &flat[sorted_pos * stride..(sorted_pos + 1) * stride];
-        let mask_slice =
-            &attention_mask[sorted_pos * max_seq_len..(sorted_pos + 1) * max_seq_len];
+        let mask_slice = &attention_mask[sorted_pos * max_seq_len..(sorted_pos + 1) * max_seq_len];
         results[orig_idx] = postprocess_embedding(seq_data, max_seq_len, mask_slice)?;
     }
     Ok(results)
