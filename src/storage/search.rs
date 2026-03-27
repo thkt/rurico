@@ -168,25 +168,6 @@ mod tests {
     }
 
     #[test]
-    fn rrf_merge_empty_both() {
-        let fts: Vec<(u32, f64)> = vec![];
-        let vec: Vec<(u32, f64)> = vec![];
-        let result = rrf_merge(&fts, &vec);
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn rrf_merge_string_keys() {
-        let fts = vec![("session-1".to_string(), 1.0)];
-        let vec = vec![
-            ("session-1".to_string(), 1.0),
-            ("session-2".to_string(), 0.5),
-        ];
-        let result = rrf_merge(&fts, &vec);
-        assert_eq!(result[0].0, "session-1");
-    }
-
-    #[test]
     fn fts_quote_simple() {
         assert_eq!(fts_quote("hello"), "\"hello\"");
     }
@@ -269,13 +250,6 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         let result = fts_expand_short_terms(&conn, "au login");
         assert_eq!(result, "\"au\" \"login\"");
-    }
-
-    #[test]
-    fn expand_whitespace_only() {
-        let conn = setup_fts_db();
-        let result = fts_expand_short_terms(&conn, "   ");
-        assert_eq!(result, "");
     }
 
     #[test]

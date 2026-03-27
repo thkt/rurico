@@ -1,7 +1,3 @@
-#[cfg(not(feature = "mlx"))]
-compile_error!("enable the `mlx` feature");
-
-#[cfg(feature = "mlx")]
 mod mlx;
 
 mod pooling;
@@ -12,7 +8,6 @@ mod test_support;
 #[cfg(test)]
 mod tests;
 
-#[cfg(feature = "mlx")]
 use self::mlx::EmbedderInner;
 
 #[cfg(any(test, feature = "test-support"))]
@@ -32,8 +27,6 @@ const MODEL_REVISION: &str = "18b60fb8c2b9df296fb4212bb7d23ef94e579cd3";
 
 #[derive(Debug, thiserror::Error)]
 pub enum EmbedError {
-    #[error("embedding model not available")]
-    ModelNotAvailable,
     #[error("model not found at {path}")]
     ModelNotFound { path: PathBuf },
     #[error("dimension mismatch: expected {expected}, got {actual}")]
@@ -44,8 +37,6 @@ pub enum EmbedError {
     Tokenizer(String),
     #[error("download failed: {0}")]
     Download(String),
-    #[error("MLX backend unavailable")]
-    BackendUnavailable,
     #[error("model load failed: {reason}")]
     ModelCorrupt { reason: String },
 }
@@ -250,8 +241,7 @@ pub fn handle_probe_if_needed() {
     };
 
     use std::io::Write;
-    let _ = std::io::stdout().write_all(PROBE_ACK.as_bytes());
-    let _ = std::io::stdout().write_all(b"\n");
+    let _ = writeln!(std::io::stdout(), "{PROBE_ACK}");
     let _ = std::io::stdout().flush();
 
     match result {
@@ -374,10 +364,10 @@ impl Embedder {
         })
     }
 
-    /// Test whether the MLX backend can load the model without aborting the caller.
+    /// Test whether the model can load without aborting the caller.
     ///
-    /// Re-execs the current binary as a probe subprocess (via `Command`), so an
-    /// MLX crash is contained and reported as [`ProbeStatus::BackendUnavailable`].
+    /// Re-execs the current binary as a probe subprocess (via `Command`), so a
+    /// crash is contained and reported as [`ProbeStatus::BackendUnavailable`].
     ///
     /// The host binary must call [`handle_probe_if_needed`] at the start of `main()`.
     pub fn probe(paths: &ModelPaths) -> Result<ProbeStatus, EmbedError> {

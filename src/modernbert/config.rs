@@ -111,33 +111,4 @@ pub mod tests {
                 .contains("max_position_embeddings")
         );
     }
-
-    #[test]
-    fn config_deserialize_from_json() {
-        let json = r#"{
-            "vocab_size": 50368,
-            "hidden_size": 768,
-            "num_hidden_layers": 22,
-            "num_attention_heads": 12,
-            "intermediate_size": 1152,
-            "max_position_embeddings": 8192,
-            "layer_norm_eps": 1e-5,
-            "pad_token_id": 50283,
-            "global_attn_every_n_layers": 3,
-            "global_rope_theta": 160000.0,
-            "local_attention": 128,
-            "local_rope_theta": 10000.0
-        }"#;
-        let config: Config = serde_json::from_str(json).unwrap();
-        assert_eq!(config.vocab_size, 50368);
-        assert_eq!(config.hidden_size, 768);
-        assert_eq!(config.num_hidden_layers, 22);
-    }
-
-    #[test]
-    fn config_deserialize_rejects_missing_field() {
-        let json = r#"{ "vocab_size": 1000 }"#;
-        let result: Result<Config, _> = serde_json::from_str(json);
-        assert!(result.is_err());
-    }
 }

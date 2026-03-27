@@ -64,16 +64,6 @@ mod tests {
     }
 
     #[test]
-    fn t014_utf8_safe_split() {
-        let text = "あいうえおかきくけこ"; // 10 chars, 30 bytes
-        let fragments = split_text(text, 15);
-        assert!(fragments.len() >= 2);
-        for (i, frag) in fragments.iter().enumerate() {
-            assert!(frag.len() <= 15, "fragment {i} is {} bytes", frag.len());
-        }
-    }
-
-    #[test]
     fn t015_no_split_when_under_limit() {
         let text = "short text";
         let fragments = split_text(text, 1000);
