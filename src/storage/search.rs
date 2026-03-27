@@ -34,12 +34,82 @@ fn strip_near_groups(query: &str) -> Vec<&str> {
     tokens
 }
 
-/// Neutralize FTS5 special syntax in user queries: `NEAR()` grouping,
-/// start-of-column `^`, required `+` / excluded `-` prefixes,
-/// column-filter colons, and unbalanced quotes.
-pub fn sanitize_fts_query(query: &str) -> String {
+/// A sanitized FTS5 query string, free of special syntax but not yet expanded.
+///
+/// Created only by [`sanitize_fts_query`]. The inner value is guaranteed
+/// non-empty and free of FTS5 special syntax. Pass to
+/// [`fts_expand_short_terms`] to produce a [`MatchFtsQuery`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SanitizedFtsQuery(String);
+
+impl SanitizedFtsQuery {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// A fully expanded FTS5 query string ready to pass to `MATCH`.
+///
+/// Created only by [`fts_expand_short_terms`]. Short terms have been
+/// expanded via vocab lookup and all terms are quoted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MatchFtsQuery(String);
+
+impl MatchFtsQuery {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Returns `true` when expansion produced no usable terms.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+/// Reasons why [`sanitize_fts_query`] cannot produce a usable query.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SanitizeError {
+    /// The input string was empty or contained only whitespace.
+    EmptyInput,
+    /// The input contained tokens, but none survived sanitization
+    /// (e.g. only boolean operators, `NEAR()` groups, or prefix characters).
+    NoSearchableTerms,
+}
+
+impl std::fmt::Display for SanitizeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::EmptyInput => f.write_str("search query is empty"),
+            Self::NoSearchableTerms => f.write_str("search query contains no searchable terms"),
+        }
+    }
+}
+
+impl std::error::Error for SanitizeError {}
+
+/// FTS5 boolean operators to strip from user queries.
+const FTS5_OPERATORS: &[&str] = &["AND", "OR", "NOT"];
+
+fn is_fts5_operator(token: &str) -> bool {
+    let upper = token.to_ascii_uppercase();
+    FTS5_OPERATORS.iter().any(|op| upper == *op)
+}
+
+/// Neutralize FTS5 special syntax in user queries: boolean operators
+/// (`AND`, `OR`, `NOT`), `NEAR()` grouping, start-of-column `^`,
+/// required `+` / excluded `-` prefixes, column-filter colons, and
+/// unbalanced quotes.
+///
+/// Returns [`SanitizedFtsQuery`] on success — a non-empty string safe
+/// to pass to FTS5 `MATCH`. Returns [`SanitizeError`] when the input
+/// is empty or all tokens are stripped.
+pub fn sanitize_fts_query(query: &str) -> Result<SanitizedFtsQuery, SanitizeError> {
+    if query.trim().is_empty() {
+        return Err(SanitizeError::EmptyInput);
+    }
     let result = strip_near_groups(query)
         .into_iter()
+        .filter(|w| !is_fts5_operator(w))
         .map(|w| {
             let stripped = w.trim_start_matches(['^', '+', '-']);
             let cleaned = stripped.trim_matches(['(', ')']);
@@ -53,11 +123,14 @@ pub fn sanitize_fts_query(query: &str) -> String {
         .filter(|w| !w.is_empty())
         .collect::<Vec<_>>()
         .join(" ");
+    if result.is_empty() {
+        return Err(SanitizeError::NoSearchableTerms);
+    }
     let quote_count = result.chars().filter(|&c| c == '"').count();
     if quote_count % 2 != 0 {
-        format!("{result}\"")
+        Ok(SanitizedFtsQuery(format!("{result}\"")))
     } else {
-        result
+        Ok(SanitizedFtsQuery(result))
     }
 }
 
@@ -93,7 +166,7 @@ pub fn fts_quote(s: &str) -> String {
 /// Terms with 3+ chars are quoted as-is. Short terms are expanded into
 /// `("term1" OR "term2" ...)` groups. Falls back to quoting as-is when
 /// the vocab table is unavailable.
-pub fn fts_expand_short_terms(conn: &Connection, query: &str) -> String {
+pub fn fts_expand_short_terms(conn: &Connection, query: &SanitizedFtsQuery) -> MatchFtsQuery {
     let mut stmt = match conn.prepare_cached(
         "SELECT term FROM fts_chunks_vocab \
          WHERE term LIKE ?1 ESCAPE '\\' \
@@ -110,7 +183,7 @@ pub fn fts_expand_short_terms(conn: &Connection, query: &str) -> String {
     };
 
     let mut parts = Vec::new();
-    for token in query.split_whitespace() {
+    for token in query.as_str().split_whitespace() {
         if token.chars().count() >= 3 {
             parts.push(fts_quote(token));
             continue;
@@ -140,7 +213,7 @@ pub fn fts_expand_short_terms(conn: &Connection, query: &str) -> String {
             _ => parts.push(fts_quote(token)),
         }
     }
-    parts.join(" ")
+    MatchFtsQuery(parts.join(" "))
 }
 
 #[cfg(test)]
@@ -193,100 +266,165 @@ mod tests {
     #[test]
     fn expand_long_term_quoted_as_is() {
         let conn = setup_fts_db();
-        let result = fts_expand_short_terms(&conn, "authentication");
-        assert_eq!(result, "\"authentication\"");
+        let result = fts_expand_short_terms(&conn, &sanitized("authentication"));
+        assert_eq!(result.as_str(), "\"authentication\"");
     }
 
     #[test]
     fn expand_short_term_with_vocab_matches() {
         let conn = setup_fts_db();
-        let result = fts_expand_short_terms(&conn, "au");
-        assert!(result.contains("\"audit\""), "{result}");
-        assert!(result.contains("\"authentication\""), "{result}");
-        assert!(result.contains(" OR "), "{result}");
+        let result = fts_expand_short_terms(&conn, &sanitized("au"));
+        assert!(result.as_str().contains("\"audit\""), "{}", result.as_str());
+        assert!(
+            result.as_str().contains("\"authentication\""),
+            "{}",
+            result.as_str()
+        );
+        assert!(result.as_str().contains(" OR "), "{}", result.as_str());
     }
 
     #[test]
     fn expand_short_term_no_matches() {
         let conn = setup_fts_db();
-        let result = fts_expand_short_terms(&conn, "zz");
-        assert_eq!(result, "\"zz\"");
-    }
-
-    #[test]
-    fn expand_empty_input() {
-        let conn = setup_fts_db();
-        let result = fts_expand_short_terms(&conn, "");
-        assert_eq!(result, "");
+        let result = fts_expand_short_terms(&conn, &sanitized("zz"));
+        assert_eq!(result.as_str(), "\"zz\"");
     }
 
     #[test]
     fn expand_mixed_short_and_long() {
         let conn = setup_fts_db();
-        let result = fts_expand_short_terms(&conn, "au login");
-        assert!(result.contains("\"login\""), "{result}");
-        assert!(result.contains(" OR "), "{result}");
+        let result = fts_expand_short_terms(&conn, &sanitized("au login"));
+        assert!(result.as_str().contains("\"login\""), "{}", result.as_str());
+        assert!(result.as_str().contains(" OR "), "{}", result.as_str());
     }
 
     #[test]
     fn expand_operators_are_quoted_not_passed_through() {
         let conn = setup_fts_db();
-        let result = fts_expand_short_terms(&conn, "NOT secret");
-        assert!(!result.starts_with("NOT "), "{result}");
+        let result = fts_expand_short_terms(&conn, &sanitized("NOT secret"));
+        assert!(!result.as_str().starts_with("NOT "), "{}", result.as_str());
     }
 
     #[test]
     fn expand_special_chars_escaped() {
         let conn = setup_fts_db();
-        let result = fts_expand_short_terms(&conn, "a%");
+        let result = fts_expand_short_terms(&conn, &sanitized("a%"));
         assert!(
-            result.contains("\"audit\"") || result == "\"a%\"",
-            "{result}"
+            result.as_str().contains("\"audit\"") || result.as_str() == "\"a%\"",
+            "{}",
+            result.as_str()
         );
     }
 
     #[test]
     fn expand_without_vocab_table_degrades() {
         let conn = Connection::open_in_memory().unwrap();
-        let result = fts_expand_short_terms(&conn, "au login");
-        assert_eq!(result, "\"au\" \"login\"");
+        let result = fts_expand_short_terms(&conn, &sanitized("au login"));
+        assert_eq!(result.as_str(), "\"au\" \"login\"");
     }
 
     #[test]
     fn expand_single_char_term() {
         let conn = setup_fts_db();
-        let result = fts_expand_short_terms(&conn, "a");
-        assert!(result.contains("\"audit\"") || result == "\"a\"");
+        let result = fts_expand_short_terms(&conn, &sanitized("a"));
+        assert!(result.as_str().contains("\"audit\"") || result.as_str() == "\"a\"");
+    }
+
+    fn sanitized(s: &str) -> SanitizedFtsQuery {
+        SanitizedFtsQuery(s.to_string())
+    }
+
+    fn ok(s: &str) -> Result<SanitizedFtsQuery, SanitizeError> {
+        Ok(SanitizedFtsQuery(s.to_string()))
     }
 
     #[test]
     fn t001_near_removal() {
-        let result = sanitize_fts_query("NEAR(a b) hello");
-        assert_eq!(result, "hello");
+        assert_eq!(sanitize_fts_query("NEAR(a b) hello"), ok("hello"));
+    }
+
+    #[test]
+    fn t001b_near_with_distance() {
+        assert_eq!(sanitize_fts_query("NEAR/3(a b c) hello"), ok("hello"));
+    }
+
+    #[test]
+    fn t001c_near_unclosed_paren() {
+        assert_eq!(
+            sanitize_fts_query("NEAR(a b hello"),
+            Err(SanitizeError::NoSearchableTerms)
+        );
     }
 
     #[test]
     fn t002_auto_quote_hyphen() {
-        let result = sanitize_fts_query("rate-limit");
-        assert_eq!(result, "\"rate-limit\"");
+        assert_eq!(sanitize_fts_query("rate-limit"), ok("\"rate-limit\""));
     }
 
     #[test]
     fn t003_auto_quote_colon() {
-        let result = sanitize_fts_query("std::io");
-        assert_eq!(result, "\"std::io\"");
+        assert_eq!(sanitize_fts_query("std::io"), ok("\"std::io\""));
     }
 
     #[test]
     fn t004_prefix_strip() {
-        let result = sanitize_fts_query("^+hello");
-        assert_eq!(result, "hello");
+        assert_eq!(sanitize_fts_query("^+hello"), ok("hello"));
     }
 
     #[test]
-    fn t006_empty_passthrough() {
-        let result = sanitize_fts_query("");
-        assert_eq!(result, "");
+    fn t005b_quote_balancing_exact_output() {
+        assert_eq!(sanitize_fts_query("unbalanced\""), ok("unbalanced\"\""));
+    }
+
+    #[test]
+    fn t006_empty_input() {
+        assert_eq!(sanitize_fts_query(""), Err(SanitizeError::EmptyInput));
+    }
+
+    #[test]
+    fn t006b_whitespace_only() {
+        assert_eq!(sanitize_fts_query("   "), Err(SanitizeError::EmptyInput));
+    }
+
+    #[test]
+    fn t011_not_operator_stripped() {
+        assert_eq!(sanitize_fts_query("NOT secret"), ok("secret"));
+    }
+
+    #[test]
+    fn t012_and_operator_stripped() {
+        assert_eq!(sanitize_fts_query("foo AND bar"), ok("foo bar"));
+    }
+
+    #[test]
+    fn t013_or_operator_stripped() {
+        assert_eq!(sanitize_fts_query("foo OR bar"), ok("foo bar"));
+    }
+
+    #[test]
+    fn t014_operator_only_returns_error() {
+        assert_eq!(
+            sanitize_fts_query("NOT"),
+            Err(SanitizeError::NoSearchableTerms)
+        );
+        assert_eq!(
+            sanitize_fts_query("AND OR NOT"),
+            Err(SanitizeError::NoSearchableTerms)
+        );
+    }
+
+    #[test]
+    fn t015_case_insensitive_operators() {
+        assert_eq!(sanitize_fts_query("not secret"), ok("secret"));
+        assert_eq!(sanitize_fts_query("Not secret"), ok("secret"));
+    }
+
+    #[test]
+    fn t016_prefix_only_returns_error() {
+        assert_eq!(
+            sanitize_fts_query("^"),
+            Err(SanitizeError::NoSearchableTerms)
+        );
     }
 
     #[test]
@@ -323,23 +461,5 @@ mod tests {
     fn t010c_negative_age_clamped_to_one() {
         let result = recency_decay(-5.0, 30.0);
         assert!((result - 1.0).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn t001b_near_with_distance() {
-        let result = sanitize_fts_query("NEAR/3(a b c) hello");
-        assert_eq!(result, "hello");
-    }
-
-    #[test]
-    fn t001c_near_unclosed_paren() {
-        let result = sanitize_fts_query("NEAR(a b hello");
-        assert_eq!(result, "");
-    }
-
-    #[test]
-    fn t005b_quote_balancing_exact_output() {
-        let result = sanitize_fts_query("unbalanced\"");
-        assert_eq!(result, "unbalanced\"\"");
     }
 }
