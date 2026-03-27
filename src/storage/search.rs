@@ -80,9 +80,7 @@ impl std::fmt::Display for SanitizeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::EmptyInput => f.write_str("search query is empty"),
-            Self::NoSearchableTerms => {
-                f.write_str("search query contains no searchable terms")
-            }
+            Self::NoSearchableTerms => f.write_str("search query contains no searchable terms"),
         }
     }
 }
@@ -277,7 +275,11 @@ mod tests {
         let conn = setup_fts_db();
         let result = fts_expand_short_terms(&conn, &sanitized("au"));
         assert!(result.as_str().contains("\"audit\""), "{}", result.as_str());
-        assert!(result.as_str().contains("\"authentication\""), "{}", result.as_str());
+        assert!(
+            result.as_str().contains("\"authentication\""),
+            "{}",
+            result.as_str()
+        );
         assert!(result.as_str().contains(" OR "), "{}", result.as_str());
     }
 
@@ -309,7 +311,8 @@ mod tests {
         let result = fts_expand_short_terms(&conn, &sanitized("a%"));
         assert!(
             result.as_str().contains("\"audit\"") || result.as_str() == "\"a%\"",
-            "{}", result.as_str()
+            "{}",
+            result.as_str()
         );
     }
 
@@ -459,5 +462,4 @@ mod tests {
         let result = recency_decay(-5.0, 30.0);
         assert!((result - 1.0).abs() < f64::EPSILON);
     }
-
 }
