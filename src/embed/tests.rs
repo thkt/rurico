@@ -39,7 +39,7 @@ fn l2_normalize_produces_unit_norm() {
     let mut v = vec![3.0f32, 4.0];
     l2_normalize(&mut v);
     let norm: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
-    assert!((norm - 1.0).abs() < 1e-6, "norm should be 1.0, got {norm}");
+    assert!((norm - 1.0).abs() < 1e-6, "norm={norm}");
     assert!((v[0] - 0.6).abs() < 1e-6);
     assert!((v[1] - 0.8).abs() < 1e-6);
 }
@@ -70,28 +70,15 @@ fn mean_pooling_weighted_mask() {
     let result = mean_pooling(&data, 2, 2, &mask);
     let expected_0 = 7.0 / 3.0;
     let expected_1 = 4.0;
-    assert!(
-        (result[0] - expected_0).abs() < 1e-6,
-        "got {}, expected {}",
-        result[0],
-        expected_0
-    );
-    assert!(
-        (result[1] - expected_1).abs() < 1e-6,
-        "got {}, expected {}",
-        result[1],
-        expected_1
-    );
+    assert!((result[0] - expected_0).abs() < 1e-6, "[0]={}", result[0]);
+    assert!((result[1] - expected_1).abs() < 1e-6, "[1]={}", result[1]);
 }
 
 #[test]
 fn postprocess_embedding_zero_seq_len() {
     let result = postprocess_embedding(&[], 0, &[]);
     let err = result.unwrap_err();
-    assert!(
-        matches!(err, EmbedError::DimensionMismatch { expected: _, actual: 0 }),
-        "expected DimensionMismatch with actual=0, got: {err}"
-    );
+    assert!(matches!(err, EmbedError::DimensionMismatch { expected: _, actual: 0 }), "{err}");
 }
 
 #[test]
@@ -100,19 +87,13 @@ fn postprocess_embedding_wrong_dims() {
     let mask = vec![1u32];
     let result = postprocess_embedding(&data, 1, &mask);
     let err = result.unwrap_err();
-    assert!(
-        matches!(err, EmbedError::DimensionMismatch { expected: 768, actual: 3 }),
-        "expected DimensionMismatch{{768, 3}}, got: {err}"
-    );
+    assert!(matches!(err, EmbedError::DimensionMismatch { expected: 768, actual: 3 }), "{err}");
 }
 
 #[test]
 fn read_config_missing_file() {
     let err = read_config::<serde_json::Value>(Path::new("/nonexistent/config.json")).unwrap_err();
-    assert!(
-        matches!(err, EmbedError::Inference(ref msg) if msg.contains("No such file")),
-        "expected Inference with fs error, got: {err}"
-    );
+    assert!(matches!(err, EmbedError::Inference(ref msg) if msg.contains("No such file")), "{err}");
 }
 
 #[test]
@@ -121,10 +102,7 @@ fn read_config_invalid_json() {
     let path = dir.path().join("config.json");
     std::fs::write(&path, b"not valid json {{{").unwrap();
     let err = read_config::<serde_json::Value>(&path).unwrap_err();
-    assert!(
-        matches!(err, EmbedError::Inference(ref msg) if msg.contains("parse error")),
-        "expected Inference with parse error, got: {err}"
-    );
+    assert!(matches!(err, EmbedError::Inference(ref msg) if msg.contains("parse error")), "{err}");
 }
 
 #[test]
@@ -133,10 +111,7 @@ fn read_config_missing_fields() {
     let path = dir.path().join("config.json");
     std::fs::write(&path, b"{ \"vocab_size\": 1000 }").unwrap();
     let err = read_config::<crate::modernbert::Config>(&path).unwrap_err();
-    assert!(
-        matches!(err, EmbedError::Inference(ref msg) if msg.contains("parse error")),
-        "expected Inference with missing field error, got: {err}"
-    );
+    assert!(matches!(err, EmbedError::Inference(ref msg) if msg.contains("parse error")), "{err}");
 }
 
 #[test]
@@ -145,67 +120,60 @@ fn validate_partial_download_reports_missing_file() {
     std::fs::write(dir.path().join("model.safetensors"), b"fake").unwrap();
     let paths = ModelPaths::from_dir(dir.path());
     let err = paths.validate().unwrap_err();
-    match &err {
-        EmbedError::ModelNotFound { path } => {
-            assert!(
-                path.ends_with("config.json"),
-                "should report config.json as missing, got: {path:?}"
-            );
-        }
-        other => panic!("expected ModelNotFound, got: {other}"),
-    }
+    let EmbedError::ModelNotFound { path } = &err else {
+        panic!("{err}");
+    };
+    assert!(path.ends_with("config.json"), "{path:?}");
 }
 
 #[test]
 fn embedder_new_model_not_found() {
     let paths = ModelPaths::from_dir(Path::new("/nonexistent/path"));
     let err = Embedder::new(&paths).unwrap_err();
-    assert!(
-        matches!(err, EmbedError::ModelNotFound { .. }),
-        "expected ModelNotFound, got: {err}"
-    );
+    assert!(matches!(err, EmbedError::ModelNotFound { .. }), "{err}");
 }
 
 #[test]
 fn mean_pooling_short_mask_truncates_safely() {
-    let data = vec![1.0f32, 2.0, 3.0, 4.0]; // 2 tokens, hidden_size=2
-    let mask = vec![1u32]; // 1 mask element for 2 tokens
+    let data = vec![1.0f32, 2.0, 3.0, 4.0];
+    let mask = vec![1u32];
     let result = mean_pooling(&data, 2, 2, &mask);
-    assert_eq!(result, vec![1.0, 2.0], "short mask should use available entries only");
+    assert_eq!(result, vec![1.0, 2.0]);
 }
 
 #[test]
-fn sort_indices_by_char_count_orders_by_length() {
+fn sort_indices_by_len_orders_by_length() {
     let texts = &["long text here", "hi", "medium"];
-    let indices = sort_indices_by_char_count(texts);
+    let indices = sort_indices_by_len(texts);
     assert_eq!(indices, vec![1, 2, 0]);
 }
 
 #[test]
-fn sort_indices_by_char_count_single_item() {
+fn sort_indices_by_len_single_item() {
     let texts = &["only"];
-    let indices = sort_indices_by_char_count(texts);
+    let indices = sort_indices_by_len(texts);
     assert_eq!(indices, vec![0]);
 }
 
 #[test]
-fn sort_indices_by_char_count_same_length() {
+fn sort_indices_by_len_same_length() {
     let texts = &["abc", "def", "ghi"];
-    let indices = sort_indices_by_char_count(texts);
+    let indices = sort_indices_by_len(texts);
     assert_eq!(indices, vec![0, 1, 2]);
 }
 
 #[test]
-fn sort_indices_by_char_count_multibyte() {
+fn sort_indices_by_len_multibyte() {
+    // byte lengths: "ab"=2, "あ"=3, "abcde"=5
     let texts = &["ab", "あ", "abcde"];
-    let indices = sort_indices_by_char_count(texts);
-    assert_eq!(indices, vec![1, 0, 2]);
+    let indices = sort_indices_by_len(texts);
+    assert_eq!(indices, vec![0, 1, 2]);
 }
 
 #[test]
 fn reorder_by_indices_round_trip() {
     let texts = &["long text here", "hi", "medium"];
-    let sorted_indices = sort_indices_by_char_count(texts);
+    let sorted_indices = sort_indices_by_len(texts);
 
     let sorted_results: Vec<&str> = sorted_indices.iter().map(|&i| texts[i]).collect();
     assert_eq!(sorted_results, vec!["hi", "medium", "long text here"]);
@@ -221,10 +189,7 @@ fn postprocess_embedding_rejects_indivisible_length() {
     let data = vec![0.0f32; seq_len * hidden_size + 1];
     let mask = vec![1u32; seq_len];
     let err = postprocess_embedding(&data, seq_len, &mask).unwrap_err();
-    assert!(
-        matches!(err, EmbedError::DimensionMismatch { .. }),
-        "expected DimensionMismatch for indivisible length, got: {err}"
-    );
+    assert!(matches!(err, EmbedError::DimensionMismatch { .. }), "{err}");
 }
 
 #[test]
@@ -239,19 +204,14 @@ fn postprocess_embedding_happy_path() {
     let mask = vec![1u32; seq_len];
 
     let result = postprocess_embedding(&data, seq_len, &mask).unwrap();
-    assert_eq!(result.len(), hidden_size, "output should be 768-dim");
+    assert_eq!(result.len(), hidden_size);
 
     let norm: f32 = result.iter().map(|x| x * x).sum::<f32>().sqrt();
-    assert!(
-        (norm - 1.0).abs() < 1e-5,
-        "output should be L2-normalized, got norm={norm}"
-    );
+    assert!((norm - 1.0).abs() < 1e-5, "norm={norm}");
+
     let ratio = result[0] / result[1];
     let expected_ratio = 2.0 / 3.0;
-    assert!(
-        (ratio - expected_ratio).abs() < 1e-5,
-        "expected ratio {expected_ratio}, got {ratio}"
-    );
+    assert!((ratio - expected_ratio).abs() < 1e-5, "ratio={ratio}");
 }
 
 #[test]
@@ -272,4 +232,195 @@ fn embed_documents_batch_returns_correct_count() {
     let embeddings = embedder.embed_documents_batch(&texts).unwrap();
     assert_eq!(embeddings.len(), 2);
     assert_eq!(embeddings[0].len(), 768);
+}
+
+fn setup_fake_cache(hub_dir: &std::path::Path) {
+    let repo_dir = hub_dir.join("models--cl-nagoya--ruri-v3-310m");
+    let refs_dir = repo_dir.join("refs");
+    std::fs::create_dir_all(&refs_dir).unwrap();
+    let commit_hash = "abc123";
+    std::fs::write(refs_dir.join(MODEL_REVISION), commit_hash).unwrap();
+
+    let snapshot_dir = repo_dir.join("snapshots").join(commit_hash);
+    std::fs::create_dir_all(&snapshot_dir).unwrap();
+    std::fs::write(snapshot_dir.join("model.safetensors"), b"fake").unwrap();
+    std::fs::write(snapshot_dir.join("config.json"), b"{}").unwrap();
+    std::fs::write(snapshot_dir.join("tokenizer.json"), b"{}").unwrap();
+}
+
+#[test]
+fn model_paths_from_cache_returns_none_when_empty() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = hf_hub::Cache::new(dir.path().to_path_buf());
+    let result = model_paths_from_cache(&cache).unwrap();
+    assert!(result.is_none());
+}
+
+#[test]
+fn model_paths_from_cache_returns_some_when_all_files_present() {
+    let dir = tempfile::tempdir().unwrap();
+    setup_fake_cache(dir.path());
+    let cache = hf_hub::Cache::new(dir.path().to_path_buf());
+    let result = model_paths_from_cache(&cache).unwrap();
+    let paths = result.expect("should return Some when all files cached");
+    assert!(paths.model.ends_with("model.safetensors"));
+    assert!(paths.config.ends_with("config.json"));
+    assert!(paths.tokenizer.ends_with("tokenizer.json"));
+}
+
+#[test]
+fn model_paths_from_cache_returns_none_when_partial() {
+    let dir = tempfile::tempdir().unwrap();
+    setup_fake_cache(dir.path());
+    let snapshot_dir = dir
+        .path()
+        .join("models--cl-nagoya--ruri-v3-310m/snapshots/abc123");
+    std::fs::remove_file(snapshot_dir.join("config.json")).unwrap();
+    std::fs::remove_file(snapshot_dir.join("tokenizer.json")).unwrap();
+
+    let cache = hf_hub::Cache::new(dir.path().to_path_buf());
+    let result = model_paths_from_cache(&cache).unwrap();
+    assert!(result.is_none());
+}
+
+#[test]
+fn probe_rejects_missing_paths() {
+    let paths = ModelPaths::from_dir(Path::new("/nonexistent/path"));
+    let err = Embedder::probe(&paths).unwrap_err();
+    assert!(matches!(err, EmbedError::ModelNotFound { .. }), "{err}");
+}
+
+#[test]
+fn probe_rejects_invalid_config() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("model.safetensors"), b"fake").unwrap();
+    std::fs::write(dir.path().join("config.json"), b"not json").unwrap();
+    std::fs::write(dir.path().join("tokenizer.json"), b"{}").unwrap();
+    let paths = ModelPaths::from_dir(dir.path());
+    let err = Embedder::probe(&paths).unwrap_err();
+    assert!(matches!(err, EmbedError::Inference(ref msg) if msg.contains("parse error")), "{err}");
+}
+
+#[test]
+fn probe_rejects_invalid_config_values() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("model.safetensors"), b"fake").unwrap();
+    std::fs::write(dir.path().join("config.json"), br#"{
+        "vocab_size": 0, "hidden_size": 768, "num_hidden_layers": 2,
+        "num_attention_heads": 12, "intermediate_size": 3072,
+        "max_position_embeddings": 512, "layer_norm_eps": 1e-5,
+        "pad_token_id": 0, "global_attn_every_n_layers": 3,
+        "global_rope_theta": 160000.0, "local_attention": 128,
+        "local_rope_theta": 10000.0
+    }"#).unwrap();
+    std::fs::write(dir.path().join("tokenizer.json"), b"{}").unwrap();
+    let paths = ModelPaths::from_dir(dir.path());
+    let err = Embedder::probe(&paths).unwrap_err();
+    assert!(matches!(err, EmbedError::Inference(ref msg) if msg.contains("vocab_size")), "{err}");
+}
+
+#[test]
+fn probe_env_to_paths_returns_none_when_model_absent() {
+    assert!(probe_env_to_paths(None, None, None).is_none());
+}
+
+#[test]
+fn probe_env_to_paths_returns_err_when_config_missing() {
+    let result = probe_env_to_paths(Some("/m".into()), None, Some("/t".into()));
+    assert!(matches!(result, Some(Err(3))));
+}
+
+#[test]
+fn probe_env_to_paths_returns_err_when_tokenizer_missing() {
+    let result = probe_env_to_paths(Some("/m".into()), Some("/c".into()), None);
+    assert!(matches!(result, Some(Err(3))));
+}
+
+#[test]
+fn probe_env_to_paths_returns_paths_when_all_present() {
+    let paths = probe_env_to_paths(
+        Some("/m".into()),
+        Some("/c".into()),
+        Some("/t".into()),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(paths.model, PathBuf::from("/m"));
+    assert_eq!(paths.config, PathBuf::from("/c"));
+    assert_eq!(paths.tokenizer, PathBuf::from("/t"));
+}
+
+fn exit_status(code: i32) -> std::process::ExitStatus {
+    std::process::Command::new("sh")
+        .args(["-c", &format!("exit {code}")])
+        .status()
+        .unwrap()
+}
+
+#[test]
+fn interpret_probe_output_available_on_exit_0() {
+    let output = std::process::Output {
+        status: exit_status(0),
+        stdout: format!("{PROBE_ACK}\n").into_bytes(),
+        stderr: Vec::new(),
+    };
+    assert_eq!(interpret_probe_output(&output).unwrap(), ProbeStatus::Available);
+}
+
+#[test]
+fn interpret_probe_output_model_corrupt_on_nonzero_exit() {
+    let output = std::process::Output {
+        status: exit_status(1),
+        stdout: format!("{PROBE_ACK}\n").into_bytes(),
+        stderr: b"inference error: bad model".to_vec(),
+    };
+    let err = interpret_probe_output(&output).unwrap_err();
+    assert!(matches!(err, EmbedError::ModelCorrupt { ref reason } if reason.contains("bad model")), "{err}");
+}
+
+#[test]
+fn interpret_probe_output_model_corrupt_empty_stderr() {
+    let output = std::process::Output {
+        status: exit_status(1),
+        stdout: format!("{PROBE_ACK}\n").into_bytes(),
+        stderr: Vec::new(),
+    };
+    let err = interpret_probe_output(&output).unwrap_err();
+    assert!(matches!(err, EmbedError::ModelCorrupt { ref reason } if reason == "model load failed"), "{err}");
+}
+
+#[test]
+fn interpret_probe_output_missing_ack() {
+    let output = std::process::Output {
+        status: exit_status(0),
+        stdout: b"unexpected output".to_vec(),
+        stderr: Vec::new(),
+    };
+    let err = interpret_probe_output(&output).unwrap_err();
+    assert!(matches!(err, EmbedError::Inference(ref msg) if msg.contains("handler not installed")), "{err}");
+}
+
+#[test]
+fn interpret_probe_output_backend_unavailable_on_signal() {
+    let status = std::process::Command::new("sh")
+        .args(["-c", "kill -ABRT $$"])
+        .status()
+        .unwrap();
+    let output = std::process::Output {
+        status,
+        stdout: format!("{PROBE_ACK}\n").into_bytes(),
+        stderr: Vec::new(),
+    };
+    assert_eq!(
+        interpret_probe_output(&output).unwrap(),
+        ProbeStatus::BackendUnavailable
+    );
+}
+
+#[test]
+#[ignore] // requires model download + MLX
+fn probe_returns_available_with_real_model() {
+    let paths = download_model().expect("download model");
+    let status = probe_via_fork(&paths).expect("probe should succeed");
+    assert_eq!(status, ProbeStatus::Available);
 }

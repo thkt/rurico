@@ -1,6 +1,6 @@
 use super::{
     DOCUMENT_PREFIX, EmbedError, ModelPaths, load_tokenizer, postprocess_embedding, read_config,
-    sort_indices_by_char_count, tokenize_with_prefix,
+    sort_indices_by_len, tokenize_with_prefix,
 };
 
 struct PaddedBatch {
@@ -48,7 +48,7 @@ impl EmbedderInner {
     }
 
     fn prepare_batch(&self, texts: &[&str], prefix: &str) -> Result<PaddedBatch, EmbedError> {
-        let sorted_indices = sort_indices_by_char_count(texts);
+        let sorted_indices = sort_indices_by_len(texts);
 
         let prefixed: Vec<String> = sorted_indices
             .iter()
