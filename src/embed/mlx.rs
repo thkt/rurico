@@ -121,7 +121,7 @@ pub(super) fn unpack_batch_output(
     attention_mask: &[u32],
 ) -> Result<Vec<Vec<f32>>, EmbedError> {
     let total = sorted_indices.len() * max_seq_len;
-    if total == 0 || flat.len() % total != 0 {
+    if total == 0 || !flat.len().is_multiple_of(total) {
         return Err(EmbedError::DimensionMismatch {
             expected: total,
             actual: flat.len(),
