@@ -2,7 +2,7 @@
 name = "rurico"
 version = "0.2.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.91"
 description = "Shared embedding and storage utilities for semantic search CLIs"
 license = "MIT"
 repository = "https://github.com/thkt/rurico"
