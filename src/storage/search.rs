@@ -3,12 +3,68 @@ use std::hash::Hash;
 
 use rusqlite::Connection;
 
+/// Exponential recency decay: 1.0 at age=0, 0.5 at one half-life, approaching 0.0.
+///
+/// Negative `age_days` is clamped to 0 (returns 1.0).
+/// Returns 0.0 when `half_life_days <= 0.0` (avoids division by zero).
+pub fn recency_decay(age_days: f64, half_life_days: f64) -> f64 {
+    if half_life_days <= 0.0 {
+        return 0.0;
+    }
+    (-std::f64::consts::LN_2 * age_days.max(0.0) / half_life_days).exp()
+}
+
+/// Filter out `NEAR(...)` and `NEAR/N(...)` groups from whitespace-split tokens.
+fn strip_near_groups(query: &str) -> Vec<&str> {
+    let mut tokens = Vec::new();
+    let mut paren_depth: usize = 0;
+    for w in query.split_whitespace() {
+        let upper = w.to_ascii_uppercase();
+        if upper.starts_with("NEAR(") || upper.starts_with("NEAR/") {
+            paren_depth += w.chars().filter(|&c| c == '(').count();
+            paren_depth = paren_depth.saturating_sub(w.chars().filter(|&c| c == ')').count());
+            continue;
+        }
+        if paren_depth > 0 {
+            paren_depth = paren_depth.saturating_sub(w.chars().filter(|&c| c == ')').count());
+            continue;
+        }
+        tokens.push(w);
+    }
+    tokens
+}
+
+/// Neutralize FTS5 special syntax in user queries: `NEAR()` grouping,
+/// start-of-column `^`, required `+` / excluded `-` prefixes,
+/// column-filter colons, and unbalanced quotes.
+pub fn sanitize_fts_query(query: &str) -> String {
+    let result = strip_near_groups(query)
+        .into_iter()
+        .map(|w| {
+            let stripped = w.trim_start_matches(['^', '+', '-']);
+            let cleaned = stripped.trim_matches(['(', ')']);
+            if (cleaned.contains(':') || cleaned.contains('-')) && !cleaned.starts_with('"') {
+                let unquoted = cleaned.replace('"', "");
+                format!("\"{unquoted}\"")
+            } else {
+                cleaned.to_string()
+            }
+        })
+        .filter(|w| !w.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let quote_count = result.chars().filter(|&c| c == '"').count();
+    if quote_count % 2 != 0 {
+        format!("{result}\"")
+    } else {
+        result
+    }
+}
+
 const RRF_K: f64 = 60.0;
 
-/// Reciprocal Rank Fusion merge. Generic over key type.
-///
-/// Each input is a ranked list of `(key, score)` pairs. The score value is ignored —
-/// only the rank position matters. Returns merged results sorted by RRF score descending.
+/// Reciprocal Rank Fusion merge — only rank position matters, score values are ignored.
+/// Returns merged results sorted by RRF score descending.
 pub fn rrf_merge<K: Clone + Eq + Hash>(
     fts_hits: &[(K, f64)],
     vec_hits: &[(K, f64)],
@@ -32,22 +88,11 @@ pub fn fts_quote(s: &str) -> String {
     format!("\"{}\"", s.replace('"', "\"\""))
 }
 
-/// Expand short terms (1-2 chars) via fts5vocab prefix matching.
+/// Expand short terms (1-2 chars) via `fts_chunks_vocab` prefix matching.
 ///
-/// All tokens are quoted for FTS5 MATCH syntax. Terms with 3+ chars are quoted
-/// as-is. Short terms (1-2 chars) are expanded by querying the `fts_chunks_vocab`
-/// table for prefix matches (up to 25 results), joined with OR.
-///
-/// Boolean operators (AND/OR/NOT) must be injected by the caller — this function
-/// treats all input tokens as search terms.
-///
-/// If the vocab table is unavailable, short terms are quoted as-is (graceful
-/// degradation, no error).
-///
-/// Requires an `fts_chunks_vocab` table created as:
-/// ```sql
-/// CREATE VIRTUAL TABLE fts_chunks_vocab USING fts5vocab(fts_chunks, row);
-/// ```
+/// Terms with 3+ chars are quoted as-is. Short terms are expanded into
+/// `("term1" OR "term2" ...)` groups. Falls back to quoting as-is when
+/// the vocab table is unavailable.
 pub fn fts_expand_short_terms(conn: &Connection, query: &str) -> String {
     let mut stmt = match conn.prepare_cached(
         "SELECT term FROM fts_chunks_vocab \
@@ -111,18 +156,8 @@ mod tests {
         let result = rrf_merge(&fts, &vec);
         assert_eq!(result[0].0, 2);
         assert_eq!(result.len(), 3);
-        assert!(
-            result[0].1 > result[1].1,
-            "dual-list item should outscore single-list: {} vs {}",
-            result[0].1,
-            result[1].1
-        );
-        assert!(
-            result[1].1 >= result[2].1,
-            "earlier rank should score >= later rank: {} vs {}",
-            result[1].1,
-            result[2].1
-        );
+        assert!(result[0].1 > result[1].1);
+        assert!(result[1].1 >= result[2].1);
     }
 
     #[test]
@@ -184,19 +219,16 @@ mod tests {
     fn expand_short_term_with_vocab_matches() {
         let conn = setup_fts_db();
         let result = fts_expand_short_terms(&conn, "au");
-        assert!(result.contains("\"audit\""), "should contain audit: {result}");
-        assert!(
-            result.contains("\"authentication\""),
-            "should contain authentication: {result}"
-        );
-        assert!(result.contains(" OR "), "expanded terms joined with OR: {result}");
+        assert!(result.contains("\"audit\""), "{result}");
+        assert!(result.contains("\"authentication\""), "{result}");
+        assert!(result.contains(" OR "), "{result}");
     }
 
     #[test]
     fn expand_short_term_no_matches() {
         let conn = setup_fts_db();
         let result = fts_expand_short_terms(&conn, "zz");
-        assert_eq!(result, "\"zz\"", "no matches → quoted as-is");
+        assert_eq!(result, "\"zz\"");
     }
 
     #[test]
@@ -210,36 +242,29 @@ mod tests {
     fn expand_mixed_short_and_long() {
         let conn = setup_fts_db();
         let result = fts_expand_short_terms(&conn, "au login");
-        assert!(result.contains("\"login\""), "long term quoted: {result}");
-        assert!(result.contains(" OR "), "short term expanded: {result}");
+        assert!(result.contains("\"login\""), "{result}");
+        assert!(result.contains(" OR "), "{result}");
     }
 
     #[test]
     fn expand_operators_are_quoted_not_passed_through() {
         let conn = setup_fts_db();
         let result = fts_expand_short_terms(&conn, "NOT secret");
-        assert!(
-            !result.starts_with("NOT "),
-            "NOT should be quoted, not passed through: {result}"
-        );
+        assert!(!result.starts_with("NOT "), "{result}");
     }
 
     #[test]
     fn expand_special_chars_escaped() {
         let conn = setup_fts_db();
         let result = fts_expand_short_terms(&conn, "a%");
-        // '%' must be escaped for LIKE, not act as wildcard
-        assert!(
-            result.contains("\"audit\"") || result == "\"a%\"",
-            "should expand to 'a'-prefixed vocab terms or quote as-is, got: {result}"
-        );
+        assert!(result.contains("\"audit\"") || result == "\"a%\"", "{result}");
     }
 
     #[test]
     fn expand_without_vocab_table_degrades() {
         let conn = Connection::open_in_memory().unwrap();
         let result = fts_expand_short_terms(&conn, "au login");
-        assert_eq!(result, "\"au\" \"login\"", "all terms quoted as fallback");
+        assert_eq!(result, "\"au\" \"login\"");
     }
 
     #[test]
@@ -254,5 +279,89 @@ mod tests {
         let conn = setup_fts_db();
         let result = fts_expand_short_terms(&conn, "a");
         assert!(result.contains("\"audit\"") || result == "\"a\"");
+    }
+
+    #[test]
+    fn t001_near_removal() {
+        let result = sanitize_fts_query("NEAR(a b) hello");
+        assert_eq!(result, "hello");
+    }
+
+    #[test]
+    fn t002_auto_quote_hyphen() {
+        let result = sanitize_fts_query("rate-limit");
+        assert_eq!(result, "\"rate-limit\"");
+    }
+
+    #[test]
+    fn t003_auto_quote_colon() {
+        let result = sanitize_fts_query("std::io");
+        assert_eq!(result, "\"std::io\"");
+    }
+
+    #[test]
+    fn t004_prefix_strip() {
+        let result = sanitize_fts_query("^+hello");
+        assert_eq!(result, "hello");
+    }
+
+    #[test]
+    fn t006_empty_passthrough() {
+        let result = sanitize_fts_query("");
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn t007_age_zero_returns_one() {
+        let result = recency_decay(0.0, 30.0);
+        assert!((result - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn t008_one_half_life_returns_half() {
+        let result = recency_decay(30.0, 30.0);
+        assert!((result - 0.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn t009_two_half_lives_returns_quarter() {
+        let result = recency_decay(60.0, 30.0);
+        assert!((result - 0.25).abs() < 0.01);
+    }
+
+    #[test]
+    fn t010_zero_half_life_returns_zero() {
+        let result = recency_decay(0.0, 0.0);
+        assert!((result - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn t010b_negative_half_life_returns_zero() {
+        let result = recency_decay(5.0, -1.0);
+        assert!((result - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn t010c_negative_age_clamped_to_one() {
+        let result = recency_decay(-5.0, 30.0);
+        assert!((result - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn t001b_near_with_distance() {
+        let result = sanitize_fts_query("NEAR/3(a b c) hello");
+        assert_eq!(result, "hello");
+    }
+
+    #[test]
+    fn t001c_near_unclosed_paren() {
+        let result = sanitize_fts_query("NEAR(a b hello");
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn t005b_quote_balancing_exact_output() {
+        let result = sanitize_fts_query("unbalanced\"");
+        assert_eq!(result, "unbalanced\"\"");
     }
 }
