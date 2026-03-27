@@ -78,7 +78,16 @@ fn mean_pooling_weighted_mask() {
 fn postprocess_embedding_zero_seq_len() {
     let result = postprocess_embedding(&[], 0, &[]);
     let err = result.unwrap_err();
-    assert!(matches!(err, EmbedError::DimensionMismatch { expected: _, actual: 0 }), "{err}");
+    assert!(
+        matches!(
+            err,
+            EmbedError::DimensionMismatch {
+                expected: _,
+                actual: 0
+            }
+        ),
+        "{err}"
+    );
 }
 
 #[test]
@@ -87,13 +96,25 @@ fn postprocess_embedding_wrong_dims() {
     let mask = vec![1u32];
     let result = postprocess_embedding(&data, 1, &mask);
     let err = result.unwrap_err();
-    assert!(matches!(err, EmbedError::DimensionMismatch { expected: 768, actual: 3 }), "{err}");
+    assert!(
+        matches!(
+            err,
+            EmbedError::DimensionMismatch {
+                expected: 768,
+                actual: 3
+            }
+        ),
+        "{err}"
+    );
 }
 
 #[test]
 fn read_config_missing_file() {
     let err = read_config::<serde_json::Value>(Path::new("/nonexistent/config.json")).unwrap_err();
-    assert!(matches!(err, EmbedError::Inference(ref msg) if msg.contains("No such file")), "{err}");
+    assert!(
+        matches!(err, EmbedError::Inference(ref msg) if msg.contains("No such file")),
+        "{err}"
+    );
 }
 
 #[test]
@@ -102,7 +123,10 @@ fn read_config_invalid_json() {
     let path = dir.path().join("config.json");
     std::fs::write(&path, b"not valid json {{{").unwrap();
     let err = read_config::<serde_json::Value>(&path).unwrap_err();
-    assert!(matches!(err, EmbedError::Inference(ref msg) if msg.contains("parse error")), "{err}");
+    assert!(
+        matches!(err, EmbedError::Inference(ref msg) if msg.contains("parse error")),
+        "{err}"
+    );
 }
 
 #[test]
@@ -111,7 +135,10 @@ fn read_config_missing_fields() {
     let path = dir.path().join("config.json");
     std::fs::write(&path, b"{ \"vocab_size\": 1000 }").unwrap();
     let err = read_config::<crate::modernbert::Config>(&path).unwrap_err();
-    assert!(matches!(err, EmbedError::Inference(ref msg) if msg.contains("parse error")), "{err}");
+    assert!(
+        matches!(err, EmbedError::Inference(ref msg) if msg.contains("parse error")),
+        "{err}"
+    );
 }
 
 #[test]
@@ -228,7 +255,10 @@ fn embed_query_returns_768_dims() {
 fn embed_documents_batch_returns_correct_count() {
     let paths = download_model().expect("download model");
     let embedder = Embedder::new(&paths).expect("load model");
-    let texts = vec!["function useAuth() { return user; }", "function Button() { return <div/>; }"];
+    let texts = vec![
+        "function useAuth() { return user; }",
+        "function Button() { return <div/>; }",
+    ];
     let embeddings = embedder.embed_documents_batch(&texts).unwrap();
     assert_eq!(embeddings.len(), 2);
     assert_eq!(embeddings[0].len(), 768);
@@ -298,25 +328,35 @@ fn probe_rejects_invalid_config() {
     std::fs::write(dir.path().join("tokenizer.json"), b"{}").unwrap();
     let paths = ModelPaths::from_dir(dir.path());
     let err = Embedder::probe(&paths).unwrap_err();
-    assert!(matches!(err, EmbedError::Inference(ref msg) if msg.contains("parse error")), "{err}");
+    assert!(
+        matches!(err, EmbedError::Inference(ref msg) if msg.contains("parse error")),
+        "{err}"
+    );
 }
 
 #[test]
 fn probe_rejects_invalid_config_values() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("model.safetensors"), b"fake").unwrap();
-    std::fs::write(dir.path().join("config.json"), br#"{
+    std::fs::write(
+        dir.path().join("config.json"),
+        br#"{
         "vocab_size": 0, "hidden_size": 768, "num_hidden_layers": 2,
         "num_attention_heads": 12, "intermediate_size": 3072,
         "max_position_embeddings": 512, "layer_norm_eps": 1e-5,
         "pad_token_id": 0, "global_attn_every_n_layers": 3,
         "global_rope_theta": 160000.0, "local_attention": 128,
         "local_rope_theta": 10000.0
-    }"#).unwrap();
+    }"#,
+    )
+    .unwrap();
     std::fs::write(dir.path().join("tokenizer.json"), b"{}").unwrap();
     let paths = ModelPaths::from_dir(dir.path());
     let err = Embedder::probe(&paths).unwrap_err();
-    assert!(matches!(err, EmbedError::Inference(ref msg) if msg.contains("vocab_size")), "{err}");
+    assert!(
+        matches!(err, EmbedError::Inference(ref msg) if msg.contains("vocab_size")),
+        "{err}"
+    );
 }
 
 #[test]
@@ -338,13 +378,9 @@ fn probe_env_to_paths_returns_err_when_tokenizer_missing() {
 
 #[test]
 fn probe_env_to_paths_returns_paths_when_all_present() {
-    let paths = probe_env_to_paths(
-        Some("/m".into()),
-        Some("/c".into()),
-        Some("/t".into()),
-    )
-    .unwrap()
-    .unwrap();
+    let paths = probe_env_to_paths(Some("/m".into()), Some("/c".into()), Some("/t".into()))
+        .unwrap()
+        .unwrap();
     assert_eq!(paths.model, PathBuf::from("/m"));
     assert_eq!(paths.config, PathBuf::from("/c"));
     assert_eq!(paths.tokenizer, PathBuf::from("/t"));
@@ -364,7 +400,10 @@ fn interpret_probe_output_available_on_exit_0() {
         stdout: format!("{PROBE_ACK}\n").into_bytes(),
         stderr: Vec::new(),
     };
-    assert_eq!(interpret_probe_output(&output).unwrap(), ProbeStatus::Available);
+    assert_eq!(
+        interpret_probe_output(&output).unwrap(),
+        ProbeStatus::Available
+    );
 }
 
 #[test]
@@ -375,7 +414,10 @@ fn interpret_probe_output_model_corrupt_on_nonzero_exit() {
         stderr: b"inference error: bad model".to_vec(),
     };
     let err = interpret_probe_output(&output).unwrap_err();
-    assert!(matches!(err, EmbedError::ModelCorrupt { ref reason } if reason.contains("bad model")), "{err}");
+    assert!(
+        matches!(err, EmbedError::ModelCorrupt { ref reason } if reason.contains("bad model")),
+        "{err}"
+    );
 }
 
 #[test]
@@ -386,7 +428,10 @@ fn interpret_probe_output_model_corrupt_empty_stderr() {
         stderr: Vec::new(),
     };
     let err = interpret_probe_output(&output).unwrap_err();
-    assert!(matches!(err, EmbedError::ModelCorrupt { ref reason } if reason == "model load failed"), "{err}");
+    assert!(
+        matches!(err, EmbedError::ModelCorrupt { ref reason } if reason == "model load failed"),
+        "{err}"
+    );
 }
 
 #[test]
@@ -397,7 +442,10 @@ fn interpret_probe_output_missing_ack() {
         stderr: Vec::new(),
     };
     let err = interpret_probe_output(&output).unwrap_err();
-    assert!(matches!(err, EmbedError::Inference(ref msg) if msg.contains("handler not installed")), "{err}");
+    assert!(
+        matches!(err, EmbedError::Inference(ref msg) if msg.contains("handler not installed")),
+        "{err}"
+    );
 }
 
 #[test]

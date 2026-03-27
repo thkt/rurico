@@ -345,11 +345,9 @@ fn probe_via_fork(paths: &ModelPaths) -> Result<ProbeStatus, EmbedError> {
             if libc::WIFEXITED(status) {
                 match libc::WEXITSTATUS(status) {
                     0 => Ok(ProbeStatus::Available),
-                    _ => {
-                        Err(EmbedError::ModelCorrupt {
-                            reason: "model load failed in child process".into(),
-                        })
-                    }
+                    _ => Err(EmbedError::ModelCorrupt {
+                        reason: "model load failed in child process".into(),
+                    }),
                 }
             } else {
                 Ok(ProbeStatus::BackendUnavailable)

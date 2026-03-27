@@ -93,11 +93,23 @@ mod tests {
     fn t011b_char_boundary_fallback_no_newlines() {
         let text = "あいうえおか"; // 6 chars, 18 bytes
         let fragments = split_text(text, 10);
-        assert!(fragments.len() >= 2, "should split, got {} fragment(s)", fragments.len());
+        assert!(
+            fragments.len() >= 2,
+            "should split, got {} fragment(s)",
+            fragments.len()
+        );
         for (i, frag) in fragments.iter().enumerate() {
-            assert!(frag.len() <= 10, "fragment {i} is {} bytes, exceeds 10", frag.len());
+            assert!(
+                frag.len() <= 10,
+                "fragment {i} is {} bytes, exceeds 10",
+                frag.len()
+            );
         }
-        assert_eq!(fragments[0].chars().count(), 3, "first fragment should be 3 chars (9 bytes)");
+        assert_eq!(
+            fragments[0].chars().count(),
+            3,
+            "first fragment should be 3 chars (9 bytes)"
+        );
     }
 
     #[test]

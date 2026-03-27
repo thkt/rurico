@@ -20,11 +20,7 @@ impl Embed for MockEmbedder {
     }
 
     fn embed_documents_batch(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>, EmbedError> {
-        Ok(texts
-            .iter()
-            .enumerate()
-            .map(|(i, _)| one_hot(i))
-            .collect())
+        Ok(texts.iter().enumerate().map(|(i, _)| one_hot(i)).collect())
     }
 }
 
