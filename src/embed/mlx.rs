@@ -104,15 +104,37 @@ impl EmbedderInner {
         output.eval().map_err(EmbedError::inference)?;
         let flat: &[f32] = output.as_slice();
 
-        let hidden_size = flat.len() / (batch.sorted_indices.len() * batch.max_seq_len);
-        let stride = batch.max_seq_len * hidden_size;
-        let mut results = vec![Vec::new(); batch.sorted_indices.len()];
-        for (sorted_pos, &orig_idx) in batch.sorted_indices.iter().enumerate() {
-            let seq_data = &flat[sorted_pos * stride..(sorted_pos + 1) * stride];
-            let mask_slice = &batch.attention_mask
-                [sorted_pos * batch.max_seq_len..(sorted_pos + 1) * batch.max_seq_len];
-            results[orig_idx] = postprocess_embedding(seq_data, batch.max_seq_len, mask_slice)?;
-        }
-        Ok(results)
+        unpack_batch_output(
+            flat,
+            &batch.sorted_indices,
+            batch.max_seq_len,
+            &batch.attention_mask,
+        )
     }
+}
+
+/// Validate output shape and unpack batched model output into per-input embeddings.
+pub(super) fn unpack_batch_output(
+    flat: &[f32],
+    sorted_indices: &[usize],
+    max_seq_len: usize,
+    attention_mask: &[u32],
+) -> Result<Vec<Vec<f32>>, EmbedError> {
+    let total = sorted_indices.len() * max_seq_len;
+    if total == 0 || flat.len() % total != 0 {
+        return Err(EmbedError::DimensionMismatch {
+            expected: total,
+            actual: flat.len(),
+        });
+    }
+    let hidden_size = flat.len() / total;
+    let stride = max_seq_len * hidden_size;
+    let mut results = vec![Vec::new(); sorted_indices.len()];
+    for (sorted_pos, &orig_idx) in sorted_indices.iter().enumerate() {
+        let seq_data = &flat[sorted_pos * stride..(sorted_pos + 1) * stride];
+        let mask_slice =
+            &attention_mask[sorted_pos * max_seq_len..(sorted_pos + 1) * max_seq_len];
+        results[orig_idx] = postprocess_embedding(seq_data, max_seq_len, mask_slice)?;
+    }
+    Ok(results)
 }

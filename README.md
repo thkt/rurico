@@ -29,11 +29,25 @@ Apple Silicon (MLX) 上で日本語テキストのembeddingと類似検索を行
 rurico = { git = "https://github.com/thkt/rurico" }
 ```
 
+MLXの初期化失敗はプロセスをabortする可能性がある。`probe` でモデルのロード可否を子プロセスで検証してからEmbedderを作成する。
+
 ```rust
-use rurico::embed::{Embed, Embedder, download_model};
+use rurico::embed::{Embed, Embedder, ProbeStatus, download_model, handle_probe_if_needed};
+
+// probe 子プロセスのハンドラ登録（main() の冒頭で呼ぶ）
+handle_probe_if_needed();
 
 // モデルをダウンロード（初回のみ、HF Hub にキャッシュ）
 let paths = download_model()?;
+
+// probe でモデルのロード可否を事前検証
+match Embedder::probe(&paths)? {
+    ProbeStatus::Available => {}
+    ProbeStatus::BackendUnavailable => {
+        eprintln!("MLX backend not available");
+        std::process::exit(1);
+    }
+}
 
 // Embedder を作成して embedding を生成
 let embedder = Embedder::new(&paths)?;
@@ -41,22 +55,21 @@ let vector = embedder.embed_query("検索クエリ")?;
 // vector: Vec<f32> (768 次元)
 ```
 
-### probe（安全なモデル検証）
+### probe なしの簡易利用
 
-MLXの初期化失敗はプロセスをabortする可能性がある。`probe` はモデルのロード可否を子プロセスで検証し、クラッシュを隔離する。
+abortリスクを許容できるスクリプト等ではprobeを省略できる。
 
 ```rust
-use rurico::embed::{Embedder, ProbeStatus, handle_probe_if_needed};
-
-// main() の冒頭で呼ぶ（probe 子プロセスのハンドラ登録）
-handle_probe_if_needed();
+use rurico::embed::{Embed, Embedder, download_model};
 
 let paths = download_model()?;
-match Embedder::probe(&paths)? {
-    ProbeStatus::Available => { /* モデル利用可能 */ }
-    ProbeStatus::BackendUnavailable => { /* MLX 利用不可 */ }
-}
+let embedder = Embedder::new(&paths)?;
+let vector = embedder.embed_query("検索クエリ")?;
 ```
+
+### ログ出力
+
+内部の警告は `log` crate経由で出力される。`env_logger::init()` 等でloggerを初期化すると観測できる。
 
 ## テスト
 

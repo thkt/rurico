@@ -13,6 +13,7 @@ test-support = []
 [dependencies]
 bytemuck = "1"
 hf-hub = "0.5"
+log = "0.4"
 mlx-rs = "0.25"
 rusqlite = { version = "0.39", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }

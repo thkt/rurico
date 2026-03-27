@@ -1824,6 +1824,7 @@ dependencies = [
  "bytemuck",
  "hf-hub",
  "libc",
+ "log",
  "mlx-rs",
  "rusqlite",
  "serde",
