@@ -2,17 +2,6 @@ use std::path::Path;
 
 use super::*;
 
-fn reorder_by_indices<T>(sorted: Vec<T>, sorted_indices: &[usize]) -> Vec<T> {
-    let mut results: Vec<Option<T>> = (0..sorted_indices.len()).map(|_| None).collect();
-    for (sorted_pos, item) in sorted.into_iter().enumerate() {
-        results[sorted_indices[sorted_pos]] = Some(item);
-    }
-    results
-        .into_iter()
-        .map(|o| o.expect("all positions filled"))
-        .collect()
-}
-
 #[test]
 fn mean_pooling_excludes_masked_tokens() {
     #[rustfmt::skip]
@@ -195,18 +184,6 @@ fn sort_indices_by_len_multibyte() {
     let texts = &["ab", "あ", "abcde"];
     let indices = sort_indices_by_len(texts);
     assert_eq!(indices, vec![0, 1, 2]);
-}
-
-#[test]
-fn reorder_by_indices_round_trip() {
-    let texts = &["long text here", "hi", "medium"];
-    let sorted_indices = sort_indices_by_len(texts);
-
-    let sorted_results: Vec<&str> = sorted_indices.iter().map(|&i| texts[i]).collect();
-    assert_eq!(sorted_results, vec!["hi", "medium", "long text here"]);
-
-    let reordered = reorder_by_indices(sorted_results, &sorted_indices);
-    assert_eq!(reordered, vec!["long text here", "hi", "medium"]);
 }
 
 #[test]

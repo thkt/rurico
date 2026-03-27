@@ -1,7 +1,5 @@
-#[cfg(feature = "mlx")]
 use std::path::Path;
 
-#[cfg(feature = "mlx")]
 use mlx_rs::{
     Array,
     builder::Builder,
@@ -15,7 +13,6 @@ use mlx_rs::{
 
 use super::Config;
 
-#[cfg(feature = "mlx")]
 #[derive(Debug, Clone, ModuleParameters)]
 #[allow(non_snake_case)]
 struct Attention {
@@ -31,7 +28,6 @@ struct Attention {
     uses_local_attention: bool,
 }
 
-#[cfg(feature = "mlx")]
 impl Attention {
     fn new(
         config: &Config,
@@ -101,7 +97,6 @@ impl Attention {
     }
 }
 
-#[cfg(feature = "mlx")]
 #[derive(Debug, Clone, ModuleParameters)]
 #[allow(non_snake_case)]
 struct Mlp {
@@ -111,7 +106,6 @@ struct Mlp {
     Wo: nn::Linear,
 }
 
-#[cfg(feature = "mlx")]
 impl Mlp {
     fn new(config: &Config) -> Result<Self, Exception> {
         let h = config.hidden_size as i32;
@@ -132,7 +126,6 @@ impl Mlp {
     }
 }
 
-#[cfg(feature = "mlx")]
 #[derive(Debug, Clone, ModuleParameters)]
 struct TransformerLayer {
     #[param]
@@ -146,7 +139,6 @@ struct TransformerLayer {
     uses_attn_norm: bool,
 }
 
-#[cfg(feature = "mlx")]
 impl TransformerLayer {
     fn new(config: &Config, layer_id: usize) -> Result<Self, Exception> {
         let uses_local = !layer_id.is_multiple_of(config.global_attn_every_n_layers);
@@ -194,7 +186,6 @@ impl TransformerLayer {
     }
 }
 
-#[cfg(feature = "mlx")]
 #[derive(Debug, Clone, ModuleParameters)]
 struct Embeddings {
     #[param]
@@ -204,7 +195,6 @@ struct Embeddings {
 }
 
 /// ModernBERT backbone (mlx-rs). Ported from cl-nagoya/ruri-v3-310m.
-#[cfg(feature = "mlx")]
 #[derive(Debug, Clone, ModuleParameters)]
 pub struct ModernBert {
     #[param]
@@ -218,7 +208,6 @@ pub struct ModernBert {
     local_mask_cache: Option<(i32, Array)>,
 }
 
-#[cfg(feature = "mlx")]
 impl ModernBert {
     pub fn new(config: &Config) -> Result<Self, Exception> {
         config
@@ -325,7 +314,6 @@ impl ModernBert {
     }
 }
 
-#[cfg(feature = "mlx")]
 fn prepare_4d_attention_mask(
     mask: &Array,
     batch_size: i32,
@@ -335,12 +323,11 @@ fn prepare_4d_attention_mask(
         .reshape(&[batch_size, 1, 1, seq_len])?
         .as_dtype(mlx_rs::Dtype::Float32)?;
     let ones = Array::from_f32(1.0);
-    let neg_inf = Array::from_f32(f32::MIN);
+    let neg_inf = Array::from_f32(f32::NEG_INFINITY);
     let inverted = ones.subtract(&expanded)?;
     inverted.multiply(neg_inf)
 }
 
-#[cfg(feature = "mlx")]
 fn get_local_attention_mask(seq_len: i32, half_window: i32) -> Result<Array, Exception> {
     let n = seq_len as usize;
     let hw = half_window as usize;
@@ -360,7 +347,6 @@ mod tests {
     use super::*;
     use crate::modernbert::config::tests::test_config;
 
-    #[cfg(feature = "mlx")]
     #[test]
     fn load_nonexistent_path_errors() {
         let config = test_config();
@@ -370,7 +356,7 @@ mod tests {
 
     /// MLX runtime tests — may abort due to foreign exceptions from mlx-rs FFI.
     /// Run with `cargo test --features test-mlx`.
-    #[cfg(all(feature = "mlx", feature = "test-mlx"))]
+    #[cfg(feature = "test-mlx")]
     mod mlx_runtime_tests {
         use serial_test::serial;
 
@@ -426,8 +412,8 @@ mod tests {
             assert_eq!(data[0], 0.0, "unmasked should be 0.0");
             assert_eq!(data[1], 0.0, "unmasked should be 0.0");
             assert!(
-                data[2] < -1e30 && data[2].is_finite(),
-                "masked should be large negative finite, got {}",
+                data[2].is_infinite() && data[2].is_sign_negative(),
+                "masked should be -inf, got {}",
                 data[2]
             );
         }

@@ -87,6 +87,12 @@ impl AlternatingEmbedder {
     }
 }
 
+impl Default for AlternatingEmbedder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Embed for AlternatingEmbedder {
     fn embed_query(&self, _text: &str) -> Result<Vec<f32>, EmbedError> {
         Ok(one_hot(0))
@@ -94,7 +100,7 @@ impl Embed for AlternatingEmbedder {
 
     fn embed_document(&self, _text: &str) -> Result<Vec<f32>, EmbedError> {
         let n = self.call_count.fetch_add(1, Ordering::SeqCst);
-        if n % 2 == 0 {
+        if n.is_multiple_of(2) {
             Err(EmbedError::Inference("alternating failure".into()))
         } else {
             Ok(one_hot(0))
