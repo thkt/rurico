@@ -26,7 +26,7 @@ Apple Silicon (MLX) 上で日本語テキストのembeddingと類似検索を行
 
 ```toml
 [dependencies]
-rurico = { git = "https://github.com/thkt/rurico" }
+rurico = { git = "https://github.com/thkt/rurico", tag = "v0.2.0" }
 ```
 
 MLXの初期化失敗はプロセスをabortする可能性がある。`probe` でモデルのロード可否を子プロセスで検証してからEmbedderを作成する。
@@ -65,6 +65,19 @@ use rurico::embed::{Embed, Embedder, download_model};
 let paths = download_model()?;
 let embedder = Embedder::new(&paths)?;
 let vector = embedder.embed_query("検索クエリ")?;
+```
+
+### storage（ベクトル検索）
+
+sqlite-vecはプロセスレベルのauto-extensionとして登録が必要。`Connection::open` の前に一度だけ呼ぶ。
+
+```rust
+use rurico::storage::ensure_sqlite_vec;
+use rusqlite::Connection;
+
+ensure_sqlite_vec().expect("sqlite-vec initialization failed");
+let conn = Connection::open("my.db")?;
+// conn で vec0 仮想テーブルが利用可能
 ```
 
 ### ログ出力
