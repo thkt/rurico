@@ -1,6 +1,9 @@
 mod search;
 
-pub use search::{fts_expand_short_terms, fts_quote, recency_decay, rrf_merge, sanitize_fts_query};
+pub use search::{
+    SanitizeError, SanitizedFtsQuery, fts_expand_short_terms, fts_quote, recency_decay, rrf_merge,
+    sanitize_fts_query,
+};
 
 use rusqlite::ffi::sqlite3_auto_extension;
 use sqlite_vec::sqlite3_vec_init;

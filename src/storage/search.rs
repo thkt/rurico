@@ -34,12 +34,65 @@ fn strip_near_groups(query: &str) -> Vec<&str> {
     tokens
 }
 
-/// Neutralize FTS5 special syntax in user queries: `NEAR()` grouping,
-/// start-of-column `^`, required `+` / excluded `-` prefixes,
-/// column-filter colons, and unbalanced quotes.
-pub fn sanitize_fts_query(query: &str) -> String {
+/// A sanitized FTS5 query string that is safe to pass to `MATCH`.
+///
+/// Created only by [`sanitize_fts_query`]. The inner value is guaranteed
+/// non-empty and free of FTS5 special syntax.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SanitizedFtsQuery(String);
+
+impl SanitizedFtsQuery {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// Reasons why [`sanitize_fts_query`] cannot produce a usable query.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SanitizeError {
+    /// The input string was empty or contained only whitespace.
+    EmptyInput,
+    /// The input contained tokens, but all were removed during sanitization
+    /// (e.g. only boolean operators, `NEAR()` groups, or prefix characters).
+    EmptyAfterSanitize,
+}
+
+impl std::fmt::Display for SanitizeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::EmptyInput => f.write_str("search query is empty"),
+            Self::EmptyAfterSanitize => {
+                f.write_str("search query contains no searchable terms after sanitization")
+            }
+        }
+    }
+}
+
+impl std::error::Error for SanitizeError {}
+
+/// FTS5 boolean operators to strip from user queries.
+const FTS5_OPERATORS: &[&str] = &["AND", "OR", "NOT"];
+
+fn is_fts5_operator(token: &str) -> bool {
+    let upper = token.to_ascii_uppercase();
+    FTS5_OPERATORS.iter().any(|op| upper == *op)
+}
+
+/// Neutralize FTS5 special syntax in user queries: boolean operators
+/// (`AND`, `OR`, `NOT`), `NEAR()` grouping, start-of-column `^`,
+/// required `+` / excluded `-` prefixes, column-filter colons, and
+/// unbalanced quotes.
+///
+/// Returns [`SanitizedFtsQuery`] on success — a non-empty string safe
+/// to pass to FTS5 `MATCH`. Returns [`SanitizeError`] when the input
+/// is empty or all tokens are stripped.
+pub fn sanitize_fts_query(query: &str) -> Result<SanitizedFtsQuery, SanitizeError> {
+    if query.trim().is_empty() {
+        return Err(SanitizeError::EmptyInput);
+    }
     let result = strip_near_groups(query)
         .into_iter()
+        .filter(|w| !is_fts5_operator(w))
         .map(|w| {
             let stripped = w.trim_start_matches(['^', '+', '-']);
             let cleaned = stripped.trim_matches(['(', ')']);
@@ -53,11 +106,14 @@ pub fn sanitize_fts_query(query: &str) -> String {
         .filter(|w| !w.is_empty())
         .collect::<Vec<_>>()
         .join(" ");
+    if result.is_empty() {
+        return Err(SanitizeError::EmptyAfterSanitize);
+    }
     let quote_count = result.chars().filter(|&c| c == '"').count();
     if quote_count % 2 != 0 {
-        format!("{result}\"")
+        Ok(SanitizedFtsQuery(format!("{result}\"")))
     } else {
-        result
+        Ok(SanitizedFtsQuery(result))
     }
 }
 
@@ -259,34 +315,97 @@ mod tests {
         assert!(result.contains("\"audit\"") || result == "\"a\"");
     }
 
+    fn ok(s: &str) -> Result<SanitizedFtsQuery, SanitizeError> {
+        Ok(SanitizedFtsQuery(s.to_string()))
+    }
+
     #[test]
     fn t001_near_removal() {
-        let result = sanitize_fts_query("NEAR(a b) hello");
-        assert_eq!(result, "hello");
+        assert_eq!(sanitize_fts_query("NEAR(a b) hello"), ok("hello"));
+    }
+
+    #[test]
+    fn t001b_near_with_distance() {
+        assert_eq!(sanitize_fts_query("NEAR/3(a b c) hello"), ok("hello"));
+    }
+
+    #[test]
+    fn t001c_near_unclosed_paren() {
+        assert_eq!(
+            sanitize_fts_query("NEAR(a b hello"),
+            Err(SanitizeError::EmptyAfterSanitize)
+        );
     }
 
     #[test]
     fn t002_auto_quote_hyphen() {
-        let result = sanitize_fts_query("rate-limit");
-        assert_eq!(result, "\"rate-limit\"");
+        assert_eq!(sanitize_fts_query("rate-limit"), ok("\"rate-limit\""));
     }
 
     #[test]
     fn t003_auto_quote_colon() {
-        let result = sanitize_fts_query("std::io");
-        assert_eq!(result, "\"std::io\"");
+        assert_eq!(sanitize_fts_query("std::io"), ok("\"std::io\""));
     }
 
     #[test]
     fn t004_prefix_strip() {
-        let result = sanitize_fts_query("^+hello");
-        assert_eq!(result, "hello");
+        assert_eq!(sanitize_fts_query("^+hello"), ok("hello"));
     }
 
     #[test]
-    fn t006_empty_passthrough() {
-        let result = sanitize_fts_query("");
-        assert_eq!(result, "");
+    fn t005b_quote_balancing_exact_output() {
+        assert_eq!(sanitize_fts_query("unbalanced\""), ok("unbalanced\"\""));
+    }
+
+    #[test]
+    fn t006_empty_input() {
+        assert_eq!(sanitize_fts_query(""), Err(SanitizeError::EmptyInput));
+    }
+
+    #[test]
+    fn t006b_whitespace_only() {
+        assert_eq!(sanitize_fts_query("   "), Err(SanitizeError::EmptyInput));
+    }
+
+    #[test]
+    fn t011_not_operator_stripped() {
+        assert_eq!(sanitize_fts_query("NOT secret"), ok("secret"));
+    }
+
+    #[test]
+    fn t012_and_operator_stripped() {
+        assert_eq!(sanitize_fts_query("foo AND bar"), ok("foo bar"));
+    }
+
+    #[test]
+    fn t013_or_operator_stripped() {
+        assert_eq!(sanitize_fts_query("foo OR bar"), ok("foo bar"));
+    }
+
+    #[test]
+    fn t014_operator_only_returns_error() {
+        assert_eq!(
+            sanitize_fts_query("NOT"),
+            Err(SanitizeError::EmptyAfterSanitize)
+        );
+        assert_eq!(
+            sanitize_fts_query("AND OR NOT"),
+            Err(SanitizeError::EmptyAfterSanitize)
+        );
+    }
+
+    #[test]
+    fn t015_case_insensitive_operators() {
+        assert_eq!(sanitize_fts_query("not secret"), ok("secret"));
+        assert_eq!(sanitize_fts_query("Not secret"), ok("secret"));
+    }
+
+    #[test]
+    fn t016_prefix_only_returns_error() {
+        assert_eq!(
+            sanitize_fts_query("^"),
+            Err(SanitizeError::EmptyAfterSanitize)
+        );
     }
 
     #[test]
@@ -325,21 +444,4 @@ mod tests {
         assert!((result - 1.0).abs() < f64::EPSILON);
     }
 
-    #[test]
-    fn t001b_near_with_distance() {
-        let result = sanitize_fts_query("NEAR/3(a b c) hello");
-        assert_eq!(result, "hello");
-    }
-
-    #[test]
-    fn t001c_near_unclosed_paren() {
-        let result = sanitize_fts_query("NEAR(a b hello");
-        assert_eq!(result, "");
-    }
-
-    #[test]
-    fn t005b_quote_balancing_exact_output() {
-        let result = sanitize_fts_query("unbalanced\"");
-        assert_eq!(result, "unbalanced\"\"");
-    }
 }
