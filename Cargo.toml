@@ -24,6 +24,7 @@ thiserror = "2"
 tokenizers = { version = "0.22", default-features = false, features = ["onig"] }
 
 [dev-dependencies]
+libc = "0.2"
 serial_test = "3"
 tempfile = "3"
 

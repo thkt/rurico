@@ -49,7 +49,7 @@ pub fn postprocess_embedding(
             actual: 0,
         });
     }
-    if flat.len() % seq_len != 0 {
+    if !flat.len().is_multiple_of(seq_len) {
         return Err(EmbedError::DimensionMismatch {
             expected: EMBEDDING_DIMS as usize,
             actual: flat.len(),

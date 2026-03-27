@@ -100,9 +100,7 @@ pub fn fts_expand_short_terms(conn: &Connection, query: &str) -> String {
          ORDER BY cnt DESC LIMIT 25",
     ) {
         Ok(s) => Some(s),
-        Err(rusqlite::Error::SqliteFailure(_, Some(ref msg)))
-            if msg.contains("no such table") =>
-        {
+        Err(rusqlite::Error::SqliteFailure(_, Some(ref msg))) if msg.contains("no such table") => {
             None
         }
         Err(e) => {
@@ -180,7 +178,10 @@ mod tests {
     #[test]
     fn rrf_merge_string_keys() {
         let fts = vec![("session-1".to_string(), 1.0)];
-        let vec = vec![("session-1".to_string(), 1.0), ("session-2".to_string(), 0.5)];
+        let vec = vec![
+            ("session-1".to_string(), 1.0),
+            ("session-2".to_string(), 0.5),
+        ];
         let result = rrf_merge(&fts, &vec);
         assert_eq!(result[0].0, "session-1");
     }
@@ -257,7 +258,10 @@ mod tests {
     fn expand_special_chars_escaped() {
         let conn = setup_fts_db();
         let result = fts_expand_short_terms(&conn, "a%");
-        assert!(result.contains("\"audit\"") || result == "\"a%\"", "{result}");
+        assert!(
+            result.contains("\"audit\"") || result == "\"a%\"",
+            "{result}"
+        );
     }
 
     #[test]
