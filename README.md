@@ -80,6 +80,34 @@ let conn = Connection::open("my.db")?;
 // conn で vec0 仮想テーブルが利用可能
 ```
 
+### FTS クエリパイプライン
+
+ユーザー入力をFTS5 `MATCH` に渡す前に、sanitize → expandの2段階を経る。各段階はnewtypeで区別されており、未処理の `&str` を `fts_expand_short_terms` に渡すことはできない。
+
+```rust
+use rurico::storage::{sanitize_fts_query, fts_expand_short_terms, SanitizeError};
+
+match sanitize_fts_query(user_input) {
+    Ok(sanitized) => {
+        let matched = fts_expand_short_terms(&conn, &sanitized);
+        if matched.is_empty() {
+            // vocab 展開後にトークンが残らなかった
+            return Ok(Vec::new());
+        }
+        // matched.as_str() を MATCH に渡す
+        stmt.query_map([matched.as_str()], |row| { /* ... */ })?;
+    }
+    Err(SanitizeError::EmptyInput) => {
+        // 空のクエリ
+    }
+    Err(SanitizeError::NoSearchableTerms) => {
+        // 演算子のみ等、検索可能な語がない
+    }
+}
+```
+
+`sanitize_fts_query` は `AND`/`OR`/`NOT`、`NEAR()` グループ、`^`/`+`/`-` プレフィックス、コロン、不均衡な引用符を除去する。
+
 ### ログ出力
 
 内部の警告は `log` crate経由で出力される。`env_logger::init()` 等でloggerを初期化すると観測できる。
