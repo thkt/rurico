@@ -81,11 +81,6 @@ impl MatchFtsQuery {
     pub fn as_str(&self) -> &str {
         &self.0
     }
-
-    /// Returns `true` when expansion produced no usable terms.
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
 }
 
 /// Reasons why [`prepare_match_query`] cannot produce a usable query.
@@ -202,6 +197,7 @@ pub(crate) fn fts_expand_short_terms(
 
     let mut parts = Vec::new();
     for token in query.as_str().split_whitespace() {
+        // Length check covers AND/NOT (3 chars); operator guard adds OR (2 chars).
         if token.chars().count() >= 3 || is_fts5_operator(token) {
             parts.push(fts_quote(token));
             continue;
@@ -457,6 +453,13 @@ mod tests {
         // Leading/trailing operators without both neighbours are dropped.
         assert_eq!(sanitize_fts_query("NOT secret"), ok("secret"));
         assert_eq!(sanitize_fts_query("foo OR"), ok("foo"));
+    }
+
+    #[test]
+    fn t012b_consecutive_operators_between_terms() {
+        // Neither AND nor OR has a non-operator on both sides → both dropped.
+        assert_eq!(sanitize_fts_query("foo AND OR bar"), ok("foo bar"));
+        assert_eq!(sanitize_fts_query("NOT foo NOT"), ok("foo"));
     }
 
     #[test]
