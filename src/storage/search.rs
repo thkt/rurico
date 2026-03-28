@@ -112,7 +112,7 @@ impl std::error::Error for SanitizeError {}
 /// Neutralize FTS5 special syntax in user queries: `NEAR()` grouping,
 /// start-of-column `^`, required `+` / excluded `-` prefixes, column-filter
 /// colons, and unbalanced quotes. Operator-like keywords (`AND`, `OR`, `NOT`)
-/// sandwiched between non-operator terms are kept as literal terms; dangling
+/// sandwiched between non-operator terms are preserved (unquoted); dangling
 /// operators (e.g. leading `NOT`, trailing `OR` after NEAR removal) are dropped.
 pub(crate) fn sanitize_fts_query(query: &str) -> Result<SanitizedFtsQuery, SanitizeError> {
     if query.trim().is_empty() {

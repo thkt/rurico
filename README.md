@@ -89,10 +89,6 @@ use rurico::storage::{prepare_match_query, SanitizeError};
 
 match prepare_match_query(&conn, user_input) {
     Ok(matched) => {
-        if matched.is_empty() {
-            // vocab 展開後にトークンが残らなかった
-            return Ok(Vec::new());
-        }
         // matched.as_str() を MATCH に渡す
         stmt.query_map([matched.as_str()], |row| { /* ... */ })?;
     }
