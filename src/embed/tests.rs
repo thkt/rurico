@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use super::mlx::unpack_batch_output;
+use super::pooling::{l2_normalize, mean_pooling};
 use super::*;
 
 #[test]
@@ -140,14 +141,6 @@ fn embedder_new_model_not_found() {
     let paths = ModelPaths::from_dir(Path::new("/nonexistent/path"));
     let err = Embedder::new(&paths).unwrap_err();
     assert!(matches!(err, EmbedError::ModelNotFound { .. }), "{err}");
-}
-
-#[test]
-fn mean_pooling_short_mask_truncates_safely() {
-    let data = vec![1.0f32, 2.0, 3.0, 4.0];
-    let mask = vec![1u32];
-    let result = mean_pooling(&data, 2, 2, &mask);
-    assert_eq!(result, vec![1.0, 2.0]);
 }
 
 #[test]

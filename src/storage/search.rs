@@ -34,11 +34,14 @@ fn strip_near_groups(query: &str) -> Vec<&str> {
     tokens
 }
 
-/// A sanitized FTS5 query string, free of special syntax but not yet expanded.
+/// A pre-processed FTS5 query string with common special syntax neutralized.
 ///
-/// Created only by [`sanitize_fts_query`]. The inner value is guaranteed
-/// non-empty and free of FTS5 special syntax. Pass to
-/// [`fts_expand_short_terms`] to produce a [`MatchFtsQuery`].
+/// Created only by [`sanitize_fts_query`]. Boolean operators, `NEAR()` groups,
+/// prefix characters (`^`, `+`, `-`), and unbalanced quotes have been handled,
+/// but the result may still contain tokens that are not fully quoted.
+///
+/// **Not safe to pass directly to FTS5 `MATCH`.**
+/// Always pass through [`fts_expand_short_terms`] to obtain a [`MatchFtsQuery`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SanitizedFtsQuery(String);
 
@@ -48,10 +51,10 @@ impl SanitizedFtsQuery {
     }
 }
 
-/// A fully expanded FTS5 query string ready to pass to `MATCH`.
+/// A fully expanded and quoted FTS5 query string, safe to pass to `MATCH`.
 ///
-/// Created only by [`fts_expand_short_terms`]. Short terms have been
-/// expanded via vocab lookup and all terms are quoted.
+/// Created only by [`fts_expand_short_terms`]. All terms are individually
+/// quoted via [`fts_quote`], and short terms have been expanded via vocab lookup.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MatchFtsQuery(String);
 
@@ -95,14 +98,15 @@ fn is_fts5_operator(token: &str) -> bool {
     FTS5_OPERATORS.iter().any(|op| upper == *op)
 }
 
-/// Neutralize FTS5 special syntax in user queries: boolean operators
+/// Neutralize common FTS5 special syntax in user queries: boolean operators
 /// (`AND`, `OR`, `NOT`), `NEAR()` grouping, start-of-column `^`,
 /// required `+` / excluded `-` prefixes, column-filter colons, and
 /// unbalanced quotes.
 ///
-/// Returns [`SanitizedFtsQuery`] on success — a non-empty string safe
-/// to pass to FTS5 `MATCH`. Returns [`SanitizeError`] when the input
-/// is empty or all tokens are stripped.
+/// Returns [`SanitizedFtsQuery`] on success — a non-empty, pre-processed
+/// string. The result is **not** safe to pass directly to FTS5 `MATCH`;
+/// use [`fts_expand_short_terms`] to produce a [`MatchFtsQuery`].
+/// Returns [`SanitizeError`] when the input is empty or all tokens are stripped.
 pub fn sanitize_fts_query(query: &str) -> Result<SanitizedFtsQuery, SanitizeError> {
     if query.trim().is_empty() {
         return Err(SanitizeError::EmptyInput);
@@ -137,8 +141,8 @@ pub fn sanitize_fts_query(query: &str) -> Result<SanitizedFtsQuery, SanitizeErro
 const RRF_K: f64 = 60.0;
 
 /// Reciprocal Rank Fusion merge — only rank position matters, score values are ignored.
-/// Returns merged results sorted by RRF score descending.
-pub fn rrf_merge<K: Clone + Eq + Hash>(
+/// Returns merged results sorted by RRF score descending, ties broken by key ascending.
+pub fn rrf_merge<K: Clone + Eq + Hash + Ord>(
     fts_hits: &[(K, f64)],
     vec_hits: &[(K, f64)],
 ) -> Vec<(K, f64)> {
@@ -152,7 +156,7 @@ pub fn rrf_merge<K: Clone + Eq + Hash>(
     }
 
     let mut results: Vec<(K, f64)> = scores.into_iter().collect();
-    results.sort_by(|a, b| b.1.total_cmp(&a.1));
+    results.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
     results
 }
 
@@ -229,6 +233,19 @@ mod tests {
         assert_eq!(result.len(), 3);
         assert!(result[0].1 > result[1].1);
         assert!(result[1].1 >= result[2].1);
+    }
+
+    #[test]
+    fn rrf_merge_tied_scores_ordered_by_key() {
+        // Items 1 and 3 each appear only in one list at the same rank (0),
+        // so they receive identical RRF scores. Tie must break by key ascending.
+        let fts: Vec<(u32, f64)> = vec![(3, 1.0)];
+        let vec: Vec<(u32, f64)> = vec![(1, 1.0)];
+        let result = rrf_merge(&fts, &vec);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].0, 1, "lower key should come first on tie");
+        assert_eq!(result[1].0, 3);
+        assert_eq!(result[0].1, result[1].1, "scores must be equal");
     }
 
     #[test]
