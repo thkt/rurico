@@ -82,14 +82,13 @@ let conn = Connection::open("my.db")?;
 
 ### FTS クエリパイプライン
 
-ユーザー入力をFTS5 `MATCH` に渡す前に、sanitize → expandの2段階を経る。各段階はnewtypeで区別されており、未処理の `&str` を `fts_expand_short_terms` に渡すことはできない。
+ユーザー入力をFTS5 `MATCH` に安全に渡すには `prepare_match_query` を使う。内部でsanitize → expandの2段階を経て、全トークンを引用符で囲んだ `MatchFtsQuery` を返す。
 
 ```rust
-use rurico::storage::{sanitize_fts_query, fts_expand_short_terms, SanitizeError};
+use rurico::storage::{prepare_match_query, SanitizeError};
 
-match sanitize_fts_query(user_input) {
-    Ok(sanitized) => {
-        let matched = fts_expand_short_terms(&conn, &sanitized);
+match prepare_match_query(&conn, user_input) {
+    Ok(matched) => {
         if matched.is_empty() {
             // vocab 展開後にトークンが残らなかった
             return Ok(Vec::new());
@@ -101,12 +100,12 @@ match sanitize_fts_query(user_input) {
         // 空のクエリ
     }
     Err(SanitizeError::NoSearchableTerms) => {
-        // 演算子のみ等、検索可能な語がない
+        // NEAR() グループのみ等、検索可能な語がない
     }
 }
 ```
 
-`sanitize_fts_query` は `AND`/`OR`/`NOT`、`NEAR()` グループ、`^`/`+`/`-` プレフィックス、コロン、不均衡な引用符を処理し、`SanitizedFtsQuery` を返す。この段階では前処理のみでMATCHに直接渡せる状態ではない。`fts_expand_short_terms` が全トークンを引用符で囲み、MATCHに安全な `MatchFtsQuery` を生成する。
+`NEAR()` グループ、`^`/`+`/`-` プレフィックス、コロン、不均衡な引用符は内部で無害化される。`AND`/`OR`/`NOT` のようなoperator-like keywordはliteral termとして保持され、引用符で囲まれてMATCHに渡される。短い語（1-2文字）は `fts_chunks_vocab` テーブルがあればprefix展開される（なければそのまま引用）。
 
 ### ログ出力
 

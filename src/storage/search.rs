@@ -34,19 +34,13 @@ fn strip_near_groups(query: &str) -> Vec<&str> {
     tokens
 }
 
-/// A pre-processed FTS5 query string with common special syntax neutralized.
-///
-/// Created only by [`sanitize_fts_query`]. Boolean operators, `NEAR()` groups,
-/// prefix characters (`^`, `+`, `-`), and unbalanced quotes have been handled,
-/// but the result may still contain tokens that are not fully quoted.
-///
-/// **Not safe to pass directly to FTS5 `MATCH`.**
-/// Always pass through [`fts_expand_short_terms`] to obtain a [`MatchFtsQuery`].
+/// A pre-processed FTS5 query string — intermediate representation between
+/// raw user input and [`MatchFtsQuery`]. Not part of the public API.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SanitizedFtsQuery(String);
+pub(crate) struct SanitizedFtsQuery(String);
 
 impl SanitizedFtsQuery {
-    pub fn as_str(&self) -> &str {
+    pub(crate) fn as_str(&self) -> &str {
         &self.0
     }
 }
@@ -69,13 +63,13 @@ impl MatchFtsQuery {
     }
 }
 
-/// Reasons why [`sanitize_fts_query`] cannot produce a usable query.
+/// Reasons why [`prepare_match_query`] cannot produce a usable query.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SanitizeError {
     /// The input string was empty or contained only whitespace.
     EmptyInput,
     /// The input contained tokens, but none survived sanitization
-    /// (e.g. only boolean operators, `NEAR()` groups, or prefix characters).
+    /// (e.g. only `NEAR()` groups or prefix characters).
     NoSearchableTerms,
 }
 
@@ -90,30 +84,16 @@ impl std::fmt::Display for SanitizeError {
 
 impl std::error::Error for SanitizeError {}
 
-/// FTS5 boolean operators to strip from user queries.
-const FTS5_OPERATORS: &[&str] = &["AND", "OR", "NOT"];
-
-fn is_fts5_operator(token: &str) -> bool {
-    let upper = token.to_ascii_uppercase();
-    FTS5_OPERATORS.iter().any(|op| upper == *op)
-}
-
-/// Neutralize common FTS5 special syntax in user queries: boolean operators
-/// (`AND`, `OR`, `NOT`), `NEAR()` grouping, start-of-column `^`,
-/// required `+` / excluded `-` prefixes, column-filter colons, and
-/// unbalanced quotes.
-///
-/// Returns [`SanitizedFtsQuery`] on success — a non-empty, pre-processed
-/// string. The result is **not** safe to pass directly to FTS5 `MATCH`;
-/// use [`fts_expand_short_terms`] to produce a [`MatchFtsQuery`].
-/// Returns [`SanitizeError`] when the input is empty or all tokens are stripped.
-pub fn sanitize_fts_query(query: &str) -> Result<SanitizedFtsQuery, SanitizeError> {
+/// Neutralize FTS5 special syntax in user queries: `NEAR()` grouping,
+/// start-of-column `^`, required `+` / excluded `-` prefixes, column-filter
+/// colons, and unbalanced quotes. Operator-like keywords (`AND`, `OR`, `NOT`)
+/// are preserved as literal terms.
+pub(crate) fn sanitize_fts_query(query: &str) -> Result<SanitizedFtsQuery, SanitizeError> {
     if query.trim().is_empty() {
         return Err(SanitizeError::EmptyInput);
     }
     let result = strip_near_groups(query)
         .into_iter()
-        .filter(|w| !is_fts5_operator(w))
         .map(|w| {
             let stripped = w.trim_start_matches(['^', '+', '-']);
             let cleaned = stripped.trim_matches(['(', ')']);
@@ -165,12 +145,37 @@ pub fn fts_quote(s: &str) -> String {
     format!("\"{}\"", s.replace('"', "\"\""))
 }
 
+/// Sanitize user input and expand short terms into a query safe for FTS5 `MATCH`.
+///
+/// Neutralizes `NEAR()` groups, prefix characters (`^`, `+`, `-`), column-filter
+/// colons, and unbalanced quotes. Operator-like keywords (`AND`, `OR`, `NOT`)
+/// are preserved as quoted literal terms.
+///
+/// Short terms (1-2 chars) are expanded via `fts_chunks_vocab` prefix matching
+/// when the vocab table exists; otherwise they are quoted as-is.
+pub fn prepare_match_query(
+    conn: &Connection,
+    query: &str,
+) -> Result<MatchFtsQuery, SanitizeError> {
+    let sanitized = sanitize_fts_query(query)?;
+    Ok(fts_expand_short_terms(conn, &sanitized))
+}
+
+/// FTS5 operator-like keywords that must not be vocab-expanded.
+const FTS5_OPERATORS: &[&str] = &["AND", "OR", "NOT"];
+
+fn is_fts5_operator(token: &str) -> bool {
+    FTS5_OPERATORS
+        .iter()
+        .any(|op| token.eq_ignore_ascii_case(op))
+}
+
 /// Expand short terms (1-2 chars) via `fts_chunks_vocab` prefix matching.
 ///
-/// Terms with 3+ chars are quoted as-is. Short terms are expanded into
-/// `("term1" OR "term2" ...)` groups. Falls back to quoting as-is when
-/// the vocab table is unavailable.
-pub fn fts_expand_short_terms(conn: &Connection, query: &SanitizedFtsQuery) -> MatchFtsQuery {
+/// Terms with 3+ chars and FTS5 operator-like keywords are quoted as-is.
+/// Other short terms are expanded into `("term1" OR "term2" ...)` groups.
+/// Falls back to quoting as-is when the vocab table is unavailable.
+pub(crate) fn fts_expand_short_terms(conn: &Connection, query: &SanitizedFtsQuery) -> MatchFtsQuery {
     let mut stmt = match conn.prepare_cached(
         "SELECT term FROM fts_chunks_vocab \
          WHERE term LIKE ?1 ESCAPE '\\' \
@@ -188,7 +193,7 @@ pub fn fts_expand_short_terms(conn: &Connection, query: &SanitizedFtsQuery) -> M
 
     let mut parts = Vec::new();
     for token in query.as_str().split_whitespace() {
-        if token.chars().count() >= 3 {
+        if token.chars().count() >= 3 || is_fts5_operator(token) {
             parts.push(fts_quote(token));
             continue;
         }
@@ -316,10 +321,18 @@ mod tests {
     }
 
     #[test]
-    fn expand_operators_are_quoted_not_passed_through() {
+    fn expand_operator_like_terms_are_quoted_not_expanded() {
         let conn = setup_fts_db();
+        // NOT (3 chars) and OR (2 chars) must both be quoted as-is,
+        // not expanded via vocab (e.g. OR must not become "order" OR ...).
         let result = fts_expand_short_terms(&conn, &sanitized("NOT secret"));
-        assert!(!result.as_str().starts_with("NOT "), "{}", result.as_str());
+        assert_eq!(result.as_str(), "\"NOT\" \"secret\"");
+
+        let result = fts_expand_short_terms(&conn, &sanitized("OR"));
+        assert_eq!(result.as_str(), "\"OR\"");
+
+        let result = fts_expand_short_terms(&conn, &sanitized("foo or bar"));
+        assert_eq!(result.as_str(), "\"foo\" \"or\" \"bar\"");
     }
 
     #[test]
@@ -345,6 +358,30 @@ mod tests {
         let conn = setup_fts_db();
         let result = fts_expand_short_terms(&conn, &sanitized("a"));
         assert!(result.as_str().contains("\"audit\"") || result.as_str() == "\"a\"");
+    }
+
+    #[test]
+    fn prepare_match_query_end_to_end() {
+        let conn = setup_fts_db();
+        let result = prepare_match_query(&conn, "au login").unwrap();
+        assert!(result.as_str().contains("\"login\""), "{}", result.as_str());
+        assert!(result.as_str().contains(" OR "), "{}", result.as_str());
+    }
+
+    #[test]
+    fn prepare_match_query_empty_input() {
+        let conn = setup_fts_db();
+        assert_eq!(
+            prepare_match_query(&conn, ""),
+            Err(SanitizeError::EmptyInput)
+        );
+    }
+
+    #[test]
+    fn prepare_match_query_operators_are_quoted() {
+        let conn = setup_fts_db();
+        let result = prepare_match_query(&conn, "foo OR bar").unwrap();
+        assert_eq!(result.as_str(), "\"foo\" \"OR\" \"bar\"");
     }
 
     fn sanitized(s: &str) -> SanitizedFtsQuery {
@@ -404,36 +441,30 @@ mod tests {
     }
 
     #[test]
-    fn t011_not_operator_stripped() {
-        assert_eq!(sanitize_fts_query("NOT secret"), ok("secret"));
+    fn t011_not_operator_preserved() {
+        assert_eq!(sanitize_fts_query("NOT secret"), ok("NOT secret"));
     }
 
     #[test]
-    fn t012_and_operator_stripped() {
-        assert_eq!(sanitize_fts_query("foo AND bar"), ok("foo bar"));
+    fn t012_and_operator_preserved() {
+        assert_eq!(sanitize_fts_query("foo AND bar"), ok("foo AND bar"));
     }
 
     #[test]
-    fn t013_or_operator_stripped() {
-        assert_eq!(sanitize_fts_query("foo OR bar"), ok("foo bar"));
+    fn t013_or_operator_preserved() {
+        assert_eq!(sanitize_fts_query("foo OR bar"), ok("foo OR bar"));
     }
 
     #[test]
-    fn t014_operator_only_returns_error() {
-        assert_eq!(
-            sanitize_fts_query("NOT"),
-            Err(SanitizeError::NoSearchableTerms)
-        );
-        assert_eq!(
-            sanitize_fts_query("AND OR NOT"),
-            Err(SanitizeError::NoSearchableTerms)
-        );
+    fn t014_operator_only_preserved() {
+        assert_eq!(sanitize_fts_query("NOT"), ok("NOT"));
+        assert_eq!(sanitize_fts_query("AND OR NOT"), ok("AND OR NOT"));
     }
 
     #[test]
-    fn t015_case_insensitive_operators() {
-        assert_eq!(sanitize_fts_query("not secret"), ok("secret"));
-        assert_eq!(sanitize_fts_query("Not secret"), ok("secret"));
+    fn t015_case_insensitive_operators_preserved() {
+        assert_eq!(sanitize_fts_query("not secret"), ok("not secret"));
+        assert_eq!(sanitize_fts_query("Not secret"), ok("Not secret"));
     }
 
     #[test]

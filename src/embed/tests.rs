@@ -144,6 +144,16 @@ fn embedder_new_model_not_found() {
 }
 
 #[test]
+fn mean_pooling_short_mask_truncates_safely() {
+    // attention_mask shorter than seq_len: .take(seq_len) on the iterator
+    // exhausts the mask first, silently pooling only the covered tokens.
+    let data = vec![1.0f32, 2.0, 3.0, 4.0];
+    let mask = vec![1u32];
+    let result = mean_pooling(&data, 2, 2, &mask);
+    assert_eq!(result, vec![1.0, 2.0]);
+}
+
+#[test]
 fn sort_indices_by_len_orders_by_length() {
     let texts = &["long text here", "hi", "medium"];
     let indices = sort_indices_by_len(texts);
