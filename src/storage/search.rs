@@ -34,6 +34,28 @@ fn strip_near_groups(query: &str) -> Vec<&str> {
     tokens
 }
 
+/// Remove operator-like keywords (`AND`, `OR`, `NOT`) that lack a non-operator
+/// neighbour on at least one side. Keeps operators sandwiched between real terms.
+fn drop_dangling_operators(tokens: &[String]) -> Vec<&str> {
+    fn is_op(s: &str) -> bool {
+        let u = s.to_ascii_uppercase();
+        u == "AND" || u == "OR" || u == "NOT"
+    }
+    tokens
+        .iter()
+        .enumerate()
+        .filter(|&(i, t)| {
+            if !is_op(t) {
+                return true;
+            }
+            let has_left = i > 0 && !is_op(&tokens[i - 1]);
+            let has_right = i + 1 < tokens.len() && !is_op(&tokens[i + 1]);
+            has_left && has_right
+        })
+        .map(|(_, t)| t.as_str())
+        .collect()
+}
+
 /// A pre-processed FTS5 query string — intermediate representation between
 /// raw user input and [`MatchFtsQuery`]. Not part of the public API.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,7 +114,7 @@ pub(crate) fn sanitize_fts_query(query: &str) -> Result<SanitizedFtsQuery, Sanit
     if query.trim().is_empty() {
         return Err(SanitizeError::EmptyInput);
     }
-    let result = strip_near_groups(query)
+    let tokens: Vec<String> = strip_near_groups(query)
         .into_iter()
         .map(|w| {
             let stripped = w.trim_start_matches(['^', '+', '-']);
@@ -105,8 +127,11 @@ pub(crate) fn sanitize_fts_query(query: &str) -> Result<SanitizedFtsQuery, Sanit
             }
         })
         .filter(|w| !w.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ");
+        .collect();
+    // Drop operator-like keywords that became dangling after NEAR() removal.
+    // An operator is dangling when it has no non-operator neighbour on at least
+    // one side (e.g. "foo OR" after NEAR strip, or "NOT" standing alone).
+    let result = drop_dangling_operators(&tokens).join(" ");
     if result.is_empty() {
         return Err(SanitizeError::NoSearchableTerms);
     }
@@ -441,30 +466,43 @@ mod tests {
     }
 
     #[test]
-    fn t011_not_operator_preserved() {
-        assert_eq!(sanitize_fts_query("NOT secret"), ok("NOT secret"));
-    }
-
-    #[test]
-    fn t012_and_operator_preserved() {
+    fn t011_sandwiched_operator_preserved() {
         assert_eq!(sanitize_fts_query("foo AND bar"), ok("foo AND bar"));
-    }
-
-    #[test]
-    fn t013_or_operator_preserved() {
         assert_eq!(sanitize_fts_query("foo OR bar"), ok("foo OR bar"));
     }
 
     #[test]
-    fn t014_operator_only_preserved() {
-        assert_eq!(sanitize_fts_query("NOT"), ok("NOT"));
-        assert_eq!(sanitize_fts_query("AND OR NOT"), ok("AND OR NOT"));
+    fn t012_dangling_operator_dropped() {
+        // Leading/trailing operators without both neighbours are dropped.
+        assert_eq!(sanitize_fts_query("NOT secret"), ok("secret"));
+        assert_eq!(sanitize_fts_query("foo OR"), ok("foo"));
     }
 
     #[test]
-    fn t015_case_insensitive_operators_preserved() {
-        assert_eq!(sanitize_fts_query("not secret"), ok("not secret"));
-        assert_eq!(sanitize_fts_query("Not secret"), ok("Not secret"));
+    fn t013_operator_only_returns_error() {
+        assert_eq!(
+            sanitize_fts_query("NOT"),
+            Err(SanitizeError::NoSearchableTerms)
+        );
+        assert_eq!(
+            sanitize_fts_query("AND OR NOT"),
+            Err(SanitizeError::NoSearchableTerms)
+        );
+    }
+
+    #[test]
+    fn t014_near_then_dangling_operator() {
+        // "foo OR NEAR(bar baz)" → NEAR stripped → "foo OR" → OR dangling → "foo"
+        assert_eq!(
+            sanitize_fts_query("foo OR NEAR(bar baz)"),
+            ok("foo")
+        );
+    }
+
+    #[test]
+    fn t015_case_insensitive_operators() {
+        assert_eq!(sanitize_fts_query("foo or bar"), ok("foo or bar"));
+        assert_eq!(sanitize_fts_query("Not secret"), ok("secret"));
     }
 
     #[test]
