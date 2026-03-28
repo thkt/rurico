@@ -13,7 +13,7 @@ use self::mlx::EmbedderInner;
 #[cfg(any(test, feature = "test-support"))]
 pub use test_support::{AlternatingEmbedder, FailingEmbedder, MismatchEmbedder, MockEmbedder};
 
-pub use pooling::{l2_normalize, mean_pooling, postprocess_embedding};
+pub(crate) use pooling::postprocess_embedding;
 
 use std::path::PathBuf;
 use std::sync::Mutex;

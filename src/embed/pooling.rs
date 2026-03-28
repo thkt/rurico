@@ -1,6 +1,6 @@
 use super::{EMBEDDING_DIMS, EmbedError};
 
-pub fn mean_pooling(
+pub(crate) fn mean_pooling(
     data: &[f32],
     seq_len: usize,
     hidden_size: usize,
@@ -29,7 +29,7 @@ pub fn mean_pooling(
     result
 }
 
-pub fn l2_normalize(v: &mut [f32]) {
+pub(crate) fn l2_normalize(v: &mut [f32]) {
     let norm: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
     if norm > 0.0 {
         for x in v.iter_mut() {
@@ -38,7 +38,7 @@ pub fn l2_normalize(v: &mut [f32]) {
     }
 }
 
-pub fn postprocess_embedding(
+pub(crate) fn postprocess_embedding(
     flat: &[f32],
     seq_len: usize,
     attention_mask: &[u32],
