@@ -1,8 +1,7 @@
 mod search;
 
 pub use search::{
-    MatchFtsQuery, SanitizeError, SanitizedFtsQuery, fts_expand_short_terms, fts_quote,
-    recency_decay, rrf_merge, sanitize_fts_query,
+    MatchFtsQuery, SanitizeError, fts_quote, prepare_match_query, recency_decay, rrf_merge,
 };
 
 use rusqlite::ffi::sqlite3_auto_extension;
@@ -15,7 +14,7 @@ pub fn f32_as_bytes(slice: &[f32]) -> &[u8] {
     bytemuck::cast_slice(slice)
 }
 
-/// Register sqlite-vec as an auto-extension. Safe to call multiple times (no-op after first).
+/// Register sqlite-vec as an auto-extension.
 pub fn ensure_sqlite_vec() -> Result<(), String> {
     static INIT: std::sync::OnceLock<Result<(), i32>> = std::sync::OnceLock::new();
     let init_result = INIT.get_or_init(|| {

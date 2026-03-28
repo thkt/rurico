@@ -144,6 +144,14 @@ fn embedder_new_model_not_found() {
 }
 
 #[test]
+fn mean_pooling_short_mask_truncates_safely() {
+    let data = vec![1.0f32, 2.0, 3.0, 4.0];
+    let mask = vec![1u32];
+    let result = mean_pooling(&data, 2, 2, &mask);
+    assert_eq!(result, vec![1.0, 2.0]);
+}
+
+#[test]
 fn sort_indices_by_len_orders_by_length() {
     let texts = &["long text here", "hi", "medium"];
     let indices = sort_indices_by_len(texts);
@@ -375,18 +383,14 @@ fn unpack_batch_output_happy_path() {
     let batch_size = 2;
     let max_seq_len = 1;
     let mut flat = vec![0.0f32; batch_size * max_seq_len * hidden];
-    // Give each item a distinct nonzero value so postprocess produces different unit vectors
     flat[0] = 1.0;
     flat[hidden] = 2.0;
-    // sorted_indices: [1, 0] means sorted_pos 0 → orig 1, sorted_pos 1 → orig 0
     let sorted = vec![1usize, 0];
     let mask = vec![1u32; batch_size * max_seq_len];
     let results = unpack_batch_output(&flat, &sorted, max_seq_len, &mask).unwrap();
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].len(), hidden);
     assert_eq!(results[1].len(), hidden);
-    // orig 0 came from sorted_pos 1 (flat[hidden]=2.0), orig 1 from sorted_pos 0 (flat[0]=1.0)
-    // Both are L2 normalized, so first nonzero element should be 1.0 (single nonzero in 768-dim)
     assert!((results[0][0] - 1.0).abs() < 1e-6);
     assert!((results[1][0] - 1.0).abs() < 1e-6);
 }
