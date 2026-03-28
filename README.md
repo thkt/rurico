@@ -101,12 +101,12 @@ match sanitize_fts_query(user_input) {
         // 空のクエリ
     }
     Err(SanitizeError::NoSearchableTerms) => {
-        // NEAR() グループのみ等、検索可能な語がない
+        // 演算子のみ等、検索可能な語がない
     }
 }
 ```
 
-`sanitize_fts_query` は `NEAR()` グループ、`^`/`+`/`-` プレフィックス、コロン、不均衡な引用符を処理し、`SanitizedFtsQuery` を返す。`AND`/`OR`/`NOT` のような operator-like keyword は literal term として保持される。この段階では前処理のみでMATCHに直接渡せる状態ではない。`fts_expand_short_terms` が全トークンを引用符で囲み、MATCHに安全な `MatchFtsQuery` を生成する。
+`sanitize_fts_query` は `AND`/`OR`/`NOT`、`NEAR()` グループ、`^`/`+`/`-` プレフィックス、コロン、不均衡な引用符を処理し、`SanitizedFtsQuery` を返す。この段階では前処理のみでMATCHに直接渡せる状態ではない。`fts_expand_short_terms` が全トークンを引用符で囲み、MATCHに安全な `MatchFtsQuery` を生成する。
 
 ### ログ出力
 
