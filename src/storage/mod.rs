@@ -10,11 +10,15 @@ use sqlite_vec::sqlite3_vec_init;
 #[cfg(not(target_endian = "little"))]
 compile_error!("rurico requires a little-endian target for f32↔u8 embedding storage");
 
+/// Reinterpret `&[f32]` as `&[u8]` (zero-copy, little-endian).
 pub fn f32_as_bytes(slice: &[f32]) -> &[u8] {
     bytemuck::cast_slice(slice)
 }
 
-/// Register sqlite-vec as an auto-extension.
+/// Register sqlite-vec as a process-global auto-extension.
+///
+/// Idempotent — subsequent calls are no-ops. All SQLite connections opened
+/// after this call will have the vec extension available.
 pub fn ensure_sqlite_vec() -> Result<(), String> {
     static INIT: std::sync::OnceLock<Result<(), i32>> = std::sync::OnceLock::new();
     let init_result = INIT.get_or_init(|| {

@@ -205,10 +205,14 @@ pub struct ModernBert {
     final_norm: nn::LayerNorm,
     local_attention_half: usize,
     max_seq_len: usize,
+    /// Single-entry cache keyed on `seq_len`. Rebuilds when `seq_len` changes.
     local_mask_cache: Option<(i32, Array)>,
 }
 
 impl ModernBert {
+    /// Construct a model with randomly initialized weights from `config`.
+    ///
+    /// Use [`ModernBert::load`] to load pre-trained weights from a SafeTensors file.
     pub fn new(config: &Config) -> Result<Self, Exception> {
         config
             .validate()
@@ -238,6 +242,7 @@ impl ModernBert {
         })
     }
 
+    /// Load a pre-trained model from a SafeTensors file.
     pub fn load(path: impl AsRef<Path>, config: &Config) -> Result<Self, Exception> {
         let path = path.as_ref();
         if !path.exists() {
@@ -253,6 +258,7 @@ impl ModernBert {
         Ok(model)
     }
 
+    /// Run a forward pass, returning final hidden states `[batch_size, seq_len, hidden_size]`.
     pub fn forward(
         &mut self,
         input_ids: &[u32],

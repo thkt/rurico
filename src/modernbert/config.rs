@@ -3,22 +3,35 @@ use serde::Deserialize;
 /// ModernBERT config (config.json).
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
+    /// Vocabulary size (number of token embeddings).
     pub vocab_size: usize,
+    /// Hidden dimension of each transformer layer.
     pub hidden_size: usize,
+    /// Number of transformer layers.
     pub num_hidden_layers: usize,
+    /// Number of attention heads per layer.
     pub num_attention_heads: usize,
+    /// FFN intermediate dimension (before GLU split).
     pub intermediate_size: usize,
+    /// Maximum input sequence length.
     pub max_position_embeddings: usize,
+    /// Epsilon for layer normalization.
     pub layer_norm_eps: f64,
+    /// Padding token ID.
     #[allow(dead_code)]
     pub pad_token_id: u32,
+    /// Apply global (full-sequence) attention every N layers.
     pub global_attn_every_n_layers: usize,
+    /// RoPE theta for global attention layers.
     pub global_rope_theta: f64,
+    /// Sliding window size for local attention layers.
     pub local_attention: usize,
+    /// RoPE theta for local attention layers.
     pub local_rope_theta: f64,
 }
 
 impl Config {
+    /// Validate invariants (non-zero sizes, divisibility).
     pub fn validate(&self) -> Result<(), String> {
         if self.num_attention_heads == 0 {
             return Err("num_attention_heads must be > 0".into());

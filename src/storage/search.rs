@@ -78,31 +78,28 @@ impl SanitizedFtsQuery {
 pub struct MatchFtsQuery(String);
 
 impl MatchFtsQuery {
+    /// Borrow the inner query string.
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    /// Consume and return the inner `String`.
+    pub fn into_string(self) -> String {
+        self.0
     }
 }
 
 /// Reasons why [`prepare_match_query`] cannot produce a usable query.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SanitizeError {
     /// The input string was empty or contained only whitespace.
+    #[error("search query is empty")]
     EmptyInput,
     /// The input contained tokens, but none survived sanitization
     /// (e.g. only `NEAR()` groups or prefix characters).
+    #[error("search query contains no searchable terms")]
     NoSearchableTerms,
 }
-
-impl std::fmt::Display for SanitizeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::EmptyInput => f.write_str("search query is empty"),
-            Self::NoSearchableTerms => f.write_str("search query contains no searchable terms"),
-        }
-    }
-}
-
-impl std::error::Error for SanitizeError {}
 
 /// Neutralize FTS5 special syntax in user queries: `NEAR()` grouping,
 /// start-of-column `^`, required `+` / excluded `-` prefixes, column-filter
@@ -161,7 +158,7 @@ pub fn rrf_merge<K: Clone + Eq + Hash + Ord>(
     results
 }
 
-/// Quote a term for FTS5 MATCH syntax.
+/// Wrap `s` in double quotes for FTS5 MATCH syntax, escaping internal `"` as `""`.
 pub fn fts_quote(s: &str) -> String {
     format!("\"{}\"", s.replace('"', "\"\""))
 }
