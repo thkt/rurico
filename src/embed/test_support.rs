@@ -8,6 +8,7 @@ fn one_hot(index: usize) -> Vec<f32> {
     v
 }
 
+/// Returns deterministic one-hot vectors for all inputs.
 pub struct MockEmbedder;
 
 impl Embed for MockEmbedder {
@@ -24,12 +25,14 @@ impl Embed for MockEmbedder {
     }
 }
 
+/// Embedder that returns errors (configurable per method).
 pub struct FailingEmbedder {
     message: &'static str,
     docs_fail: bool,
 }
 
 impl FailingEmbedder {
+    /// Both `embed_query` and `embed_document` return errors.
     pub fn all_fail(message: &'static str) -> Self {
         Self {
             message,
@@ -37,6 +40,7 @@ impl FailingEmbedder {
         }
     }
 
+    /// Only `embed_query` returns errors; documents succeed.
     pub fn query_only(message: &'static str) -> Self {
         Self {
             message,
@@ -59,6 +63,7 @@ impl Embed for FailingEmbedder {
     }
 }
 
+/// Batch returns fewer vectors than inputs (triggers mismatch errors).
 pub struct MismatchEmbedder;
 
 impl Embed for MismatchEmbedder {
@@ -75,11 +80,13 @@ impl Embed for MismatchEmbedder {
     }
 }
 
+/// Alternates between success and failure on `embed_document`.
 pub struct AlternatingEmbedder {
     call_count: AtomicU32,
 }
 
 impl AlternatingEmbedder {
+    /// Create with call counter at zero (first `embed_document` fails).
     pub fn new() -> Self {
         Self {
             call_count: AtomicU32::new(0),

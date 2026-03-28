@@ -18,29 +18,56 @@ pub(crate) use pooling::postprocess_embedding;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+/// Output vector dimensionality (768-d for ruri-v3-310m).
 pub const EMBEDDING_DIMS: u32 = 768;
+/// Prefix prepended to query text before tokenization.
 pub const QUERY_PREFIX: &str = "検索クエリ: ";
+/// Prefix prepended to document text before tokenization.
 pub const DOCUMENT_PREFIX: &str = "検索文書: ";
 
 const MODEL_REPO: &str = "cl-nagoya/ruri-v3-310m";
 const MODEL_REVISION: &str = "18b60fb8c2b9df296fb4212bb7d23ef94e579cd3";
 
+/// Errors from embedding operations.
 #[derive(Debug, thiserror::Error)]
 pub enum EmbedError {
+    /// Model weights file not found.
     #[error("model not found at {path}")]
-    ModelNotFound { path: PathBuf },
+    ModelNotFound {
+        /// Path that was looked up.
+        path: PathBuf,
+    },
+    /// Output tensor shape does not match expected dimensions.
     #[error("dimension mismatch: expected {expected}, got {actual}")]
-    DimensionMismatch { expected: usize, actual: usize },
+    DimensionMismatch {
+        /// Expected dimension count.
+        expected: usize,
+        /// Actual dimension count.
+        actual: usize,
+    },
+    /// Config file missing or unparseable.
     #[error("config error at {path}: {reason}")]
-    Config { path: PathBuf, reason: String },
+    Config {
+        /// Config file path.
+        path: PathBuf,
+        /// Parse or IO failure detail.
+        reason: String,
+    },
+    /// MLX inference failure.
     #[error("inference error: {0}")]
     Inference(String),
+    /// Tokenizer load or encode failure.
     #[error("tokenizer error: {0}")]
     Tokenizer(String),
+    /// Model download failure.
     #[error("download failed: {0}")]
     Download(String),
+    /// Weights loaded but model is corrupt or incompatible.
     #[error("model load failed: {reason}")]
-    ModelCorrupt { reason: String },
+    ModelCorrupt {
+        /// Failure detail from the backend.
+        reason: String,
+    },
 }
 
 impl EmbedError {
@@ -64,9 +91,12 @@ impl EmbedError {
     }
 }
 
+/// Result of [`Embedder::probe`] — whether the MLX backend can load the model.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProbeStatus {
+    /// Model loaded successfully.
     Available,
+    /// MLX backend crashed or is unsupported on this hardware.
     BackendUnavailable,
 }
 
@@ -78,21 +108,29 @@ pub enum ProbeStatus {
 /// # Contract
 /// Implementations MUST return vectors of exactly [`EMBEDDING_DIMS`] elements.
 pub trait Embed: Send + Sync {
+    /// Embed a search query (prepends [`QUERY_PREFIX`]).
     fn embed_query(&self, text: &str) -> Result<Vec<f32>, EmbedError>;
+    /// Embed a document for indexing (prepends [`DOCUMENT_PREFIX`]).
     fn embed_document(&self, text: &str) -> Result<Vec<f32>, EmbedError>;
+    /// Batch-embed documents. Default calls [`embed_document`](Self::embed_document) per item.
     fn embed_documents_batch(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>, EmbedError> {
         texts.iter().map(|t| self.embed_document(t)).collect()
     }
 }
 
+/// Paths to the three model artifacts (weights, config, tokenizer).
 #[derive(Debug, Clone)]
 pub struct ModelPaths {
+    /// SafeTensors weights file.
     pub model: PathBuf,
+    /// `config.json` (ModernBERT hyperparameters).
     pub config: PathBuf,
+    /// `tokenizer.json` (HuggingFace tokenizer).
     pub tokenizer: PathBuf,
 }
 
 impl ModelPaths {
+    /// Build paths assuming standard filenames under `dir`.
     #[cfg(any(test, feature = "test-support"))]
     pub fn from_dir(dir: &std::path::Path) -> Self {
         Self {
@@ -102,6 +140,7 @@ impl ModelPaths {
         }
     }
 
+    /// Check that all three files exist, returning [`EmbedError::ModelNotFound`] on the first miss.
     pub fn validate(&self) -> Result<(), EmbedError> {
         for path in [&self.model, &self.config, &self.tokenizer] {
             if !path.exists() {
@@ -168,6 +207,9 @@ fn model_paths_from_cache(cache: &hf_hub::Cache) -> Result<Option<ModelPaths>, E
     }))
 }
 
+/// Deserialize a JSON config file into `T`.
+///
+/// Returns [`EmbedError::Config`] on IO failure or JSON parse error.
 pub fn read_config<T: serde::de::DeserializeOwned>(
     path: &std::path::Path,
 ) -> Result<T, EmbedError> {
@@ -175,16 +217,22 @@ pub fn read_config<T: serde::de::DeserializeOwned>(
     serde_json::from_str(&text).map_err(|e| EmbedError::config(path, format!("parse error: {e}")))
 }
 
+/// Load a HuggingFace tokenizer from a JSON file.
 pub fn load_tokenizer(path: &std::path::Path) -> Result<tokenizers::Tokenizer, EmbedError> {
     tokenizers::Tokenizer::from_file(path).map_err(EmbedError::tokenizer)
 }
 
+/// Output of [`tokenize_with_prefix`]: token IDs, attention mask, and sequence length.
 pub struct TokenizedInput {
+    /// Token IDs produced by the tokenizer.
     pub input_ids: Vec<u32>,
+    /// 1 for real tokens, 0 for padding.
     pub attention_mask: Vec<u32>,
+    /// Number of tokens (including special tokens).
     pub seq_len: usize,
 }
 
+/// Tokenize `text` with a prefix prepended (e.g. query/document prefix).
 pub fn tokenize_with_prefix(
     tokenizer: &tokenizers::Tokenizer,
     text: &str,
@@ -204,7 +252,9 @@ pub fn tokenize_with_prefix(
     })
 }
 
-/// Shorter texts first reduces wasted padding in batched tokenization.
+/// Return indices into `texts` sorted by ascending byte length.
+///
+/// Shorter-first ordering minimizes padding waste in batched tokenization.
 pub(crate) fn sort_indices_by_len(texts: &[&str]) -> Vec<usize> {
     let mut indices: Vec<usize> = (0..texts.len()).collect();
     indices.sort_unstable_by_key(|&i| texts[i].len());
@@ -237,8 +287,9 @@ fn probe_env_to_paths(
 
 /// Call at the start of `main()` in binaries that use [`Embedder::probe`].
 ///
-/// When the process was re-invoked as a probe subprocess, this function loads
-/// the model, reports the result, and exits. Otherwise it returns immediately.
+/// When the process was re-invoked as a probe subprocess, this function writes
+/// a handshake token to stdout, attempts to load the model, and exits with
+/// code 0 (success) or non-zero (failure). Otherwise it returns immediately.
 pub fn handle_probe_if_needed() {
     let Some(result) = probe_env_to_paths(
         std::env::var(PROBE_ENV_MODEL).ok(),
@@ -269,9 +320,9 @@ pub fn handle_probe_if_needed() {
 /// Uses `Command` (fork+exec internally) so the child gets a clean process
 /// state, avoiding the async-signal-safety issues of bare fork().
 ///
-/// - Exit 0 → model loads successfully
-/// - Exit non-zero → model load failed (reason captured from stderr)
-/// - Killed by signal → MLX framework crashed (e.g. SIGABRT)
+/// - Exit 0 → [`ProbeStatus::Available`]
+/// - Exit non-zero → [`EmbedError::ModelCorrupt`] (reason from stderr)
+/// - Killed by signal / no exit code → [`ProbeStatus::BackendUnavailable`]
 fn probe_via_subprocess(paths: &ModelPaths) -> Result<ProbeStatus, EmbedError> {
     let exe = std::env::current_exe()
         .map_err(|e| EmbedError::inference(format!("cannot locate executable: {e}")))?;
@@ -354,6 +405,7 @@ fn probe_via_fork(paths: &ModelPaths) -> Result<ProbeStatus, EmbedError> {
     }
 }
 
+/// Thread-safe embedding model backed by MLX. Wraps the backend in a [`Mutex`].
 pub struct Embedder {
     inner: Mutex<EmbedderInner>,
 }
@@ -365,6 +417,7 @@ impl std::fmt::Debug for Embedder {
 }
 
 impl Embedder {
+    /// Load model weights, config, and tokenizer from `paths`.
     pub fn new(paths: &ModelPaths) -> Result<Self, EmbedError> {
         let inner = EmbedderInner::new(paths)?;
         Ok(Self {
