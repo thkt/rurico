@@ -105,7 +105,7 @@ match prepare_match_query(&conn, user_input) {
 }
 ```
 
-`NEAR()` グループ、`^`/`+`/`-` プレフィックス、コロン、不均衡な引用符は内部で無害化される。`AND`/`OR`/`NOT` のようなoperator-like keywordはliteral termとして保持され、引用符で囲まれてMATCHに渡される。短い語（1-2文字）は `fts_chunks_vocab` テーブルがあればprefix展開される（なければそのまま引用）。
+`NEAR()` グループ、`^`/`+`/`-` プレフィックス、コロン、不均衡な引用符は内部で無害化される。`AND`/`OR`/`NOT` のようなoperator-like keywordは、前後に非operatorの語がある場合のみliteral termとして引用符で囲まれる。前後が欠けたdangling operator（例: 先頭の `NOT`、NEAR除去後に孤立した `OR`）は除去される。短い語（1-2文字）は `fts_chunks_vocab` テーブルがあればprefix展開される（なければそのまま引用）。
 
 ### ログ出力
 

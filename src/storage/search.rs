@@ -109,7 +109,8 @@ impl std::error::Error for SanitizeError {}
 /// Neutralize FTS5 special syntax in user queries: `NEAR()` grouping,
 /// start-of-column `^`, required `+` / excluded `-` prefixes, column-filter
 /// colons, and unbalanced quotes. Operator-like keywords (`AND`, `OR`, `NOT`)
-/// are preserved as literal terms.
+/// sandwiched between non-operator terms are kept as literal terms; dangling
+/// operators (e.g. leading `NOT`, trailing `OR` after NEAR removal) are dropped.
 pub(crate) fn sanitize_fts_query(query: &str) -> Result<SanitizedFtsQuery, SanitizeError> {
     if query.trim().is_empty() {
         return Err(SanitizeError::EmptyInput);
@@ -174,7 +175,8 @@ pub fn fts_quote(s: &str) -> String {
 ///
 /// Neutralizes `NEAR()` groups, prefix characters (`^`, `+`, `-`), column-filter
 /// colons, and unbalanced quotes. Operator-like keywords (`AND`, `OR`, `NOT`)
-/// are preserved as quoted literal terms.
+/// between non-operator terms are quoted as literals; dangling operators are
+/// dropped.
 ///
 /// Short terms (1-2 chars) are expanded via `fts_chunks_vocab` prefix matching
 /// when the vocab table exists; otherwise they are quoted as-is.
