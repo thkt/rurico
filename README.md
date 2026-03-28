@@ -55,6 +55,28 @@ let vector = embedder.embed_query("検索クエリ")?;
 // vector: Vec<f32> (768 次元)
 ```
 
+### 定数
+
+| 定数              | 値               | 用途                                 |
+| ----------------- | ---------------- | ------------------------------------ |
+| `EMBEDDING_DIMS`  | `768`            | 出力ベクトルの次元数                 |
+| `QUERY_PREFIX`    | `"検索クエリ: "` | クエリ埋め込みときに先頭へ付加       |
+| `DOCUMENT_PREFIX` | `"検索文書: "`   | ドキュメント埋め込みときに先頭へ付加 |
+
+### モデルキャッシュの確認
+
+ネットワークアクセスなしでモデルがローカルにあるか確認できる。
+
+```rust
+use rurico::embed::model_paths_if_cached;
+
+if let Some(paths) = model_paths_if_cached()? {
+    // キャッシュ済み — そのまま Embedder::new に渡せる
+} else {
+    // 未ダウンロード
+}
+```
+
 ### probe なしの簡易利用
 
 abortリスクを許容できるスクリプト等ではprobeを省略できる。
@@ -103,9 +125,81 @@ match prepare_match_query(&conn, user_input) {
 
 `NEAR()` グループ、`^`/`+`/`-` プレフィックス、コロン、不均衡な引用符は内部で無害化される。`AND`/`OR`/`NOT` のようなoperator-like keywordは、前後に非operatorの語がある場合のみliteral termとして引用符で囲まれる。前後が欠けたdangling operator（例: 先頭の `NOT`、NEAR除去後に孤立した `OR`）は除去される。短い語（1-2文字）は `fts_chunks_vocab` テーブルがあればprefix展開される（なければそのまま引用）。
 
+### ハイブリッド検索ユーティリティ
+
+FTS5とベクトル検索の結果をReciprocal Rank Fusionでマージする。
+
+```rust
+use rurico::storage::rrf_merge;
+
+let fts_hits = vec![(1, 0.9), (2, 0.7), (3, 0.5)];
+let vec_hits = vec![(2, 0.95), (4, 0.8), (1, 0.6)];
+let merged = rrf_merge(&fts_hits, &vec_hits);
+// ランク位置のみで統合 — スコア値は無視される
+```
+
+### recency decay
+
+時間経過による減衰スコアを計算する。age=0で1.0、半減期で0.5。
+
+```rust
+use rurico::storage::recency_decay;
+
+let score = recency_decay(7.0, 30.0); // 7日経過、半減期30日
+```
+
+### ベクトルのバイト変換
+
+`sqlite-vec` にベクトルをバインドする際に使う。
+
+```rust
+use rurico::storage::f32_as_bytes;
+
+let vector: Vec<f32> = embedder.embed_query("検索")?;
+stmt.execute(rusqlite::params![f32_as_bytes(&vector)])?;
+```
+
+### エラー型
+
+`EmbedError` はembedding操作全般のエラーを表す。
+
+| variant             | 発生条件                          |
+| ------------------- | --------------------------------- |
+| `ModelNotFound`     | 重みファイルが見つからない        |
+| `DimensionMismatch` | 出力テンソルの次元が不一致        |
+| `Config`            | config.json の読み込み/パース失敗 |
+| `Inference`         | MLX 推論失敗                      |
+| `Tokenizer`         | tokenizer のロード/エンコード失敗 |
+| `Download`          | モデルダウンロード失敗            |
+| `ModelCorrupt`      | 重みは読めたがモデルが破損/非互換 |
+
 ### ログ出力
 
 内部の警告は `log` crate経由で出力される。`env_logger::init()` 等でloggerを初期化すると観測できる。
+
+### テストサポート（downstream 向け）
+
+`test-support` featureを有効にすると、downstream crateのテストで使えるモックが利用できる。
+
+```toml
+[dev-dependencies]
+rurico = { git = "https://github.com/thkt/rurico", tag = "v0.2.0", features = ["test-support"] }
+```
+
+| struct                | 振る舞い                                  |
+| --------------------- | ----------------------------------------- |
+| `MockEmbedder`        | 決定的な one-hot ベクトルを返す           |
+| `FailingEmbedder`     | 設定に応じてエラーを返す                  |
+| `MismatchEmbedder`    | batch で入力より少ないベクトルを返す      |
+| `AlternatingEmbedder` | `embed_document` が成功と失敗を交互に返す |
+
+```rust
+use rurico::embed::{Embed, MockEmbedder};
+
+let embedder = MockEmbedder;
+let v = embedder.embed_query("テスト")?;
+assert_eq!(v.len(), 768);
+```
 
 ## テスト
 
