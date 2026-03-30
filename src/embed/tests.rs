@@ -498,8 +498,13 @@ fn t_002_embed_with_prefix_returns_vec_f32() {
 fn t_003_embed_batch_returns_vec_vec_f32() {
     let paths = download_model().expect("download model");
     let mut inner = super::mlx::EmbedderInner::new(&paths).expect("load model");
-    let texts = &["function useAuth() { return user; }", "function Button() { return <div/>; }"];
-    let results = inner.embed_batch(texts).expect("embed_batch should succeed");
+    let texts = &[
+        "function useAuth() { return user; }",
+        "function Button() { return <div/>; }",
+    ];
+    let results = inner
+        .embed_batch(texts)
+        .expect("embed_batch should succeed");
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].len(), EMBEDDING_DIMS as usize);
     assert_eq!(results[1].len(), EMBEDDING_DIMS as usize);
@@ -517,5 +522,8 @@ fn t_004_repeated_embed_returns_consistent_results() {
         .embed_with_prefix("authentication logic", QUERY_PREFIX)
         .expect("second embed should succeed");
     assert_eq!(first.len(), EMBEDDING_DIMS as usize);
-    assert_eq!(first, second, "repeated embed should produce identical results");
+    assert_eq!(
+        first, second,
+        "repeated embed should produce identical results"
+    );
 }

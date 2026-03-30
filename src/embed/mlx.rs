@@ -171,12 +171,12 @@ pub(super) fn unpack_batch_output(
             actual: flat.len(),
         })?;
     let hidden_size = flat.len() / total;
-    let stride = max_seq_len.checked_mul(hidden_size).ok_or(
-        EmbedError::DimensionMismatch {
+    let stride = max_seq_len
+        .checked_mul(hidden_size)
+        .ok_or(EmbedError::DimensionMismatch {
             expected: total,
             actual: flat.len(),
-        },
-    )?;
+        })?;
     let mut results = vec![Vec::new(); sorted_indices.len()];
     for (sorted_pos, &orig_idx) in sorted_indices.iter().enumerate() {
         let seq_data = &flat[sorted_pos * stride..(sorted_pos + 1) * stride];
