@@ -418,6 +418,13 @@ impl std::fmt::Debug for Embedder {
 
 impl Embedder {
     /// Load model weights, config, and tokenizer from `paths`.
+    ///
+    /// # Single-instance expectation
+    ///
+    /// `mlx_clear_cache()` operates on process-global Metal allocator state.
+    /// Concurrent calls are serialized by an internal lock, but holding
+    /// multiple `Embedder` instances doubles GPU memory usage (~600 MB).
+    /// Prefer one `Embedder` per process.
     pub fn new(paths: &ModelPaths) -> Result<Self, EmbedError> {
         let inner = EmbedderInner::new(paths)?;
         Ok(Self {
