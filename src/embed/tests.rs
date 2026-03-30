@@ -481,3 +481,49 @@ fn probe_returns_available_with_real_model() {
     let status = probe_via_fork(&paths).expect("probe should succeed");
     assert_eq!(status, ProbeStatus::Available);
 }
+
+#[test]
+#[cfg(feature = "test-mlx")]
+fn t_002_embed_with_prefix_returns_vec_f32() {
+    let paths = download_model().expect("download model");
+    let mut inner = super::mlx::EmbedderInner::new(&paths).expect("load model");
+    let result = inner
+        .embed_with_prefix("authentication logic", QUERY_PREFIX)
+        .expect("embed_with_prefix should succeed");
+    assert_eq!(result.len(), EMBEDDING_DIMS as usize);
+}
+
+#[test]
+#[cfg(feature = "test-mlx")]
+fn t_003_embed_batch_returns_vec_vec_f32() {
+    let paths = download_model().expect("download model");
+    let mut inner = super::mlx::EmbedderInner::new(&paths).expect("load model");
+    let texts = &[
+        "function useAuth() { return user; }",
+        "function Button() { return <div/>; }",
+    ];
+    let results = inner
+        .embed_batch(texts)
+        .expect("embed_batch should succeed");
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0].len(), EMBEDDING_DIMS as usize);
+    assert_eq!(results[1].len(), EMBEDDING_DIMS as usize);
+}
+
+#[test]
+#[cfg(feature = "test-mlx")]
+fn t_004_repeated_embed_returns_consistent_results() {
+    let paths = download_model().expect("download model");
+    let mut inner = super::mlx::EmbedderInner::new(&paths).expect("load model");
+    let first = inner
+        .embed_with_prefix("authentication logic", QUERY_PREFIX)
+        .expect("first embed should succeed");
+    let second = inner
+        .embed_with_prefix("authentication logic", QUERY_PREFIX)
+        .expect("second embed should succeed");
+    assert_eq!(first.len(), EMBEDDING_DIMS as usize);
+    assert_eq!(
+        first, second,
+        "repeated embed should produce identical results"
+    );
+}

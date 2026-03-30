@@ -43,8 +43,9 @@ impl EmbedderInner {
 
         output.eval().map_err(EmbedError::inference)?;
         let flat: &[f32] = output.as_slice();
-
-        postprocess_embedding(flat, tok.seq_len, &tok.attention_mask)
+        let result = postprocess_embedding(flat, tok.seq_len, &tok.attention_mask)?;
+        release_inference_output(output);
+        Ok(result)
     }
 
     fn prepare_batch(&self, texts: &[&str], prefix: &str) -> Result<PaddedBatch, EmbedError> {
@@ -103,13 +104,54 @@ impl EmbedderInner {
 
         output.eval().map_err(EmbedError::inference)?;
         let flat: &[f32] = output.as_slice();
-
-        unpack_batch_output(
+        let result = unpack_batch_output(
             flat,
             &batch.sorted_indices,
             batch.max_seq_len,
             &batch.attention_mask,
-        )
+        )?;
+        release_inference_output(output);
+        Ok(result)
+    }
+}
+
+static MLX_CACHE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn clear_cache() -> Result<(), EmbedError> {
+    // Recover from poison: cache-clear is stateless (guards `()`), safe to proceed
+    // after a panic in another thread. Contrast with `Embedder::lock_inner` (mod.rs)
+    // which propagates poison because it guards mutable model state.
+    let _guard = MLX_CACHE_LOCK.lock().unwrap_or_else(|e| {
+        log::warn!("MLX cache lock was poisoned; recovering");
+        e.into_inner()
+    });
+    // SAFETY:
+    // 1. Callers use `release_inference_output` which takes the Array by value,
+    //    ensuring no borrows/references to inference output remain
+    // 2. model weights remain live on `&mut self` — only unused cache buffers are freed
+    // 3. MLX_CACHE_LOCK guarantees exclusive access — no concurrent mlx_clear_cache calls
+    let code = unsafe { mlx_sys::mlx_clear_cache() };
+    check_clear_cache_result(code)
+}
+
+fn check_clear_cache_result(code: std::ffi::c_int) -> Result<(), EmbedError> {
+    if code != 0 {
+        return Err(EmbedError::inference(format!(
+            "mlx_clear_cache failed (code: {code})"
+        )));
+    }
+    Ok(())
+}
+
+/// Consume the MLX output array and attempt best-effort cache clearing.
+///
+/// Takes `output` by value to enforce the drop-before-clear ordering at
+/// compile time. Cache-clear failure is non-fatal: the embedding result
+/// is already in CPU memory as an owned `Vec`.
+fn release_inference_output(output: mlx_rs::Array) {
+    drop(output);
+    if let Err(e) = clear_cache() {
+        log::warn!("{e}");
     }
 }
 
@@ -120,15 +162,21 @@ pub(super) fn unpack_batch_output(
     max_seq_len: usize,
     attention_mask: &[u32],
 ) -> Result<Vec<Vec<f32>>, EmbedError> {
-    let total = sorted_indices.len() * max_seq_len;
-    if total == 0 || !flat.len().is_multiple_of(total) {
-        return Err(EmbedError::DimensionMismatch {
+    let total = sorted_indices
+        .len()
+        .checked_mul(max_seq_len)
+        .filter(|&t| t > 0 && flat.len().is_multiple_of(t))
+        .ok_or(EmbedError::DimensionMismatch {
+            expected: sorted_indices.len().saturating_mul(max_seq_len),
+            actual: flat.len(),
+        })?;
+    let hidden_size = flat.len() / total;
+    let stride = max_seq_len
+        .checked_mul(hidden_size)
+        .ok_or(EmbedError::DimensionMismatch {
             expected: total,
             actual: flat.len(),
-        });
-    }
-    let hidden_size = flat.len() / total;
-    let stride = max_seq_len * hidden_size;
+        })?;
     let mut results = vec![Vec::new(); sorted_indices.len()];
     for (sorted_pos, &orig_idx) in sorted_indices.iter().enumerate() {
         let seq_data = &flat[sorted_pos * stride..(sorted_pos + 1) * stride];
@@ -136,4 +184,44 @@ pub(super) fn unpack_batch_output(
         results[orig_idx] = postprocess_embedding(seq_data, max_seq_len, mask_slice)?;
     }
     Ok(results)
+}
+
+/// `t_NNN_` prefix maps to Spec test scenario IDs (T-001, T-002, …).
+/// Tests without spec references omit the prefix.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn t_001_check_clear_cache_result_nonzero_returns_inference_error() {
+        let err = check_clear_cache_result(1).unwrap_err();
+        assert!(
+            matches!(err, EmbedError::Inference(ref msg) if msg.contains("1")),
+            "expected Inference error containing code '1', got: {err}"
+        );
+    }
+
+    #[test]
+    fn check_clear_cache_result_zero_returns_ok() {
+        assert!(check_clear_cache_result(0).is_ok());
+    }
+
+    #[test]
+    fn mlx_cache_lock_is_acquirable() {
+        let guard = MLX_CACHE_LOCK.lock().unwrap();
+        drop(guard);
+    }
+
+    #[test]
+    fn poison_recovery_pattern_works() {
+        let lock = std::sync::Mutex::new(());
+        let _ = std::panic::catch_unwind(|| {
+            let _guard = lock.lock().unwrap();
+            panic!("intentional panic to poison lock");
+        });
+        assert!(lock.is_poisoned());
+        // Same pattern as clear_cache — unwrap_or_else recovers the guard
+        let guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+        drop(guard);
+    }
 }
