@@ -1,5 +1,11 @@
 use super::{EMBEDDING_DIMS, EmbedError};
 
+/// Compute mean pooling over hidden states, weighted by attention mask.
+///
+/// `data` is a flat row-major buffer of shape `[seq_len × hidden_size]`.
+/// Mask values act as weights: 0 excludes the token, 1 includes it equally,
+/// and values > 1 increase the token's contribution proportionally.
+/// Only the first `seq_len` mask entries are read (mask may be longer).
 pub(crate) fn mean_pooling(
     data: &[f32],
     seq_len: usize,
@@ -44,16 +50,14 @@ pub(crate) fn postprocess_embedding(
     attention_mask: &[u32],
 ) -> Result<Vec<f32>, EmbedError> {
     if seq_len == 0 {
-        return Err(EmbedError::DimensionMismatch {
-            expected: EMBEDDING_DIMS as usize,
-            actual: 0,
-        });
+        return Err(EmbedError::EmptySequence);
     }
     if !flat.len().is_multiple_of(seq_len) {
-        return Err(EmbedError::DimensionMismatch {
-            expected: EMBEDDING_DIMS as usize,
-            actual: flat.len(),
-        });
+        return Err(EmbedError::inference(format!(
+            "flat buffer length {} not divisible by seq_len {}",
+            flat.len(),
+            seq_len
+        )));
     }
     let hidden_size = flat.len() / seq_len;
     if hidden_size != EMBEDDING_DIMS as usize {
@@ -62,7 +66,16 @@ pub(crate) fn postprocess_embedding(
             actual: hidden_size,
         });
     }
+    debug_assert!(
+        attention_mask.len() >= seq_len,
+        "attention_mask length {} < seq_len {}",
+        attention_mask.len(),
+        seq_len
+    );
     let mut pooled = mean_pooling(flat, seq_len, hidden_size, attention_mask);
     l2_normalize(&mut pooled);
+    if pooled.iter().any(|v| !v.is_finite()) {
+        return Err(EmbedError::NonFiniteOutput);
+    }
     Ok(pooled)
 }

@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use super::mlx::unpack_batch_output;
+use super::mlx::{shrink_chunk_to_fit, unpack_batch_output};
 use super::pooling::{l2_normalize, mean_pooling};
 use super::probe::{PROBE_ACK, interpret_probe_output, probe_env_to_paths};
 use super::*;
@@ -70,10 +70,7 @@ fn mean_pooling_weighted_mask() {
 fn postprocess_embedding_zero_seq_len() {
     let result = postprocess_embedding(&[], 0, &[]);
     let err = result.unwrap_err();
-    assert!(
-        matches!(err, EmbedError::DimensionMismatch { actual: 0, .. }),
-        "{err}"
-    );
+    assert!(matches!(err, EmbedError::EmptySequence), "{err}");
 }
 
 #[test]
@@ -82,6 +79,22 @@ fn postprocess_embedding_wrong_dims() {
     let mask = vec![1u32];
     let result = postprocess_embedding(&data, 1, &mask);
     let err = result.unwrap_err();
+    assert!(
+        matches!(
+            err,
+            EmbedError::DimensionMismatch { expected, actual: 3 }
+            if expected == EMBEDDING_DIMS as usize
+        ),
+        "{err}"
+    );
+}
+
+#[test]
+fn postprocess_embedding_multi_row_wrong_dims() {
+    // seq_len=2, hidden_size=3 (not 768) → DimensionMismatch
+    let data = vec![1.0f32; 6]; // 2 * 3
+    let mask = vec![1u32; 2];
+    let err = postprocess_embedding(&data, 2, &mask).unwrap_err();
     assert!(
         matches!(
             err,
@@ -159,7 +172,10 @@ fn postprocess_embedding_rejects_indivisible_length() {
     let data = vec![0.0f32; seq_len * hidden_size + 1];
     let mask = vec![1u32; seq_len];
     let err = postprocess_embedding(&data, seq_len, &mask).unwrap_err();
-    assert!(matches!(err, EmbedError::DimensionMismatch { .. }), "{err}");
+    assert!(
+        matches!(err, EmbedError::Inference(ref msg) if msg.contains("not divisible")),
+        "{err}"
+    );
 }
 
 #[test]
@@ -182,6 +198,51 @@ fn postprocess_embedding_happy_path() {
     let ratio = result[0] / result[1];
     let expected_ratio = 2.0 / 3.0;
     assert!((ratio - expected_ratio).abs() < 1e-5, "ratio={ratio}");
+}
+
+#[test]
+fn postprocess_embedding_rejects_nan_output() {
+    let hidden_size = EMBEDDING_DIMS as usize;
+    let seq_len = 1;
+    let mut data = vec![0.0f32; seq_len * hidden_size];
+    data[0] = f32::NAN;
+    let mask = vec![1u32; seq_len];
+    let err = postprocess_embedding(&data, seq_len, &mask).unwrap_err();
+    assert!(
+        matches!(err, EmbedError::NonFiniteOutput),
+        "expected NonFiniteOutput, got: {err}"
+    );
+}
+
+#[test]
+fn postprocess_embedding_rejects_inf_output() {
+    let hidden_size = EMBEDDING_DIMS as usize;
+    let seq_len = 1;
+    let mut data = vec![0.0f32; seq_len * hidden_size];
+    data[0] = f32::INFINITY;
+    let mask = vec![1u32; seq_len];
+    let err = postprocess_embedding(&data, seq_len, &mask).unwrap_err();
+    assert!(
+        matches!(err, EmbedError::NonFiniteOutput),
+        "expected NonFiniteOutput, got: {err}"
+    );
+}
+
+#[test]
+fn unpack_batch_output_rejects_nan_embedding() {
+    let hidden_size = EMBEDDING_DIMS as usize;
+    let max_seq_len = 1;
+    let batch_size = 1;
+    let mut flat = vec![0.0f32; batch_size * max_seq_len * hidden_size];
+    flat[0] = f32::NAN;
+    let sorted_indices = vec![0usize];
+    let attention_mask = vec![1u32; batch_size * max_seq_len];
+    let err =
+        unpack_batch_output(&flat, &sorted_indices, max_seq_len, &attention_mask).unwrap_err();
+    assert!(
+        matches!(err, EmbedError::NonFiniteOutput),
+        "expected NonFiniteOutput, got: {err}"
+    );
 }
 
 fn setup_fake_cache(hub_dir: &std::path::Path) {
@@ -315,7 +376,7 @@ fn unpack_batch_output_rejects_indivisible_shape() {
     assert!(
         matches!(
             err,
-            EmbedError::DimensionMismatch {
+            EmbedError::BufferShapeMismatch {
                 expected: 6,
                 actual: 10
             }
@@ -331,7 +392,7 @@ fn unpack_batch_output_rejects_zero_total() {
     assert!(
         matches!(
             err,
-            EmbedError::DimensionMismatch {
+            EmbedError::BufferShapeMismatch {
                 expected: 0,
                 actual: 10
             }
@@ -346,16 +407,38 @@ fn unpack_batch_output_happy_path() {
     let batch_size = 2;
     let max_seq_len = 1;
     let mut flat = vec![0.0f32; batch_size * max_seq_len * hidden];
-    flat[0] = 1.0;
-    flat[hidden] = 2.0;
+    // sorted_pos=0 → orig_idx=1: nonzero at dim 1
+    flat[1] = 1.0;
+    // sorted_pos=1 → orig_idx=0: nonzero at dim 0
+    flat[hidden] = 1.0;
     let sorted = vec![1usize, 0];
     let mask = vec![1u32; batch_size * max_seq_len];
     let results = unpack_batch_output(&flat, &sorted, max_seq_len, &mask).unwrap();
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].len(), hidden);
     assert_eq!(results[1].len(), hidden);
-    assert!((results[0][0] - 1.0).abs() < 1e-6);
-    assert!((results[1][0] - 1.0).abs() < 1e-6);
+    // results[0] from sorted_pos=1 (dim 0 nonzero)
+    assert!(
+        (results[0][0] - 1.0).abs() < 1e-6,
+        "results[0][0]={}",
+        results[0][0]
+    );
+    assert!(
+        results[0][1].abs() < 1e-6,
+        "results[0][1]={}",
+        results[0][1]
+    );
+    // results[1] from sorted_pos=0 (dim 1 nonzero)
+    assert!(
+        results[1][0].abs() < 1e-6,
+        "results[1][0]={}",
+        results[1][0]
+    );
+    assert!(
+        (results[1][1] - 1.0).abs() < 1e-6,
+        "results[1][1]={}",
+        results[1][1]
+    );
 }
 
 fn exit_status(code: i32) -> std::process::ExitStatus {
@@ -485,6 +568,33 @@ fn t_003_last_chunk_fills_max_content() {
 fn t_012_empty_text_produces_single_chunk_start() {
     let starts = compute_chunk_starts(0, 8000, 2048);
     assert_eq!(starts, vec![0]);
+}
+
+#[test]
+fn compute_chunk_starts_zero_stride_returns_single() {
+    // overlap >= max_content → stride saturates to 0 → single chunk
+    let starts = compute_chunk_starts(10000, 100, 200);
+    assert_eq!(starts, vec![0]);
+}
+
+#[test]
+fn shrink_chunk_to_fit_rejects_empty_range() {
+    // end <= start → Inference error without calling tokenizer
+    let dir = tempfile::TempDir::new().unwrap();
+    let tok_path = dir.path().join("tokenizer.json");
+    std::fs::write(
+        &tok_path,
+        r#"{"model":{"type":"BPE","vocab":{},"merges":[]}}"#,
+    )
+    .unwrap();
+    let tokenizer = load_tokenizer(&tok_path).unwrap();
+    let offsets = vec![(0, 5)];
+    let mut end = 0usize;
+    let err = shrink_chunk_to_fit(&tokenizer, "hello", &offsets, 0, &mut end).unwrap_err();
+    assert!(
+        matches!(err, EmbedError::Inference(ref msg) if msg.contains("cannot fit")),
+        "{err}"
+    );
 }
 
 #[test]
