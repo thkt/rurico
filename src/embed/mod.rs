@@ -171,7 +171,7 @@ pub(crate) fn truncate_for_query(
 /// All variants share the same tokenizer, prefix scheme, and max sequence length (8192).
 /// The embedding dimension varies per model and is read from `config.json.hidden_size`
 /// at load time — use [`Embedder::embedding_dims`] to query the actual dimension.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ModelId {
     /// `cl-nagoya/ruri-v3-30m` — 256-dimensional.
     RuriV3_30m,
@@ -180,13 +180,8 @@ pub enum ModelId {
     /// `cl-nagoya/ruri-v3-130m` — 512-dimensional.
     RuriV3_130m,
     /// `cl-nagoya/ruri-v3-310m` — 768-dimensional (default).
+    #[default]
     RuriV3_310m,
-}
-
-impl Default for ModelId {
-    fn default() -> Self {
-        Self::RuriV3_310m
-    }
 }
 
 impl ModelId {

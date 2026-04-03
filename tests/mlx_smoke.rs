@@ -12,7 +12,8 @@ use std::process::Command;
 #[test]
 #[ignore] // requires model download + MLX (Apple Silicon)
 fn smoke_full() {
-    let paths = rurico::embed::download_model(rurico::embed::ModelId::default()).expect("download model");
+    let paths =
+        rurico::embed::download_model(rurico::embed::ModelId::default()).expect("download model");
     let output = smoke_command(&paths).output().expect("spawn smoke binary");
     assert_smoke_success(&output);
 }
@@ -21,7 +22,8 @@ fn smoke_full() {
 #[test]
 #[ignore] // requires model download + MLX (Apple Silicon)
 fn smoke_probe() {
-    let paths = rurico::embed::download_model(rurico::embed::ModelId::default()).expect("download model");
+    let paths =
+        rurico::embed::download_model(rurico::embed::ModelId::default()).expect("download model");
     let output = Command::new(env!("CARGO_BIN_EXE_mlx_smoke"))
         .env("__RURICO_PROBE_MODEL", &paths.model)
         .env("__RURICO_PROBE_CONFIG", &paths.config)

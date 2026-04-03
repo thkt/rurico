@@ -152,7 +152,10 @@ impl MockChunkedEmbedder {
 
     /// Create with the given number of chunks per document and a custom embedding dimension.
     pub fn with_dims(chunks_per_doc: usize, dims: usize) -> Self {
-        Self { chunks_per_doc, dims }
+        Self {
+            chunks_per_doc,
+            dims,
+        }
     }
 }
 
