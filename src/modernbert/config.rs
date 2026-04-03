@@ -32,6 +32,12 @@ pub struct Config {
 
 impl Config {
     /// Validate invariants (non-zero sizes, divisibility).
+    ///
+    /// # Errors
+    ///
+    /// Returns an opaque validation message if any required size is zero or
+    /// `hidden_size` is not divisible by `num_attention_heads`. The exact
+    /// message text is not part of the stable API contract.
     pub fn validate(&self) -> Result<(), String> {
         if self.hidden_size == 0 {
             return Err("hidden_size must be > 0".into());

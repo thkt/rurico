@@ -29,6 +29,17 @@ pub(crate) fn probe_env_to_paths(
 /// When the process was re-invoked as a probe subprocess, this function writes
 /// a handshake token to stdout, attempts to load the model, and exits with
 /// code 0 (success) or non-zero (failure). Otherwise it returns immediately.
+///
+/// # Process Behavior
+///
+/// This function does not return an error value. When the current process is a
+/// probe subprocess, it terminates the process with `std::process::exit`:
+///
+/// - Exit 0: model loaded successfully
+/// - Exit 1: model load failed (reason written to stderr)
+/// - Exit 3: probe env var set but config or tokenizer env var missing
+///
+/// When the current process is not a probe subprocess, it returns immediately.
 pub fn handle_probe_if_needed() {
     let Some(result) = probe_env_to_paths(
         std::env::var(PROBE_ENV_MODEL).ok(),

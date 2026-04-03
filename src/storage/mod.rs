@@ -19,6 +19,12 @@ pub fn f32_as_bytes(slice: &[f32]) -> &[u8] {
 ///
 /// Idempotent — subsequent calls are no-ops. All SQLite connections opened
 /// after this call will have the vec extension available.
+///
+/// # Errors
+///
+/// Returns an opaque error string if sqlite-vec registration fails. The string
+/// includes the SQLite return code, but its exact text is not part of the
+/// stable API contract.
 pub fn ensure_sqlite_vec() -> Result<(), String> {
     static INIT: std::sync::OnceLock<Result<(), i32>> = std::sync::OnceLock::new();
     let init_result = INIT.get_or_init(|| {

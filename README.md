@@ -2,7 +2,7 @@
 
 Apple Silicon (MLX) 上で日本語テキストのembeddingと類似検索を行うためのRustライブラリ。
 
-[cl-nagoya/ruri-v3-310m](https://huggingface.co/cl-nagoya/ruri-v3-310m) (ModernBERT) をMLX backendで推論し、768次元のembeddingを生成する。生成したembeddingはSQLite + [sqlite-vec](https://github.com/asg017/sqlite-vec) でベクトル検索できる。
+[cl-nagoya/ruri-v3](https://huggingface.co/cl-nagoya/ruri-v3-310m) ファミリー (ModernBERT) をMLX backendで推論し、256〜768次元のembeddingを生成する（モデルサイズにより異なる）。生成したembeddingはSQLite + [sqlite-vec](https://github.com/asg017/sqlite-vec) でベクトル検索できる。
 
 ## 解決する問題
 
@@ -32,13 +32,13 @@ rurico = { git = "https://github.com/thkt/rurico", rev = "main" }
 MLXの初期化失敗はプロセスをabortする可能性がある。`probe` でモデルのロード可否を子プロセスで検証してからEmbedderを作成する。
 
 ```rust
-use rurico::embed::{Embed, Embedder, ProbeStatus, download_model, handle_probe_if_needed};
+use rurico::embed::{Embed, Embedder, ModelId, ProbeStatus, download_model, handle_probe_if_needed};
 
 // probe 子プロセスのハンドラ登録（main() の冒頭で呼ぶ）
 handle_probe_if_needed();
 
 // モデルをダウンロード（初回のみ、HF Hub にキャッシュ）
-let paths = download_model()?;
+let paths = download_model(ModelId::default())?;
 
 // probe でモデルのロード可否を事前検証
 match Embedder::probe(&paths)? {
@@ -52,30 +52,30 @@ match Embedder::probe(&paths)? {
 // Embedder を作成して embedding を生成
 let embedder = Embedder::new(&paths)?;
 
-// クエリ: Vec<f32> (768 次元)。MAX_SEQ_LEN 超過時は自動 truncate。
+// クエリ: Vec<f32> (次元数はモデルにより異なる。デフォルト 768)。MAX_SEQ_LEN 超過時は自動 truncate。
 let query_vec = embedder.embed_query("検索クエリ")?;
 
 // ドキュメント: ChunkedEmbedding。短文は chunks.len()==1、
 // 長文は overlapping chunks に分割される。
 let doc = embedder.embed_document("長いドキュメント...")?;
 for chunk_vec in &doc.chunks {
-    // chunk_vec: &Vec<f32> (768 次元)
+    // chunk_vec: &Vec<f32> (次元数はモデルにより異なる)
 }
 ```
 
 ### 定数
 
-| 定数                   | 値               | 用途                                          |
-| ---------------------- | ---------------- | --------------------------------------------- |
-| `EMBEDDING_DIMS`       | `768`            | 出力ベクトルの次元数                          |
-| `MAX_SEQ_LEN`          | `8192`           | モデル入力全体長（BOS + prefix + text + EOS） |
-| `CHUNK_OVERLAP_TOKENS` | `2048`           | document chunk 間の overlap token 数          |
-| `QUERY_PREFIX`         | `"検索クエリ: "` | クエリ埋め込みときに先頭へ付加                |
-| `DOCUMENT_PREFIX`      | `"検索文書: "`   | ドキュメント埋め込みときに先頭へ付加          |
+| 定数                   | 値               | 用途                                                                               |
+| ---------------------- | ---------------- | ---------------------------------------------------------------------------------- |
+| `EMBEDDING_DIMS`       | `768`            | デフォルトモデル (310m) の出力次元数。実行時は `Embedder::embedding_dims()` で取得 |
+| `MAX_SEQ_LEN`          | `8192`           | モデル入力全体長（BOS + prefix + text + EOS）                                      |
+| `CHUNK_OVERLAP_TOKENS` | `2048`           | document chunk 間の overlap token 数                                               |
+| `QUERY_PREFIX`         | `"検索クエリ: "` | クエリ埋め込みときに先頭へ付加                                                     |
+| `DOCUMENT_PREFIX`      | `"検索文書: "`   | ドキュメント埋め込みときに先頭へ付加                                               |
 
 ### Document Embedding
 
-`embed_document` は `ChunkedEmbedding` を返す。テキストが `MAX_SEQ_LEN` 以内なら `chunks.len() == 1` で従来と同等のembeddingを返す。超過時はprefixを保持したoverlapping chunksに分割され、各chunkが独立した768次元embeddingになる。
+`embed_document` は `ChunkedEmbedding` を返す。テキストが `MAX_SEQ_LEN` 以内なら `chunks.len() == 1` で従来と同等のembeddingを返す。超過時はprefixを保持したoverlapping chunksに分割され、各chunkが独立したembeddingになる（次元数はモデルにより異なる）。
 
 `embed_documents_batch` は入力件数と同数の `Vec<ChunkedEmbedding>` を返し、入力順を保持する。
 
@@ -84,9 +84,9 @@ for chunk_vec in &doc.chunks {
 ネットワークアクセスなしでモデルがローカルにあるか確認できる。
 
 ```rust
-use rurico::embed::model_paths_if_cached;
+use rurico::embed::{ModelId, model_paths_if_cached};
 
-if let Some(paths) = model_paths_if_cached()? {
+if let Some(paths) = model_paths_if_cached(ModelId::default())? {
     // キャッシュ済み — そのまま Embedder::new に渡せる
 } else {
     // 未ダウンロード
@@ -98,9 +98,9 @@ if let Some(paths) = model_paths_if_cached()? {
 abortリスクを許容できるスクリプト等ではprobeを省略できる。
 
 ```rust
-use rurico::embed::{Embed, Embedder, download_model};
+use rurico::embed::{Embed, Embedder, ModelId, download_model};
 
-let paths = download_model()?;
+let paths = download_model(ModelId::default())?;
 let embedder = Embedder::new(&paths)?;
 let vector = embedder.embed_query("検索クエリ")?;
 ```
@@ -179,14 +179,20 @@ stmt.execute(rusqlite::params![f32_as_bytes(&vector)])?;
 
 `EmbedError` はembedding操作全般のエラーを表す。
 
-| variant             | 発生条件                          |
-| ------------------- | --------------------------------- |
-| `ModelNotFound`     | 重みファイルが見つからない        |
-| `Config`            | config.json の読み込み/パース失敗 |
-| `Inference`         | MLX 推論失敗                      |
-| `Tokenizer`         | tokenizer のロード/エンコード失敗 |
-| `Download`          | モデルダウンロード失敗            |
-| `ModelCorrupt`      | 重みは読めたがモデルが破損/非互換 |
+| variant               | 発生条件                                   |
+| --------------------- | ------------------------------------------ |
+| `ModelNotFound`       | 重みファイルが見つからない                 |
+| `EmptySequence`       | モデルが seq_len=0 の出力を返した          |
+| `BufferShapeMismatch` | 推論出力のバッファサイズが期待値と不一致   |
+| `Config`              | config.json の読み込み/パース失敗          |
+| `Inference`           | MLX 推論失敗                               |
+| `Tokenizer`           | tokenizer のロード/エンコード失敗          |
+| `Download`            | モデルダウンロード失敗                     |
+| `ModelCorrupt`        | 重みは読めたがモデルが破損/非互換          |
+| `NonFiniteOutput`     | embedding 出力に NaN または Inf が含まれる |
+
+公開APIの失敗契約はrustdocの `# Errors` に記載する。repoの運用ルールは
+[`docs/errors.md`](docs/errors.md) を参照。
 
 ### ログ出力
 

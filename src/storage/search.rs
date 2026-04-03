@@ -166,6 +166,15 @@ pub fn fts_quote(s: &str) -> String {
 /// Sanitize user input and expand short terms into a query safe for FTS5 `MATCH`.
 ///
 /// Combines [`sanitize_fts_query`] and [`fts_expand_short_terms`] into a single call.
+///
+/// # Errors
+///
+/// Returns:
+/// - [`SanitizeError::EmptyInput`] if `query` is empty or whitespace-only
+/// - [`SanitizeError::NoSearchableTerms`] if sanitization strips all searchable terms
+///
+/// SQLite failures while consulting `fts_chunks_vocab` do not surface as
+/// `Err`; they are logged and treated as "no expansion".
 pub fn prepare_match_query(conn: &Connection, query: &str) -> Result<MatchFtsQuery, SanitizeError> {
     let sanitized = sanitize_fts_query(query)?;
     Ok(fts_expand_short_terms(conn, &sanitized))
