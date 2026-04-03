@@ -20,13 +20,13 @@ Apple Silicon (MLX) 上で日本語テキストのembeddingと類似検索を行
 ## 要件
 
 - macOS (Apple Silicon) — MLX backend必須
-- Rust 1.91+ (edition 2024)
+- Rust 1.94+ (edition 2024)
 
 ## 使い方
 
 ```toml
 [dependencies]
-rurico = { git = "https://github.com/thkt/rurico", tag = "v0.2.0" }
+rurico = { git = "https://github.com/thkt/rurico", rev = "main" }
 ```
 
 MLXの初期化失敗はプロセスをabortする可能性がある。`probe` でモデルのロード可否を子プロセスで検証してからEmbedderを作成する。
@@ -51,17 +51,33 @@ match Embedder::probe(&paths)? {
 
 // Embedder を作成して embedding を生成
 let embedder = Embedder::new(&paths)?;
-let vector = embedder.embed_query("検索クエリ")?;
-// vector: Vec<f32> (768 次元)
+
+// クエリ: Vec<f32> (768 次元)。MAX_SEQ_LEN 超過時は自動 truncate。
+let query_vec = embedder.embed_query("検索クエリ")?;
+
+// ドキュメント: ChunkedEmbedding。短文は chunks.len()==1、
+// 長文は overlapping chunks に分割される。
+let doc = embedder.embed_document("長いドキュメント...")?;
+for chunk_vec in &doc.chunks {
+    // chunk_vec: &Vec<f32> (768 次元)
+}
 ```
 
 ### 定数
 
-| 定数              | 値               | 用途                                 |
-| ----------------- | ---------------- | ------------------------------------ |
-| `EMBEDDING_DIMS`  | `768`            | 出力ベクトルの次元数                 |
-| `QUERY_PREFIX`    | `"検索クエリ: "` | クエリ埋め込みときに先頭へ付加       |
-| `DOCUMENT_PREFIX` | `"検索文書: "`   | ドキュメント埋め込みときに先頭へ付加 |
+| 定数                   | 値               | 用途                                          |
+| ---------------------- | ---------------- | --------------------------------------------- |
+| `EMBEDDING_DIMS`       | `768`            | 出力ベクトルの次元数                          |
+| `MAX_SEQ_LEN`          | `8192`           | モデル入力全体長（BOS + prefix + text + EOS） |
+| `CHUNK_OVERLAP_TOKENS` | `2048`           | document chunk 間の overlap token 数          |
+| `QUERY_PREFIX`         | `"検索クエリ: "` | クエリ埋め込みときに先頭へ付加                |
+| `DOCUMENT_PREFIX`      | `"検索文書: "`   | ドキュメント埋め込みときに先頭へ付加          |
+
+### Document Embedding
+
+`embed_document` は `ChunkedEmbedding` を返す。テキストが `MAX_SEQ_LEN` 以内なら `chunks.len() == 1` で従来と同等のembeddingを返す。超過時はprefixを保持したoverlapping chunksに分割され、各chunkが独立した768次元embeddingになる。
+
+`embed_documents_batch` は入力件数と同数の `Vec<ChunkedEmbedding>` を返し、入力順を保持する。
 
 ### モデルキャッシュの確認
 
@@ -183,15 +199,16 @@ stmt.execute(rusqlite::params![f32_as_bytes(&vector)])?;
 
 ```toml
 [dev-dependencies]
-rurico = { git = "https://github.com/thkt/rurico", tag = "v0.2.0", features = ["test-support"] }
+rurico = { git = "https://github.com/thkt/rurico", rev = "main", features = ["test-support"] }
 ```
 
-| struct                | 振る舞い                                  |
-| --------------------- | ----------------------------------------- |
-| `MockEmbedder`        | 決定的な one-hot ベクトルを返す           |
-| `FailingEmbedder`     | 設定に応じてエラーを返す                  |
-| `MismatchEmbedder`    | batch で入力より少ないベクトルを返す      |
-| `AlternatingEmbedder` | `embed_document` が成功と失敗を交互に返す |
+| struct                | 振る舞い                                                |
+| --------------------- | ------------------------------------------------------- |
+| `MockEmbedder`        | 決定的な one-hot ベクトルを返す                         |
+| `FailingEmbedder`     | 設定に応じてエラーを返す                                |
+| `MismatchEmbedder`    | batch で入力より少ないベクトルを返す                    |
+| `AlternatingEmbedder` | `embed_document` が成功と失敗を交互に返す（初回は失敗） |
+| `MockChunkedEmbedder` | 指定数の chunk を返す（multi-chunk テスト用）           |
 
 ```rust
 use rurico::embed::{Embed, MockEmbedder};

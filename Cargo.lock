@@ -1825,7 +1825,6 @@ version = "0.2.0"
 dependencies = [
  "bytemuck",
  "hf-hub",
- "libc",
  "log",
  "mlx-rs",
  "mlx-sys",
