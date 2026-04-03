@@ -31,6 +31,10 @@ impl Embed for MockEmbedder {
             })
             .collect())
     }
+
+    fn embed_text(&self, text: &str, _prefix: &str) -> Result<Vec<f32>, EmbedError> {
+        self.embed_query(text)
+    }
 }
 
 /// Embedder that returns errors (configurable per method).
@@ -71,6 +75,10 @@ impl Embed for FailingEmbedder {
             })
         }
     }
+
+    fn embed_text(&self, text: &str, _prefix: &str) -> Result<Vec<f32>, EmbedError> {
+        self.embed_query(text)
+    }
 }
 
 /// Batch returns fewer vectors than inputs (triggers mismatch errors).
@@ -91,6 +99,10 @@ impl Embed for MismatchEmbedder {
         Ok(vec![ChunkedEmbedding {
             chunks: vec![one_hot(0)],
         }])
+    }
+
+    fn embed_text(&self, text: &str, _prefix: &str) -> Result<Vec<f32>, EmbedError> {
+        self.embed_query(text)
     }
 }
 
@@ -131,6 +143,10 @@ impl Embed for MockChunkedEmbedder {
             })
             .collect())
     }
+
+    fn embed_text(&self, text: &str, _prefix: &str) -> Result<Vec<f32>, EmbedError> {
+        self.embed_query(text)
+    }
 }
 
 /// Alternates between success and failure on `embed_document`.
@@ -168,5 +184,9 @@ impl Embed for AlternatingEmbedder {
                 chunks: vec![one_hot(0)],
             })
         }
+    }
+
+    fn embed_text(&self, text: &str, _prefix: &str) -> Result<Vec<f32>, EmbedError> {
+        self.embed_query(text)
     }
 }

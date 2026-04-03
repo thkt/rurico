@@ -24,9 +24,17 @@ use std::sync::Mutex;
 
 /// Output vector dimensionality (768-d for ruri-v3-310m).
 pub const EMBEDDING_DIMS: u32 = 768;
-/// Prefix prepended to query text before tokenization.
+
+/// Prefix for encoding semantic meaning (empty string).
+pub const SEMANTIC_PREFIX: &str = "";
+
+/// Prefix for classification and clustering tasks.
+pub const TOPIC_PREFIX: &str = "トピック: ";
+
+/// Prefix for retrieval queries.
 pub const QUERY_PREFIX: &str = "検索クエリ: ";
-/// Prefix prepended to document text before tokenization.
+
+/// Prefix for retrieval documents.
 pub const DOCUMENT_PREFIX: &str = "検索文書: ";
 
 /// Maximum sequence length for the model (ruri-v3 max_position_embeddings).
@@ -262,14 +270,25 @@ pub trait Embed: Send + Sync {
     /// Embed a search query (prepends [`QUERY_PREFIX`]).
     /// Queries are truncated (not chunked) if they exceed [`MAX_SEQ_LEN`].
     fn embed_query(&self, text: &str) -> Result<Vec<f32>, EmbedError>;
+
     /// Embed a document for indexing (prepends [`DOCUMENT_PREFIX`]).
     /// Long documents are split into overlapping chunks.
     fn embed_document(&self, text: &str) -> Result<ChunkedEmbedding, EmbedError>;
+
     /// Batch-embed documents. Returns one [`ChunkedEmbedding`] per input text, in the
     /// same order as `texts`. Default calls [`embed_document`](Self::embed_document) per item.
     fn embed_documents_batch(&self, texts: &[&str]) -> Result<Vec<ChunkedEmbedding>, EmbedError> {
         texts.iter().map(|t| self.embed_document(t)).collect()
     }
+
+    /// Embed text using the specified prefix (prepended before tokenization).
+    /// The text is truncated if it exceeds [`MAX_SEQ_LEN`] (no chunking).
+    ///
+    /// Use this for explicit prefix control (Ruri v3 1+3 scheme). Available prefixes:
+    /// [`SEMANTIC_PREFIX`], [`TOPIC_PREFIX`], [`QUERY_PREFIX`], [`DOCUMENT_PREFIX`].
+    /// For the common retrieval use case, prefer
+    /// [`embed_query`](Self::embed_query) and [`embed_document`](Self::embed_document).
+    fn embed_text(&self, text: &str, prefix: &str) -> Result<Vec<f32>, EmbedError>;
 }
 
 /// Paths to the three model artifacts (weights, config, tokenizer).
@@ -459,5 +478,9 @@ impl Embed for Embedder {
 
     fn embed_documents_batch(&self, texts: &[&str]) -> Result<Vec<ChunkedEmbedding>, EmbedError> {
         self.lock_inner()?.embed_documents_batch_chunked(texts)
+    }
+
+    fn embed_text(&self, text: &str, prefix: &str) -> Result<Vec<f32>, EmbedError> {
+        self.lock_inner()?.embed_query_truncated(text, prefix)
     }
 }
