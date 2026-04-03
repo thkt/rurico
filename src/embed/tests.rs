@@ -1058,3 +1058,28 @@ fn embed_documents_batch_empty_returns_empty() {
     let result = embedder.embed_documents_batch(&[]).unwrap();
     assert!(result.is_empty(), "empty input should return empty vec");
 }
+
+// --- 1+3 prefix scheme ---
+
+#[test]
+fn embed_text_returns_correct_dimensionality_for_all_prefixes() {
+    let e = super::MockEmbedder;
+    for prefix in [SEMANTIC_PREFIX, TOPIC_PREFIX, QUERY_PREFIX, DOCUMENT_PREFIX] {
+        let vec = e.embed_text("テスト", prefix).unwrap();
+        assert_eq!(
+            vec.len(),
+            EMBEDDING_DIMS as usize,
+            "wrong dims for prefix: {prefix:?}"
+        );
+    }
+}
+
+#[test]
+fn embed_text_propagates_error() {
+    let e = super::FailingEmbedder::all_fail("embed_text error");
+    let err = e.embed_text("テスト", SEMANTIC_PREFIX).unwrap_err();
+    assert!(
+        matches!(err, EmbedError::Inference(ref msg) if msg.contains("embed_text error")),
+        "{err}"
+    );
+}
