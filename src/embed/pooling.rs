@@ -1,4 +1,4 @@
-use super::{EMBEDDING_DIMS, EmbedError};
+use super::EmbedError;
 
 /// Compute mean pooling over hidden states, weighted by attention mask.
 ///
@@ -60,12 +60,6 @@ pub(crate) fn postprocess_embedding(
         )));
     }
     let hidden_size = flat.len() / seq_len;
-    if hidden_size != EMBEDDING_DIMS as usize {
-        return Err(EmbedError::DimensionMismatch {
-            expected: EMBEDDING_DIMS as usize,
-            actual: hidden_size,
-        });
-    }
     debug_assert!(
         attention_mask.len() >= seq_len,
         "attention_mask length {} < seq_len {}",

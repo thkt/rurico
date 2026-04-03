@@ -22,8 +22,11 @@ pub use probe::handle_probe_if_needed;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-/// Output vector dimensionality (768-d for ruri-v3-310m).
-pub const EMBEDDING_DIMS: u32 = 768;
+/// Output vector dimensionality for the default model (`cl-nagoya/ruri-v3-310m`).
+///
+/// Other model variants have different dimensions; use [`Embedder::embedding_dims`]
+/// to query the actual dimension of a loaded model at runtime.
+pub const EMBEDDING_DIMS: usize = 768;
 
 /// Prefix for encoding semantic meaning (empty string).
 pub const SEMANTIC_PREFIX: &str = "";
@@ -55,8 +58,9 @@ pub(crate) const fn max_content(prefix_len: usize) -> usize {
 
 /// Embedding result for a single text, potentially split into multiple chunks.
 ///
-/// Each chunk is a 768-dimensional embedding vector. Short texts produce a
-/// single chunk; texts exceeding [`MAX_SEQ_LEN`] produce multiple overlapping chunks.
+/// Each chunk is an embedding vector whose length equals the loaded model's
+/// `hidden_size`. Short texts produce a single chunk; texts exceeding
+/// [`MAX_SEQ_LEN`] produce multiple overlapping chunks.
 #[derive(Debug, Clone)]
 pub struct ChunkedEmbedding {
     /// One embedding vector per chunk. Always non-empty.
@@ -162,14 +166,55 @@ pub(crate) fn truncate_for_query(
     (ids, mask, max_len)
 }
 
-const MODEL_REPO: &str = "cl-nagoya/ruri-v3-310m";
-const MODEL_REVISION: &str = "18b60fb8c2b9df296fb4212bb7d23ef94e579cd3";
+/// Identifies a ruri-v3 embedding model variant.
+///
+/// All variants share the same tokenizer, prefix scheme, and max sequence length (8192).
+/// The embedding dimension varies per model and is read from `config.json.hidden_size`
+/// at load time — use [`Embedder::embedding_dims`] to query the actual dimension.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModelId {
+    /// `cl-nagoya/ruri-v3-30m` — 256-dimensional.
+    RuriV3_30m,
+    /// `cl-nagoya/ruri-v3-70m` — 384-dimensional.
+    RuriV3_70m,
+    /// `cl-nagoya/ruri-v3-130m` — 512-dimensional.
+    RuriV3_130m,
+    /// `cl-nagoya/ruri-v3-310m` — 768-dimensional (default).
+    RuriV3_310m,
+}
 
-fn model_repo() -> hf_hub::Repo {
+impl Default for ModelId {
+    fn default() -> Self {
+        Self::RuriV3_310m
+    }
+}
+
+impl ModelId {
+    /// HuggingFace repository ID for this model.
+    pub fn repo_id(self) -> &'static str {
+        match self {
+            Self::RuriV3_30m => "cl-nagoya/ruri-v3-30m",
+            Self::RuriV3_70m => "cl-nagoya/ruri-v3-70m",
+            Self::RuriV3_130m => "cl-nagoya/ruri-v3-130m",
+            Self::RuriV3_310m => "cl-nagoya/ruri-v3-310m",
+        }
+    }
+
+    fn revision(self) -> &'static str {
+        match self {
+            Self::RuriV3_30m => "24899e5de370b56d179604a007c0d727bf144504",
+            Self::RuriV3_70m => "07a8b0aba47d29d2ca21f89b915c1efe2c23d1cc",
+            Self::RuriV3_130m => "e3114c6ee10dbab8b4b235fbc6dcf9dd4d5ac1a6",
+            Self::RuriV3_310m => "18b60fb8c2b9df296fb4212bb7d23ef94e579cd3",
+        }
+    }
+}
+
+fn model_repo_for(model: ModelId) -> hf_hub::Repo {
     hf_hub::Repo::with_revision(
-        MODEL_REPO.to_string(),
+        model.repo_id().to_string(),
         hf_hub::RepoType::Model,
-        MODEL_REVISION.to_string(),
+        model.revision().to_string(),
     )
 }
 
@@ -181,14 +226,6 @@ pub enum EmbedError {
     ModelNotFound {
         /// Path that was looked up.
         path: PathBuf,
-    },
-    /// Output tensor shape does not match expected dimensions.
-    #[error("dimension mismatch: expected {expected}, got {actual}")]
-    DimensionMismatch {
-        /// Expected dimension count.
-        expected: usize,
-        /// Actual dimension count.
-        actual: usize,
     },
     /// Model returned an empty sequence (seq_len is 0).
     #[error("empty sequence: seq_len is 0")]
@@ -259,13 +296,14 @@ pub enum ProbeStatus {
     BackendUnavailable,
 }
 
-/// Embedding provider. Returns [`EMBEDDING_DIMS`]-dimensional f32 vectors.
+/// Embedding provider.
 ///
 /// Thread-safe: uses `&self` so implementors can be shared via `Arc<dyn Embed>`.
 /// Implementors that hold mutable state should use interior mutability (e.g. `Mutex`).
 ///
 /// # Contract
-/// Implementations MUST return vectors of exactly [`EMBEDDING_DIMS`] elements.
+/// All vectors returned by a single implementor MUST have the same length,
+/// determined by the model's `hidden_size`.
 pub trait Embed: Send + Sync {
     /// Embed a search query (prepends [`QUERY_PREFIX`]).
     /// Queries are truncated (not chunked) if they exceed [`MAX_SEQ_LEN`].
@@ -325,22 +363,22 @@ impl ModelPaths {
 }
 
 /// Download model files from Hugging Face Hub (cached after first download).
-pub fn download_model() -> Result<ModelPaths, EmbedError> {
+pub fn download_model(model: ModelId) -> Result<ModelPaths, EmbedError> {
     let api = hf_hub::api::sync::Api::new()
         .map_err(|e| EmbedError::download(format!("HF Hub init failed: {e}")))?;
-    let repo = api.repo(model_repo());
+    let repo = api.repo(model_repo_for(model));
 
     let get = |name: &str| {
         repo.get(name)
             .map_err(|e| EmbedError::download(format!("{name} download failed: {e}")))
     };
 
-    let model = get("model.safetensors")?;
+    let model_weights = get("model.safetensors")?;
     let config = get("config.json")?;
     let tokenizer = get("tokenizer.json")?;
 
     Ok(ModelPaths {
-        model,
+        model: model_weights,
         config,
         tokenizer,
     })
@@ -350,13 +388,16 @@ pub fn download_model() -> Result<ModelPaths, EmbedError> {
 ///
 /// Returns `Ok(Some(paths))` if all three files are cached, `Ok(None)` otherwise.
 /// Never accesses the network.
-pub fn model_paths_if_cached() -> Result<Option<ModelPaths>, EmbedError> {
-    model_paths_from_cache(&hf_hub::Cache::from_env())
+pub fn model_paths_if_cached(model: ModelId) -> Result<Option<ModelPaths>, EmbedError> {
+    model_paths_from_cache(&hf_hub::Cache::from_env(), model)
 }
 
-fn model_paths_from_cache(cache: &hf_hub::Cache) -> Result<Option<ModelPaths>, EmbedError> {
-    let repo = cache.repo(model_repo());
-    let Some(model) = repo.get("model.safetensors") else {
+fn model_paths_from_cache(
+    cache: &hf_hub::Cache,
+    model: ModelId,
+) -> Result<Option<ModelPaths>, EmbedError> {
+    let repo = cache.repo(model_repo_for(model));
+    let Some(model_weights) = repo.get("model.safetensors") else {
         return Ok(None);
     };
     let Some(config) = repo.get("config.json") else {
@@ -366,7 +407,7 @@ fn model_paths_from_cache(cache: &hf_hub::Cache) -> Result<Option<ModelPaths>, E
         return Ok(None);
     };
     Ok(Some(ModelPaths {
-        model,
+        model: model_weights,
         config,
         tokenizer,
     }))
@@ -422,6 +463,7 @@ pub fn tokenize_with_prefix(
 /// Thread-safe embedding model backed by MLX. Wraps the backend in a [`Mutex`].
 pub struct Embedder {
     inner: Mutex<EmbedderInner>,
+    embedding_dims: usize,
 }
 
 impl std::fmt::Debug for Embedder {
@@ -441,9 +483,20 @@ impl Embedder {
     /// Prefer one `Embedder` per process.
     pub fn new(paths: &ModelPaths) -> Result<Self, EmbedError> {
         let inner = EmbedderInner::new(paths)?;
+        let embedding_dims = inner.embedding_dims();
         Ok(Self {
             inner: Mutex::new(inner),
+            embedding_dims,
         })
+    }
+
+    /// Embedding vector length for this model (read from `config.json.hidden_size`).
+    ///
+    /// All vectors returned by [`embed_query`](Embed::embed_query),
+    /// [`embed_document`](Embed::embed_document), and
+    /// [`embed_text`](Embed::embed_text) have this length.
+    pub fn embedding_dims(&self) -> usize {
+        self.embedding_dims
     }
 
     /// Test whether the model can load without aborting the caller.

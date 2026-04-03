@@ -74,35 +74,20 @@ fn postprocess_embedding_zero_seq_len() {
 }
 
 #[test]
-fn postprocess_embedding_wrong_dims() {
-    let data = vec![1.0f32, 2.0, 3.0];
-    let mask = vec![1u32];
-    let result = postprocess_embedding(&data, 1, &mask);
-    let err = result.unwrap_err();
-    assert!(
-        matches!(
-            err,
-            EmbedError::DimensionMismatch { expected, actual: 3 }
-            if expected == EMBEDDING_DIMS as usize
-        ),
-        "{err}"
-    );
-}
-
-#[test]
-fn postprocess_embedding_multi_row_wrong_dims() {
-    // seq_len=2, hidden_size=3 (not 768) → DimensionMismatch
-    let data = vec![1.0f32; 6]; // 2 * 3
-    let mask = vec![1u32; 2];
-    let err = postprocess_embedding(&data, 2, &mask).unwrap_err();
-    assert!(
-        matches!(
-            err,
-            EmbedError::DimensionMismatch { expected, actual: 3 }
-            if expected == EMBEDDING_DIMS as usize
-        ),
-        "{err}"
-    );
+fn postprocess_embedding_accepts_any_dims() {
+    // postprocess_embedding works with any hidden size (not fixed to EMBEDDING_DIMS)
+    for hidden_size in [3, 64, 256, 384, 512, 768] {
+        let seq_len = 2;
+        let data = vec![1.0f32; seq_len * hidden_size];
+        let mask = vec![1u32; seq_len];
+        let result = postprocess_embedding(&data, seq_len, &mask);
+        assert!(
+            result.is_ok(),
+            "hidden_size={hidden_size} should be accepted, got: {:?}",
+            result.unwrap_err()
+        );
+        assert_eq!(result.unwrap().len(), hidden_size);
+    }
 }
 
 #[test]
@@ -167,7 +152,7 @@ fn mean_pooling_short_mask_truncates_safely() {
 
 #[test]
 fn postprocess_embedding_rejects_indivisible_length() {
-    let hidden_size = EMBEDDING_DIMS as usize;
+    let hidden_size = EMBEDDING_DIMS;
     let seq_len = 2;
     let data = vec![0.0f32; seq_len * hidden_size + 1];
     let mask = vec![1u32; seq_len];
@@ -180,7 +165,7 @@ fn postprocess_embedding_rejects_indivisible_length() {
 
 #[test]
 fn postprocess_embedding_happy_path() {
-    let hidden_size = EMBEDDING_DIMS as usize;
+    let hidden_size = EMBEDDING_DIMS;
     let seq_len = 2;
     let mut data = vec![0.0f32; seq_len * hidden_size];
     data[0] = 1.0;
@@ -202,7 +187,7 @@ fn postprocess_embedding_happy_path() {
 
 #[test]
 fn postprocess_embedding_rejects_nan_output() {
-    let hidden_size = EMBEDDING_DIMS as usize;
+    let hidden_size = EMBEDDING_DIMS;
     let seq_len = 1;
     let mut data = vec![0.0f32; seq_len * hidden_size];
     data[0] = f32::NAN;
@@ -216,7 +201,7 @@ fn postprocess_embedding_rejects_nan_output() {
 
 #[test]
 fn postprocess_embedding_rejects_inf_output() {
-    let hidden_size = EMBEDDING_DIMS as usize;
+    let hidden_size = EMBEDDING_DIMS;
     let seq_len = 1;
     let mut data = vec![0.0f32; seq_len * hidden_size];
     data[0] = f32::INFINITY;
@@ -230,7 +215,7 @@ fn postprocess_embedding_rejects_inf_output() {
 
 #[test]
 fn unpack_batch_output_rejects_nan_embedding() {
-    let hidden_size = EMBEDDING_DIMS as usize;
+    let hidden_size = EMBEDDING_DIMS;
     let max_seq_len = 1;
     let batch_size = 1;
     let mut flat = vec![0.0f32; batch_size * max_seq_len * hidden_size];
@@ -245,12 +230,13 @@ fn unpack_batch_output_rejects_nan_embedding() {
     );
 }
 
-fn setup_fake_cache(hub_dir: &std::path::Path) {
-    let repo_dir = hub_dir.join("models--cl-nagoya--ruri-v3-310m");
+fn setup_fake_cache_for(hub_dir: &std::path::Path, model: ModelId) {
+    let repo_slug = model.repo_id().replace('/', "--");
+    let repo_dir = hub_dir.join(format!("models--{repo_slug}"));
     let refs_dir = repo_dir.join("refs");
     std::fs::create_dir_all(&refs_dir).unwrap();
     let commit_hash = "abc123";
-    std::fs::write(refs_dir.join(MODEL_REVISION), commit_hash).unwrap();
+    std::fs::write(refs_dir.join(model.revision()), commit_hash).unwrap();
 
     let snapshot_dir = repo_dir.join("snapshots").join(commit_hash);
     std::fs::create_dir_all(&snapshot_dir).unwrap();
@@ -263,16 +249,16 @@ fn setup_fake_cache(hub_dir: &std::path::Path) {
 fn model_paths_from_cache_returns_none_when_empty() {
     let dir = tempfile::tempdir().unwrap();
     let cache = hf_hub::Cache::new(dir.path().to_path_buf());
-    let result = model_paths_from_cache(&cache).unwrap();
+    let result = model_paths_from_cache(&cache, ModelId::default()).unwrap();
     assert!(result.is_none());
 }
 
 #[test]
 fn model_paths_from_cache_returns_some_when_all_files_present() {
     let dir = tempfile::tempdir().unwrap();
-    setup_fake_cache(dir.path());
+    setup_fake_cache_for(dir.path(), ModelId::default());
     let cache = hf_hub::Cache::new(dir.path().to_path_buf());
-    let result = model_paths_from_cache(&cache).unwrap();
+    let result = model_paths_from_cache(&cache, ModelId::default()).unwrap();
     let paths = result.expect("should return Some when all files cached");
     assert!(paths.model.ends_with("model.safetensors"));
     assert!(paths.config.ends_with("config.json"));
@@ -282,16 +268,74 @@ fn model_paths_from_cache_returns_some_when_all_files_present() {
 #[test]
 fn model_paths_from_cache_returns_none_when_partial() {
     let dir = tempfile::tempdir().unwrap();
-    setup_fake_cache(dir.path());
+    setup_fake_cache_for(dir.path(), ModelId::default());
+    let repo_slug = ModelId::default().repo_id().replace('/', "--");
     let snapshot_dir = dir
         .path()
-        .join("models--cl-nagoya--ruri-v3-310m/snapshots/abc123");
+        .join(format!("models--{repo_slug}/snapshots/abc123"));
     std::fs::remove_file(snapshot_dir.join("config.json")).unwrap();
     std::fs::remove_file(snapshot_dir.join("tokenizer.json")).unwrap();
 
     let cache = hf_hub::Cache::new(dir.path().to_path_buf());
-    let result = model_paths_from_cache(&cache).unwrap();
+    let result = model_paths_from_cache(&cache, ModelId::default()).unwrap();
     assert!(result.is_none());
+}
+
+#[test]
+fn model_paths_from_cache_each_model_has_separate_cache_dir() {
+    let all_models = [
+        ModelId::RuriV3_30m,
+        ModelId::RuriV3_70m,
+        ModelId::RuriV3_130m,
+        ModelId::RuriV3_310m,
+    ];
+
+    for &target in &all_models {
+        let dir = tempfile::tempdir().unwrap();
+        setup_fake_cache_for(dir.path(), target);
+        let cache = hf_hub::Cache::new(dir.path().to_path_buf());
+
+        // The populated model should be found
+        assert!(
+            model_paths_from_cache(&cache, target).unwrap().is_some(),
+            "{:?} should be cached",
+            target
+        );
+        // All other models should not be found
+        for &other in &all_models {
+            if other == target {
+                continue;
+            }
+            assert!(
+                model_paths_from_cache(&cache, other).unwrap().is_none(),
+                "{:?} should not be cached when only {:?} is populated",
+                other,
+                target
+            );
+        }
+    }
+}
+
+#[test]
+fn model_id_repo_ids_are_distinct() {
+    use std::collections::HashSet;
+    let all_models = [
+        ModelId::RuriV3_30m,
+        ModelId::RuriV3_70m,
+        ModelId::RuriV3_130m,
+        ModelId::RuriV3_310m,
+    ];
+    let repo_ids: HashSet<_> = all_models.iter().map(|m| m.repo_id()).collect();
+    assert_eq!(repo_ids.len(), 4, "all repo IDs must be distinct");
+
+    let revisions: HashSet<_> = all_models.iter().map(|m| m.revision()).collect();
+    assert_eq!(revisions.len(), 4, "all revisions must be distinct");
+}
+
+#[test]
+fn model_id_default_is_310m() {
+    assert_eq!(ModelId::default(), ModelId::RuriV3_310m);
+    assert_eq!(ModelId::default().repo_id(), "cl-nagoya/ruri-v3-310m");
 }
 
 #[test]
@@ -403,7 +447,7 @@ fn unpack_batch_output_rejects_zero_total() {
 
 #[test]
 fn unpack_batch_output_happy_path() {
-    let hidden = EMBEDDING_DIMS as usize;
+    let hidden = EMBEDDING_DIMS;
     let batch_size = 2;
     let max_seq_len = 1;
     let mut flat = vec![0.0f32; batch_size * max_seq_len * hidden];
@@ -680,7 +724,7 @@ fn t_001_max_content_equals_max_seq_len_minus_2_minus_prefix_len() {
 #[test]
 #[ignore] // requires model download
 fn g_001_real_tokenizer_extract_prefix_tokens() {
-    let paths = download_model().expect("download model");
+    let paths = download_model(ModelId::default()).expect("download model");
     let tokenizer = load_tokenizer(&paths.tokenizer).unwrap();
     let prefix_tokens = extract_prefix_tokens(&tokenizer, DOCUMENT_PREFIX).unwrap();
     assert!(!prefix_tokens.is_empty());
@@ -920,7 +964,7 @@ fn t_014_mock_chunked_embedder_returns_multi_chunk() {
     let embedder = super::MockChunkedEmbedder::new(3);
     let result = embedder.embed_document("some text").unwrap();
     assert_eq!(result.chunks.len(), 3);
-    assert_eq!(result.chunks[0].len(), EMBEDDING_DIMS as usize);
+    assert_eq!(result.chunks[0].len(), EMBEDDING_DIMS);
 }
 
 #[test]
@@ -948,7 +992,7 @@ fn t_014b_mock_chunked_embedder_batch_preserves_count() {
 fn regression_prefix_merge_standalone_vs_full_tokenization_diverges() {
     // Verify that the prefix boundary actually diverges for these texts,
     // confirming the need for Approach A.
-    let paths = download_model().expect("download model");
+    let paths = download_model(ModelId::default()).expect("download model");
     let tokenizer = load_tokenizer(&paths.tokenizer).unwrap();
     let prefix_tokens = extract_prefix_tokens(&tokenizer, DOCUMENT_PREFIX).unwrap();
     let pe = 1 + prefix_tokens.len(); // BOS + prefix length
@@ -977,7 +1021,7 @@ fn regression_long_document_sequential_planner_overlap_and_coverage() {
     // 2. Adjacent chunks overlap >= CHUNK_OVERLAP_TOKENS (overlap contract)
     // 3. First chunk starts at byte 0 (head preserved)
     // 4. Last chunk ends at document end (tail preserved)
-    let paths = download_model().expect("download model");
+    let paths = download_model(ModelId::default()).expect("download model");
     let tokenizer = load_tokenizer(&paths.tokenizer).unwrap();
     let prefix_tokens = extract_prefix_tokens(&tokenizer, DOCUMENT_PREFIX).unwrap();
     let mc = max_content(prefix_tokens.len());
@@ -1054,7 +1098,7 @@ fn regression_long_document_sequential_planner_overlap_and_coverage() {
 
 #[test]
 fn embed_documents_batch_empty_returns_empty() {
-    let embedder = super::MockEmbedder;
+    let embedder = super::MockEmbedder::default();
     let result = embedder.embed_documents_batch(&[]).unwrap();
     assert!(result.is_empty(), "empty input should return empty vec");
 }
@@ -1063,15 +1107,33 @@ fn embed_documents_batch_empty_returns_empty() {
 
 #[test]
 fn embed_text_returns_correct_dimensionality_for_all_prefixes() {
-    let e = super::MockEmbedder;
+    let e = super::MockEmbedder::default();
     for prefix in [SEMANTIC_PREFIX, TOPIC_PREFIX, QUERY_PREFIX, DOCUMENT_PREFIX] {
         let vec = e.embed_text("テスト", prefix).unwrap();
         assert_eq!(
             vec.len(),
-            EMBEDDING_DIMS as usize,
+            EMBEDDING_DIMS,
             "wrong dims for prefix: {prefix:?}"
         );
     }
+}
+
+#[test]
+fn mock_embedder_with_dims_returns_custom_dimension() {
+    for dims in [256, 384, 512] {
+        let e = super::MockEmbedder::with_dims(dims);
+        assert_eq!(e.embed_query("q").unwrap().len(), dims);
+        assert_eq!(e.embed_document("d").unwrap().chunks[0].len(), dims);
+        assert_eq!(e.embed_text("t", "").unwrap().len(), dims);
+    }
+}
+
+#[test]
+fn mock_chunked_embedder_with_dims_returns_custom_dimension() {
+    let e = super::MockChunkedEmbedder::with_dims(2, 256);
+    let doc = e.embed_document("d").unwrap();
+    assert_eq!(doc.chunks.len(), 2);
+    assert_eq!(doc.chunks[0].len(), 256);
 }
 
 #[test]
