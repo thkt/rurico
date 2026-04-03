@@ -269,12 +269,6 @@ impl ModernBert {
         if seq_len < 0 {
             return Err(Exception::custom("seq_len must be non-negative"));
         }
-        let max_seq = self.max_seq_len as i32;
-        if seq_len > max_seq {
-            return Err(Exception::custom(format!(
-                "seq_len ({seq_len}) exceeds maximum ({max_seq})"
-            )));
-        }
         let expected_len = batch_size
             .checked_mul(seq_len)
             .ok_or_else(|| Exception::custom("batch_size * seq_len overflows i32"))?
@@ -294,6 +288,26 @@ impl ModernBert {
                 batch_size,
                 seq_len
             )));
+        }
+        let max_seq = self.max_seq_len as i32;
+        // Defense-in-depth: truncate oversize inputs instead of failing (FR-011).
+        // Normal public API paths (embed_query, embed_document) should never hit this.
+        if seq_len > max_seq {
+            log::warn!(
+                "model.forward: seq_len ({seq_len}) exceeds max_seq_len ({max_seq}), \
+                 truncating as defense-in-depth fallback"
+            );
+            let bs = batch_size as usize;
+            let old_len = seq_len as usize;
+            let new_len = max_seq as usize;
+            let mut ids = Vec::with_capacity(bs * new_len);
+            let mut mask = Vec::with_capacity(bs * new_len);
+            for i in 0..bs {
+                let start = i * old_len;
+                ids.extend_from_slice(&input_ids[start..start + new_len]);
+                mask.extend_from_slice(&attention_mask[start..start + new_len]);
+            }
+            return self.forward(&ids, &mask, batch_size, max_seq);
         }
 
         let ids = Array::from_slice(input_ids, &[batch_size, seq_len]);
@@ -479,6 +493,50 @@ mod tests {
                     }
                 }
             }
+        }
+
+        #[test]
+        #[serial]
+        fn t_010_forward_truncates_oversize_input() {
+            // [T-010] FR-011: seq_len > max_seq_len → truncate + warn, not error
+            let config = test_config(); // max_position_embeddings = 512
+            let mut model = ModernBert::new(&config).expect("create model");
+
+            let oversize = config.max_position_embeddings + 100; // 612
+            let input_ids = vec![1u32; oversize];
+            let mask = vec![1u32; oversize];
+
+            let result = model.forward(&input_ids, &mask, 1, oversize as i32);
+            assert!(
+                result.is_ok(),
+                "forward should truncate oversize input, not error: {result:?}"
+            );
+            let output = result.unwrap();
+            assert_eq!(
+                output.shape(),
+                &[
+                    1,
+                    config.max_position_embeddings as i32,
+                    config.hidden_size as i32
+                ]
+            );
+        }
+
+        #[test]
+        #[serial]
+        fn forward_rejects_oversize_seq_with_short_buffer() {
+            let config = test_config(); // max_position_embeddings = 512
+            let mut model = ModernBert::new(&config).expect("create model");
+
+            let oversize_seq = (config.max_position_embeddings + 100) as i32;
+            let short_buf = vec![1u32; 5]; // much shorter than batch_size * seq_len
+            let short_mask = vec![1u32; 5];
+
+            let result = model.forward(&short_buf, &short_mask, 1, oversize_seq);
+            assert!(
+                result.is_err(),
+                "should return Err for short buffer, not panic"
+            );
         }
     }
 }

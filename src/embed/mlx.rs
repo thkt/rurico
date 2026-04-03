@@ -1,18 +1,13 @@
 use super::{
-    DOCUMENT_PREFIX, EmbedError, ModelPaths, load_tokenizer, postprocess_embedding, read_config,
-    sort_indices_by_len, tokenize_with_prefix,
+    CHUNK_OVERLAP_TOKENS, ChunkedEmbedding, DOCUMENT_PREFIX, EmbedError, MAX_SEQ_LEN, ModelPaths,
+    extract_prefix_tokens, load_tokenizer, max_content, postprocess_embedding, read_config,
+    tokenize_with_prefix, truncate_for_query,
 };
-
-struct PaddedBatch {
-    sorted_indices: Vec<usize>,
-    input_ids: Vec<u32>,
-    attention_mask: Vec<u32>,
-    max_seq_len: usize,
-}
 
 pub(super) struct EmbedderInner {
     model: crate::modernbert::ModernBert,
     tokenizer: tokenizers::Tokenizer,
+    doc_prefix_tokens: Vec<u32>,
 }
 
 impl EmbedderInner {
@@ -25,93 +20,174 @@ impl EmbedderInner {
             .map_err(EmbedError::inference)?;
 
         let tokenizer = load_tokenizer(&paths.tokenizer)?;
+        let doc_prefix_tokens = extract_prefix_tokens(&tokenizer, DOCUMENT_PREFIX)?;
 
-        Ok(Self { model, tokenizer })
+        Ok(Self {
+            model,
+            tokenizer,
+            doc_prefix_tokens,
+        })
     }
 
-    pub(super) fn embed_with_prefix(
+    /// Embed a query with truncation (no chunking). FR-009, FR-010.
+    pub(super) fn embed_query_truncated(
         &mut self,
         text: &str,
         prefix: &str,
     ) -> Result<Vec<f32>, EmbedError> {
         let tok = tokenize_with_prefix(&self.tokenizer, text, prefix)?;
+        let (input_ids, attention_mask, seq_len) =
+            truncate_for_query(tok.input_ids, tok.attention_mask, MAX_SEQ_LEN);
 
         let output = self
             .model
-            .forward(&tok.input_ids, &tok.attention_mask, 1, tok.seq_len as i32)
+            .forward(&input_ids, &attention_mask, 1, seq_len as i32)
             .map_err(EmbedError::inference)?;
 
         output.eval().map_err(EmbedError::inference)?;
         let flat: &[f32] = output.as_slice();
-        let result = postprocess_embedding(flat, tok.seq_len, &tok.attention_mask)?;
+        let result = postprocess_embedding(flat, seq_len, &attention_mask)?;
         release_inference_output(output);
         Ok(result)
     }
 
-    fn prepare_batch(&self, texts: &[&str], prefix: &str) -> Result<PaddedBatch, EmbedError> {
-        let sorted_indices = sort_indices_by_len(texts);
-
-        let prefixed: Vec<String> = sorted_indices
-            .iter()
-            .map(|&i| format!("{prefix}{}", texts[i]))
-            .collect();
-        let encodings = self
-            .tokenizer
-            .encode_batch(prefixed, true)
-            .map_err(EmbedError::tokenizer)?;
-
-        let max_seq_len = encodings
-            .iter()
-            .map(|e| e.get_ids().len())
-            .max()
-            .ok_or_else(|| EmbedError::inference("tokenizer returned no encodings"))?;
-
-        let batch_size = encodings.len();
-        let mut input_ids = vec![0u32; batch_size * max_seq_len];
-        let mut attention_mask = vec![0u32; batch_size * max_seq_len];
-        for (i, enc) in encodings.iter().enumerate() {
-            let ids = enc.get_ids();
-            let mask = enc.get_attention_mask();
-            let offset = i * max_seq_len;
-            input_ids[offset..offset + ids.len()].copy_from_slice(ids);
-            attention_mask[offset..offset + mask.len()].copy_from_slice(mask);
-        }
-
-        Ok(PaddedBatch {
-            sorted_indices,
-            input_ids,
-            attention_mask,
-            max_seq_len,
-        })
+    /// Embed a single document with chunking support. FR-003, FR-006, FR-012.
+    pub(super) fn embed_document_chunked(
+        &mut self,
+        text: &str,
+    ) -> Result<ChunkedEmbedding, EmbedError> {
+        let mut results = self.embed_documents_batch_chunked(&[text])?;
+        Ok(results.remove(0))
     }
 
-    pub(super) fn embed_batch(&mut self, texts: &[&str]) -> Result<Vec<Vec<f32>>, EmbedError> {
+    /// Batch-embed documents with chunking support. FR-003, FR-006, FR-007, FR-012.
+    ///
+    /// Short documents produce a single chunk identical to pre-chunking output.
+    /// Long documents are split into overlapping chunks. All chunks from all
+    /// documents are flattened into a single forward pass (NFR-002).
+    pub(super) fn embed_documents_batch_chunked(
+        &mut self,
+        texts: &[&str],
+    ) -> Result<Vec<ChunkedEmbedding>, EmbedError> {
         if texts.is_empty() {
             return Ok(Vec::new());
         }
 
-        let batch = self.prepare_batch(texts, DOCUMENT_PREFIX)?;
+        let prefix_tokens = &self.doc_prefix_tokens;
+        let mc = max_content(prefix_tokens.len());
 
+        let mut all_chunk_tokens: Vec<Vec<u32>> = Vec::new();
+        let mut chunks_per_doc: Vec<usize> = Vec::new();
+
+        for &text in texts {
+            let tok = tokenize_with_prefix(&self.tokenizer, text, DOCUMENT_PREFIX)?;
+            // Estimate text token count from the full tokenization to decide short/long path.
+            // The estimate may be off by 1 due to prefix boundary merging, but that only
+            // affects the path selection for texts near the boundary — both paths are correct.
+            let text_token_count = tok.seq_len.saturating_sub(2 + prefix_tokens.len());
+
+            if text_token_count <= mc {
+                // Short document: use full tokenization as-is (FR-012)
+                all_chunk_tokens.push(tok.input_ids);
+                chunks_per_doc.push(1);
+            } else {
+                // Long document: sequential chunk planner with prefix-aware
+                // re-tokenization. Each chunk's start is derived from the
+                // previous chunk's accepted end so the CHUNK_OVERLAP_TOKENS
+                // contract holds even when adaptive shrink reduces content.
+                let text_enc = self
+                    .tokenizer
+                    .encode(text, false)
+                    .map_err(EmbedError::tokenizer)?;
+                let offsets = text_enc.get_offsets();
+                let n_text_tokens = text_enc.get_ids().len();
+
+                let mut chunk_count = 0usize;
+                let mut start = 0usize;
+
+                while start < n_text_tokens {
+                    let byte_start = offsets[start].0;
+                    let mut end = (start + mc).min(n_text_tokens);
+
+                    let ids = loop {
+                        if end <= start {
+                            return Err(EmbedError::inference(format!(
+                                "chunk at token {start} cannot fit within \
+                                 MAX_SEQ_LEN after adaptive shrink"
+                            )));
+                        }
+                        let byte_end = offsets[end - 1].1;
+                        let chunk_str = format!("{DOCUMENT_PREFIX}{}", &text[byte_start..byte_end]);
+                        let enc = self
+                            .tokenizer
+                            .encode(chunk_str.as_str(), true)
+                            .map_err(EmbedError::tokenizer)?;
+                        if enc.get_ids().len() <= MAX_SEQ_LEN {
+                            break enc.get_ids().to_vec();
+                        }
+                        end -= 1;
+                    };
+                    all_chunk_tokens.push(ids);
+                    chunk_count += 1;
+
+                    if end >= n_text_tokens {
+                        break;
+                    }
+                    let next_start = end.saturating_sub(CHUNK_OVERLAP_TOKENS);
+                    if next_start <= start {
+                        break;
+                    }
+                    start = next_start;
+                }
+
+                chunks_per_doc.push(chunk_count);
+            }
+        }
+
+        // Pad and flatten into batch (sorted by length for padding efficiency)
+        let max_len = all_chunk_tokens.iter().map(|c| c.len()).max().unwrap_or(0);
+        let batch_size = all_chunk_tokens.len();
+
+        let mut sorted_indices: Vec<usize> = (0..batch_size).collect();
+        sorted_indices.sort_unstable_by_key(|&i| all_chunk_tokens[i].len());
+
+        let mut input_ids = vec![0u32; batch_size * max_len];
+        let mut attention_mask = vec![0u32; batch_size * max_len];
+        for (sorted_pos, &orig_idx) in sorted_indices.iter().enumerate() {
+            let chunk = &all_chunk_tokens[orig_idx];
+            let offset = sorted_pos * max_len;
+            input_ids[offset..offset + chunk.len()].copy_from_slice(chunk);
+            attention_mask[offset..offset + chunk.len()].fill(1);
+        }
+
+        // Single forward pass (NFR-002)
         let output = self
             .model
             .forward(
-                &batch.input_ids,
-                &batch.attention_mask,
-                batch.sorted_indices.len() as i32,
-                batch.max_seq_len as i32,
+                &input_ids,
+                &attention_mask,
+                batch_size as i32,
+                max_len as i32,
             )
             .map_err(EmbedError::inference)?;
 
         output.eval().map_err(EmbedError::inference)?;
         let flat: &[f32] = output.as_slice();
-        let result = unpack_batch_output(
-            flat,
-            &batch.sorted_indices,
-            batch.max_seq_len,
-            &batch.attention_mask,
-        )?;
+
+        // Unpack (sorted → original chunk order)
+        let all_embeddings = unpack_batch_output(flat, &sorted_indices, max_len, &attention_mask)?;
         release_inference_output(output);
-        Ok(result)
+
+        // Regroup by document (FR-007: preserving input order)
+        let mut results = Vec::with_capacity(texts.len());
+        let mut offset = 0;
+        for &count in &chunks_per_doc {
+            let chunks = all_embeddings[offset..offset + count].to_vec();
+            results.push(ChunkedEmbedding { chunks });
+            offset += count;
+        }
+
+        Ok(results)
     }
 }
 
