@@ -302,14 +302,31 @@ pub enum ProbeStatus {
 pub trait Embed: Send + Sync {
     /// Embed a search query (prepends [`QUERY_PREFIX`]).
     /// Queries are truncated (not chunked) if they exceed [`MAX_SEQ_LEN`].
+    ///
+    /// # Errors
+    ///
+    /// Implementations should return [`EmbedError`] for operational failures
+    /// such as model availability, tokenization, inference, or output
+    /// post-processing. Callers should not rely on exact error message text.
     fn embed_query(&self, text: &str) -> Result<Vec<f32>, EmbedError>;
 
     /// Embed a document for indexing (prepends [`DOCUMENT_PREFIX`]).
     /// Long documents are split into overlapping chunks.
+    ///
+    /// # Errors
+    ///
+    /// Implementations should return [`EmbedError`] for operational failures
+    /// such as model availability, tokenization, inference, or output
+    /// post-processing. Callers should not rely on exact error message text.
     fn embed_document(&self, text: &str) -> Result<ChunkedEmbedding, EmbedError>;
 
     /// Batch-embed documents. Returns one [`ChunkedEmbedding`] per input text, in the
     /// same order as `texts`. Default calls [`embed_document`](Self::embed_document) per item.
+    ///
+    /// # Errors
+    ///
+    /// The default implementation returns the first error produced by
+    /// [`embed_document`](Self::embed_document).
     fn embed_documents_batch(&self, texts: &[&str]) -> Result<Vec<ChunkedEmbedding>, EmbedError> {
         texts.iter().map(|t| self.embed_document(t)).collect()
     }
@@ -321,6 +338,12 @@ pub trait Embed: Send + Sync {
     /// [`SEMANTIC_PREFIX`], [`TOPIC_PREFIX`], [`QUERY_PREFIX`], [`DOCUMENT_PREFIX`].
     /// For the common retrieval use case, prefer
     /// [`embed_query`](Self::embed_query) and [`embed_document`](Self::embed_document).
+    ///
+    /// # Errors
+    ///
+    /// Implementations should return [`EmbedError`] for operational failures
+    /// such as model availability, tokenization, inference, or output
+    /// post-processing. Callers should not rely on exact error message text.
     fn embed_text(&self, text: &str, prefix: &str) -> Result<Vec<f32>, EmbedError>;
 }
 
@@ -347,6 +370,11 @@ impl ModelPaths {
     }
 
     /// Check that all three files exist, returning [`EmbedError::ModelNotFound`] on the first miss.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EmbedError::ModelNotFound`] when any of `model.safetensors`,
+    /// `config.json`, or `tokenizer.json` is missing.
     pub fn validate(&self) -> Result<(), EmbedError> {
         for path in [&self.model, &self.config, &self.tokenizer] {
             if !path.exists() {
@@ -358,6 +386,11 @@ impl ModelPaths {
 }
 
 /// Download model files from Hugging Face Hub (cached after first download).
+///
+/// # Errors
+///
+/// Returns [`EmbedError::Download`] if the Hugging Face client cannot be
+/// initialized or any required artifact download fails.
 pub fn download_model(model: ModelId) -> Result<ModelPaths, EmbedError> {
     let api = hf_hub::api::sync::Api::new()
         .map_err(|e| EmbedError::download(format!("HF Hub init failed: {e}")))?;
@@ -383,6 +416,10 @@ pub fn download_model(model: ModelId) -> Result<ModelPaths, EmbedError> {
 ///
 /// Returns `Ok(Some(paths))` if all three files are cached, `Ok(None)` otherwise.
 /// Never accesses the network.
+///
+/// # Errors
+///
+/// This function reports cache misses as `Ok(None)` and never returns `Err`.
 pub fn model_paths_if_cached(model: ModelId) -> Result<Option<ModelPaths>, EmbedError> {
     model_paths_from_cache(&hf_hub::Cache::from_env(), model)
 }
@@ -410,6 +447,8 @@ fn model_paths_from_cache(
 
 /// Deserialize a JSON config file into `T`.
 ///
+/// # Errors
+///
 /// Returns [`EmbedError::Config`] on IO failure or JSON parse error.
 pub fn read_config<T: serde::de::DeserializeOwned>(
     path: &std::path::Path,
@@ -419,6 +458,11 @@ pub fn read_config<T: serde::de::DeserializeOwned>(
 }
 
 /// Load a HuggingFace tokenizer from a JSON file.
+///
+/// # Errors
+///
+/// Returns [`EmbedError::Tokenizer`] if the tokenizer file cannot be read or
+/// parsed by the `tokenizers` crate.
 pub fn load_tokenizer(path: &std::path::Path) -> Result<tokenizers::Tokenizer, EmbedError> {
     tokenizers::Tokenizer::from_file(path).map_err(EmbedError::tokenizer)
 }
@@ -434,6 +478,10 @@ pub struct TokenizedInput {
 }
 
 /// Tokenize `text` with a prefix prepended (e.g. query/document prefix).
+///
+/// # Errors
+///
+/// Returns [`EmbedError::Tokenizer`] if encoding the prefixed text fails.
 pub fn tokenize_with_prefix(
     tokenizer: &tokenizers::Tokenizer,
     text: &str,
@@ -476,6 +524,14 @@ impl Embedder {
     /// Concurrent calls are serialized by an internal lock, but holding
     /// multiple `Embedder` instances doubles GPU memory usage (~600 MB).
     /// Prefer one `Embedder` per process.
+    ///
+    /// # Errors
+    ///
+    /// Returns:
+    /// - [`EmbedError::ModelNotFound`] if any required model artifact is missing
+    /// - [`EmbedError::Config`] if `config.json` cannot be read or parsed
+    /// - [`EmbedError::Tokenizer`] if `tokenizer.json` cannot be loaded or used
+    /// - [`EmbedError::Inference`] if MLX model construction or weight loading fails
     pub fn new(paths: &ModelPaths) -> Result<Self, EmbedError> {
         let inner = EmbedderInner::new(paths)?;
         let embedding_dims = inner.embedding_dims();
@@ -500,6 +556,17 @@ impl Embedder {
     /// crash is contained and reported as [`ProbeStatus::BackendUnavailable`].
     ///
     /// The host binary must call [`handle_probe_if_needed`] at the start of `main()`.
+    ///
+    /// # Errors
+    ///
+    /// Returns:
+    /// - [`EmbedError::ModelNotFound`] if any required model artifact is missing
+    /// - [`EmbedError::Config`] if `config.json` cannot be read or parsed
+    /// - [`EmbedError::Tokenizer`] if `tokenizer.json` cannot be loaded
+    /// - [`EmbedError::Inference`] if the probe subprocess cannot be spawned or awaited,
+    ///   or the probe handler is not installed in the host binary
+    /// - [`EmbedError::ModelCorrupt`] if the subprocess exits non-zero after
+    ///   starting successfully
     pub fn probe(paths: &ModelPaths) -> Result<ProbeStatus, EmbedError> {
         paths.validate()?;
         let config: crate::modernbert::Config = read_config(&paths.config)?;
