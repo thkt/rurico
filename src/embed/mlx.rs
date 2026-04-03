@@ -181,9 +181,8 @@ fn plan_long_document(
     let mut start = 0usize;
 
     while start < n {
-        let byte_start = offsets[start].0;
         let mut end = (start + mc).min(n);
-        let ids = shrink_chunk_to_fit(tokenizer, text, offsets, byte_start, start, &mut end)?;
+        let ids = shrink_chunk_to_fit(tokenizer, text, offsets, start, &mut end)?;
         chunks.push(ids);
 
         if end >= n {
@@ -201,16 +200,16 @@ fn plan_long_document(
 
 /// Re-tokenize a candidate chunk, shrinking until it fits within [`MAX_SEQ_LEN`].
 ///
-/// Encodes `DOCUMENT_PREFIX + text[byte_start..byte_end]` with special tokens.
+/// Encodes `DOCUMENT_PREFIX + text[offsets[start].0..byte_end]` with special tokens.
 /// Decreases `end` by one token at a time until the result fits.
-fn shrink_chunk_to_fit(
+pub(super) fn shrink_chunk_to_fit(
     tokenizer: &tokenizers::Tokenizer,
     text: &str,
     offsets: &[(usize, usize)],
-    byte_start: usize,
     start: usize,
     end: &mut usize,
 ) -> Result<Vec<u32>, EmbedError> {
+    let byte_start = offsets[start].0;
     loop {
         if *end <= start {
             return Err(EmbedError::inference(format!(
@@ -219,12 +218,9 @@ fn shrink_chunk_to_fit(
             )));
         }
         let byte_end = offsets[*end - 1].1;
-        let chunk_str = format!("{DOCUMENT_PREFIX}{}", &text[byte_start..byte_end]);
-        let enc = tokenizer
-            .encode(chunk_str.as_str(), true)
-            .map_err(EmbedError::tokenizer)?;
-        if enc.get_ids().len() <= MAX_SEQ_LEN {
-            return Ok(enc.get_ids().to_vec());
+        let tok = tokenize_with_prefix(tokenizer, &text[byte_start..byte_end], DOCUMENT_PREFIX)?;
+        if tok.seq_len <= MAX_SEQ_LEN {
+            return Ok(tok.input_ids);
         }
         *end -= 1;
     }
@@ -271,6 +267,10 @@ fn release_inference_output(output: mlx_rs::Array) {
 }
 
 /// Validate output shape and unpack batched model output into per-input embeddings.
+///
+/// `sorted_indices` maps sorted position → original index (as produced by
+/// sorting chunk indices by token length). Returns a `Vec` indexed by
+/// original input order, not sorted order.
 pub(super) fn unpack_batch_output(
     flat: &[f32],
     sorted_indices: &[usize],
@@ -281,14 +281,14 @@ pub(super) fn unpack_batch_output(
         .len()
         .checked_mul(max_seq_len)
         .filter(|&t| t > 0 && flat.len().is_multiple_of(t))
-        .ok_or(EmbedError::DimensionMismatch {
+        .ok_or(EmbedError::BufferShapeMismatch {
             expected: sorted_indices.len().saturating_mul(max_seq_len),
             actual: flat.len(),
         })?;
     let hidden_size = flat.len() / total;
     let stride = max_seq_len
         .checked_mul(hidden_size)
-        .ok_or(EmbedError::DimensionMismatch {
+        .ok_or(EmbedError::BufferShapeMismatch {
             expected: total,
             actual: flat.len(),
         })?;

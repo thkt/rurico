@@ -133,8 +133,9 @@ pub(crate) fn extract_prefix_tokens(
 
 /// Truncate a query token sequence to fit within `max_len`, preserving BOS and EOS.
 ///
-/// If the sequence already fits, returns a clone. Otherwise, takes the first
-/// `max_len - 1` tokens and replaces the last with EOS. Logs a warning on truncation.
+/// If the sequence already fits, returns the inputs unchanged. Otherwise,
+/// truncates to the first `max_len - 1` tokens and replaces the last with EOS.
+/// Logs a warning on truncation.
 pub(crate) fn truncate_for_query(
     input_ids: Vec<u32>,
     attention_mask: Vec<u32>,
@@ -145,14 +146,24 @@ pub(crate) fn truncate_for_query(
         return (input_ids, attention_mask, len);
     }
     log::warn!("query exceeds max_seq_len ({len} > {max_len}), truncating");
-    let mut ids = input_ids[..max_len].to_vec();
+    let mut ids = input_ids;
+    ids.truncate(max_len);
     ids[max_len - 1] = EOS_TOKEN_ID;
-    let mask = attention_mask[..max_len].to_vec();
+    let mut mask = attention_mask;
+    mask.truncate(max_len);
     (ids, mask, max_len)
 }
 
 const MODEL_REPO: &str = "cl-nagoya/ruri-v3-310m";
 const MODEL_REVISION: &str = "18b60fb8c2b9df296fb4212bb7d23ef94e579cd3";
+
+fn model_repo() -> hf_hub::Repo {
+    hf_hub::Repo::with_revision(
+        MODEL_REPO.to_string(),
+        hf_hub::RepoType::Model,
+        MODEL_REVISION.to_string(),
+    )
+}
 
 /// Errors from embedding operations.
 #[derive(Debug, thiserror::Error)]
@@ -169,6 +180,17 @@ pub enum EmbedError {
         /// Expected dimension count.
         expected: usize,
         /// Actual dimension count.
+        actual: usize,
+    },
+    /// Model returned an empty sequence (seq_len is 0).
+    #[error("empty sequence: seq_len is 0")]
+    EmptySequence,
+    /// Flat output buffer size is inconsistent with expected batch shape.
+    #[error("buffer shape mismatch: expected {expected}, got {actual}")]
+    BufferShapeMismatch {
+        /// Expected total elements.
+        expected: usize,
+        /// Actual total elements.
         actual: usize,
     },
     /// Config file missing or unparseable.
@@ -194,6 +216,9 @@ pub enum EmbedError {
         /// Failure detail from the backend.
         reason: String,
     },
+    /// Embedding output contains non-finite values (NaN or infinity).
+    #[error("non-finite values in embedding output (NaN or inf)")]
+    NonFiniteOutput,
 }
 
 impl EmbedError {
@@ -240,7 +265,8 @@ pub trait Embed: Send + Sync {
     /// Embed a document for indexing (prepends [`DOCUMENT_PREFIX`]).
     /// Long documents are split into overlapping chunks.
     fn embed_document(&self, text: &str) -> Result<ChunkedEmbedding, EmbedError>;
-    /// Batch-embed documents. Default calls [`embed_document`](Self::embed_document) per item.
+    /// Batch-embed documents. Returns one [`ChunkedEmbedding`] per input text, in the
+    /// same order as `texts`. Default calls [`embed_document`](Self::embed_document) per item.
     fn embed_documents_batch(&self, texts: &[&str]) -> Result<Vec<ChunkedEmbedding>, EmbedError> {
         texts.iter().map(|t| self.embed_document(t)).collect()
     }
@@ -283,11 +309,7 @@ impl ModelPaths {
 pub fn download_model() -> Result<ModelPaths, EmbedError> {
     let api = hf_hub::api::sync::Api::new()
         .map_err(|e| EmbedError::download(format!("HF Hub init failed: {e}")))?;
-    let repo = api.repo(hf_hub::Repo::with_revision(
-        MODEL_REPO.to_string(),
-        hf_hub::RepoType::Model,
-        MODEL_REVISION.to_string(),
-    ));
+    let repo = api.repo(model_repo());
 
     let get = |name: &str| {
         repo.get(name)
@@ -314,11 +336,7 @@ pub fn model_paths_if_cached() -> Result<Option<ModelPaths>, EmbedError> {
 }
 
 fn model_paths_from_cache(cache: &hf_hub::Cache) -> Result<Option<ModelPaths>, EmbedError> {
-    let repo = cache.repo(hf_hub::Repo::with_revision(
-        MODEL_REPO.to_string(),
-        hf_hub::RepoType::Model,
-        MODEL_REVISION.to_string(),
-    ));
+    let repo = cache.repo(model_repo());
     let Some(model) = repo.get("model.safetensors") else {
         return Ok(None);
     };
@@ -366,7 +384,9 @@ pub fn tokenize_with_prefix(
     text: &str,
     prefix: &str,
 ) -> Result<TokenizedInput, EmbedError> {
-    let prefixed = format!("{prefix}{text}");
+    let mut prefixed = String::with_capacity(prefix.len() + text.len());
+    prefixed.push_str(prefix);
+    prefixed.push_str(text);
     let encoding = tokenizer
         .encode(prefixed, true)
         .map_err(EmbedError::tokenizer)?;
