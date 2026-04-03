@@ -941,3 +941,10 @@ fn regression_long_document_sequential_planner_overlap_and_coverage() {
         );
     }
 }
+
+#[test]
+fn embed_documents_batch_empty_returns_empty() {
+    let embedder = super::MockEmbedder;
+    let result = embedder.embed_documents_batch(&[]).unwrap();
+    assert!(result.is_empty(), "empty input should return empty vec");
+}

@@ -62,6 +62,13 @@ pub struct ChunkedEmbedding {
 /// so that it ends exactly at the end of the text tokens (stretch-to-fill).
 ///
 /// For texts that fit in a single chunk, returns `[0]`.
+///
+/// NOTE: This function verifies the geometric stride invariant
+/// (stride = max_content − overlap). Production chunking in `mlx.rs`
+/// uses a sequential planner with tokenizer re-encoding, which may
+/// accept fewer tokens per chunk due to prefix boundary merging.
+/// The two algorithms share the overlap/coverage contract but differ
+/// in how chunk boundaries are determined.
 #[cfg(test)]
 pub(crate) fn compute_chunk_starts(
     text_token_count: usize,

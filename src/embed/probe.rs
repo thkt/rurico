@@ -54,6 +54,9 @@ pub fn handle_probe_if_needed() {
     }
 }
 
+/// Timeout for the probe subprocess (seconds).
+const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// Re-exec the current binary as a probe subprocess.
 ///
 /// Uses `Command` (fork+exec internally) so the child gets a clean process
@@ -61,19 +64,80 @@ pub fn handle_probe_if_needed() {
 ///
 /// - Exit 0 → [`ProbeStatus::Available`]
 /// - Exit non-zero → [`EmbedError::ModelCorrupt`] (reason from stderr)
-/// - Killed by signal / no exit code → [`ProbeStatus::BackendUnavailable`]
+/// - Killed by signal / timeout / no exit code → [`ProbeStatus::BackendUnavailable`]
 pub(super) fn probe_via_subprocess(paths: &ModelPaths) -> Result<ProbeStatus, EmbedError> {
     let exe = std::env::current_exe()
         .map_err(|e| EmbedError::inference(format!("cannot locate executable: {e}")))?;
 
-    let output = std::process::Command::new(exe)
+    let mut child = std::process::Command::new(exe)
         .env(PROBE_ENV_MODEL, &paths.model)
         .env(PROBE_ENV_CONFIG, &paths.config)
         .env(PROBE_ENV_TOKENIZER, &paths.tokenizer)
-        .output()
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
         .map_err(|e| EmbedError::inference(format!("probe spawn failed: {e}")))?;
 
+    let output = wait_with_timeout(&mut child, PROBE_TIMEOUT)?;
     interpret_probe_output(&output)
+}
+
+/// Wait for a child process with a timeout. Kill and return
+/// [`ProbeStatus::BackendUnavailable`] if the deadline is exceeded.
+fn wait_with_timeout(
+    child: &mut std::process::Child,
+    timeout: std::time::Duration,
+) -> Result<std::process::Output, EmbedError> {
+    let deadline = std::time::Instant::now() + timeout;
+
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let stdout = child.stdout.take().map_or_else(Vec::new, |mut s| {
+                    let mut buf = Vec::new();
+                    let _ = std::io::Read::read_to_end(&mut s, &mut buf);
+                    buf
+                });
+                let stderr = child.stderr.take().map_or_else(Vec::new, |mut s| {
+                    let mut buf = Vec::new();
+                    let _ = std::io::Read::read_to_end(&mut s, &mut buf);
+                    buf
+                });
+                return Ok(std::process::Output {
+                    status,
+                    stdout,
+                    stderr,
+                });
+            }
+            Ok(None) => {
+                if std::time::Instant::now() >= deadline {
+                    log::warn!(
+                        "probe subprocess timed out after {}s, killing",
+                        timeout.as_secs()
+                    );
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Ok(build_timeout_output());
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            Err(e) => {
+                return Err(EmbedError::inference(format!("probe wait failed: {e}")));
+            }
+        }
+    }
+}
+
+/// Build a synthetic Output that `interpret_probe_output` maps to
+/// `BackendUnavailable` (no exit code, PROBE_ACK present so it doesn't
+/// trigger the "handler not installed" error).
+fn build_timeout_output() -> std::process::Output {
+    use std::os::unix::process::ExitStatusExt;
+    std::process::Output {
+        status: std::process::ExitStatus::from_raw(9), // SIGKILL
+        stdout: format!("{PROBE_ACK}\n").into_bytes(),
+        stderr: b"probe timed out".to_vec(),
+    }
 }
 
 pub(crate) fn interpret_probe_output(

@@ -20,7 +20,7 @@ Apple Silicon (MLX) 上で日本語テキストのembeddingと類似検索を行
 ## 要件
 
 - macOS (Apple Silicon) — MLX backend必須
-- Rust 1.91+ (edition 2024)
+- Rust 1.94+ (edition 2024)
 
 ## 使い方
 
@@ -199,15 +199,16 @@ stmt.execute(rusqlite::params![f32_as_bytes(&vector)])?;
 
 ```toml
 [dev-dependencies]
-rurico = { git = "https://github.com/thkt/rurico", tag = "v0.2.0", features = ["test-support"] }
+rurico = { git = "https://github.com/thkt/rurico", rev = "main", features = ["test-support"] }
 ```
 
-| struct                | 振る舞い                                  |
-| --------------------- | ----------------------------------------- |
-| `MockEmbedder`        | 決定的な one-hot ベクトルを返す           |
-| `FailingEmbedder`     | 設定に応じてエラーを返す                  |
-| `MismatchEmbedder`    | batch で入力より少ないベクトルを返す      |
-| `AlternatingEmbedder` | `embed_document` が成功と失敗を交互に返す |
+| struct                | 振る舞い                                                |
+| --------------------- | ------------------------------------------------------- |
+| `MockEmbedder`        | 決定的な one-hot ベクトルを返す                         |
+| `FailingEmbedder`     | 設定に応じてエラーを返す                                |
+| `MismatchEmbedder`    | batch で入力より少ないベクトルを返す                    |
+| `AlternatingEmbedder` | `embed_document` が成功と失敗を交互に返す（初回は失敗） |
+| `MockChunkedEmbedder` | 指定数の chunk を返す（multi-chunk テスト用）           |
 
 ```rust
 use rurico::embed::{Embed, MockEmbedder};

@@ -73,76 +73,9 @@ impl EmbedderInner {
             return Ok(Vec::new());
         }
 
-        let prefix_tokens = &self.doc_prefix_tokens;
-        let mc = max_content(prefix_tokens.len());
-
-        let mut all_chunk_tokens: Vec<Vec<u32>> = Vec::new();
-        let mut chunks_per_doc: Vec<usize> = Vec::new();
-
-        for &text in texts {
-            let tok = tokenize_with_prefix(&self.tokenizer, text, DOCUMENT_PREFIX)?;
-            // Estimate text token count from the full tokenization to decide short/long path.
-            // The estimate may be off by 1 due to prefix boundary merging, but that only
-            // affects the path selection for texts near the boundary — both paths are correct.
-            let text_token_count = tok.seq_len.saturating_sub(2 + prefix_tokens.len());
-
-            if text_token_count <= mc {
-                // Short document: use full tokenization as-is (FR-012)
-                all_chunk_tokens.push(tok.input_ids);
-                chunks_per_doc.push(1);
-            } else {
-                // Long document: sequential chunk planner with prefix-aware
-                // re-tokenization. Each chunk's start is derived from the
-                // previous chunk's accepted end so the CHUNK_OVERLAP_TOKENS
-                // contract holds even when adaptive shrink reduces content.
-                let text_enc = self
-                    .tokenizer
-                    .encode(text, false)
-                    .map_err(EmbedError::tokenizer)?;
-                let offsets = text_enc.get_offsets();
-                let n_text_tokens = text_enc.get_ids().len();
-
-                let mut chunk_count = 0usize;
-                let mut start = 0usize;
-
-                while start < n_text_tokens {
-                    let byte_start = offsets[start].0;
-                    let mut end = (start + mc).min(n_text_tokens);
-
-                    let ids = loop {
-                        if end <= start {
-                            return Err(EmbedError::inference(format!(
-                                "chunk at token {start} cannot fit within \
-                                 MAX_SEQ_LEN after adaptive shrink"
-                            )));
-                        }
-                        let byte_end = offsets[end - 1].1;
-                        let chunk_str = format!("{DOCUMENT_PREFIX}{}", &text[byte_start..byte_end]);
-                        let enc = self
-                            .tokenizer
-                            .encode(chunk_str.as_str(), true)
-                            .map_err(EmbedError::tokenizer)?;
-                        if enc.get_ids().len() <= MAX_SEQ_LEN {
-                            break enc.get_ids().to_vec();
-                        }
-                        end -= 1;
-                    };
-                    all_chunk_tokens.push(ids);
-                    chunk_count += 1;
-
-                    if end >= n_text_tokens {
-                        break;
-                    }
-                    let next_start = end.saturating_sub(CHUNK_OVERLAP_TOKENS);
-                    if next_start <= start {
-                        break;
-                    }
-                    start = next_start;
-                }
-
-                chunks_per_doc.push(chunk_count);
-            }
-        }
+        let mc = max_content(self.doc_prefix_tokens.len());
+        let (all_chunk_tokens, chunks_per_doc) =
+            plan_document_chunks(&self.tokenizer, texts, &self.doc_prefix_tokens, mc)?;
 
         // Pad and flatten into batch (sorted by length for padding efficiency)
         let max_len = all_chunk_tokens.iter().map(|c| c.len()).max().unwrap_or(0);
@@ -188,6 +121,112 @@ impl EmbedderInner {
         }
 
         Ok(results)
+    }
+}
+
+/// Plan token chunks for a batch of documents.
+///
+/// For each document:
+/// - Short documents (text tokens ≤ max_content): single chunk from full tokenization
+/// - Long documents: sequential planner with prefix-aware re-tokenization
+///
+/// Returns (all_chunk_tokens, chunks_per_doc).
+fn plan_document_chunks(
+    tokenizer: &tokenizers::Tokenizer,
+    texts: &[&str],
+    prefix_tokens: &[u32],
+    mc: usize,
+) -> Result<(Vec<Vec<u32>>, Vec<usize>), EmbedError> {
+    let mut all_chunk_tokens: Vec<Vec<u32>> = Vec::new();
+    let mut chunks_per_doc: Vec<usize> = Vec::new();
+
+    for &text in texts {
+        let tok = tokenize_with_prefix(tokenizer, text, DOCUMENT_PREFIX)?;
+        // Estimate text token count from the full tokenization to decide short/long path.
+        // The estimate may be off by 1 due to prefix boundary merging, but that only
+        // affects the path selection for texts near the boundary — both paths are correct.
+        let text_token_count = tok.seq_len.saturating_sub(2 + prefix_tokens.len());
+
+        if text_token_count <= mc {
+            // Short document: use full tokenization as-is (FR-012)
+            all_chunk_tokens.push(tok.input_ids);
+            chunks_per_doc.push(1);
+        } else {
+            let chunks = plan_long_document(tokenizer, text, mc)?;
+            chunks_per_doc.push(chunks.len());
+            all_chunk_tokens.extend(chunks);
+        }
+    }
+
+    Ok((all_chunk_tokens, chunks_per_doc))
+}
+
+/// Plan chunks for a single long document using sequential re-tokenization.
+///
+/// Each chunk is re-tokenized with the document prefix to handle prefix boundary
+/// merging correctly (Approach A / IG-001). The adaptive shrink loop reduces
+/// chunk size until the re-tokenized result fits within [`MAX_SEQ_LEN`].
+fn plan_long_document(
+    tokenizer: &tokenizers::Tokenizer,
+    text: &str,
+    mc: usize,
+) -> Result<Vec<Vec<u32>>, EmbedError> {
+    let text_enc = tokenizer
+        .encode(text, false)
+        .map_err(EmbedError::tokenizer)?;
+    let offsets = text_enc.get_offsets();
+    let n = text_enc.get_ids().len();
+
+    let mut chunks = Vec::new();
+    let mut start = 0usize;
+
+    while start < n {
+        let byte_start = offsets[start].0;
+        let mut end = (start + mc).min(n);
+        let ids = shrink_chunk_to_fit(tokenizer, text, offsets, byte_start, start, &mut end)?;
+        chunks.push(ids);
+
+        if end >= n {
+            break;
+        }
+        let next_start = end.saturating_sub(CHUNK_OVERLAP_TOKENS);
+        if next_start <= start {
+            break;
+        }
+        start = next_start;
+    }
+
+    Ok(chunks)
+}
+
+/// Re-tokenize a candidate chunk, shrinking until it fits within [`MAX_SEQ_LEN`].
+///
+/// Encodes `DOCUMENT_PREFIX + text[byte_start..byte_end]` with special tokens.
+/// Decreases `end` by one token at a time until the result fits.
+fn shrink_chunk_to_fit(
+    tokenizer: &tokenizers::Tokenizer,
+    text: &str,
+    offsets: &[(usize, usize)],
+    byte_start: usize,
+    start: usize,
+    end: &mut usize,
+) -> Result<Vec<u32>, EmbedError> {
+    loop {
+        if *end <= start {
+            return Err(EmbedError::inference(format!(
+                "chunk at token {start} cannot fit within \
+                 MAX_SEQ_LEN after adaptive shrink"
+            )));
+        }
+        let byte_end = offsets[*end - 1].1;
+        let chunk_str = format!("{DOCUMENT_PREFIX}{}", &text[byte_start..byte_end]);
+        let enc = tokenizer
+            .encode(chunk_str.as_str(), true)
+            .map_err(EmbedError::tokenizer)?;
+        if enc.get_ids().len() <= MAX_SEQ_LEN {
+            return Ok(enc.get_ids().to_vec());
+        }
+        *end -= 1;
     }
 }
 
