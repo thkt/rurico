@@ -8,6 +8,7 @@ pub(super) struct EmbedderInner {
     model: crate::modernbert::ModernBert,
     tokenizer: tokenizers::Tokenizer,
     doc_prefix_tokens: Vec<u32>,
+    embedding_dims: usize,
 }
 
 impl EmbedderInner {
@@ -21,12 +22,18 @@ impl EmbedderInner {
 
         let tokenizer = load_tokenizer(&paths.tokenizer)?;
         let doc_prefix_tokens = extract_prefix_tokens(&tokenizer, DOCUMENT_PREFIX)?;
+        let embedding_dims = config.hidden_size;
 
         Ok(Self {
             model,
             tokenizer,
             doc_prefix_tokens,
+            embedding_dims,
         })
+    }
+
+    pub(super) fn embedding_dims(&self) -> usize {
+        self.embedding_dims
     }
 
     /// Embed a query with truncation (no chunking). FR-009, FR-010.

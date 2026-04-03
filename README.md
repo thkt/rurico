@@ -182,7 +182,6 @@ stmt.execute(rusqlite::params![f32_as_bytes(&vector)])?;
 | variant             | 発生条件                          |
 | ------------------- | --------------------------------- |
 | `ModelNotFound`     | 重みファイルが見つからない        |
-| `DimensionMismatch` | 出力テンソルの次元が不一致        |
 | `Config`            | config.json の読み込み/パース失敗 |
 | `Inference`         | MLX 推論失敗                      |
 | `Tokenizer`         | tokenizer のロード/エンコード失敗 |

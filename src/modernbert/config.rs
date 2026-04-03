@@ -33,6 +33,9 @@ pub struct Config {
 impl Config {
     /// Validate invariants (non-zero sizes, divisibility).
     pub fn validate(&self) -> Result<(), String> {
+        if self.hidden_size == 0 {
+            return Err("hidden_size must be > 0".into());
+        }
         if self.num_attention_heads == 0 {
             return Err("num_attention_heads must be > 0".into());
         }
@@ -79,6 +82,13 @@ pub mod tests {
     #[test]
     fn config_validate_valid() {
         assert!(test_config().validate().is_ok());
+    }
+
+    #[test]
+    fn config_validate_zero_hidden_size() {
+        let mut c = test_config();
+        c.hidden_size = 0;
+        assert!(c.validate().unwrap_err().contains("hidden_size"));
     }
 
     #[test]

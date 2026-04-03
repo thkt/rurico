@@ -8,7 +8,7 @@
 //!   RURICO_SMOKE_CONFIG    — path to config.json
 //!   RURICO_SMOKE_TOKENIZER — path to tokenizer.json
 
-use rurico::embed::{self, EMBEDDING_DIMS, Embed};
+use rurico::embed::{self, Embed};
 
 fn main() {
     // Also acts as a probe subprocess when probe env vars are set.
@@ -21,7 +21,7 @@ fn main() {
     };
 
     let embedder = embed::Embedder::new(&paths).expect("model load");
-    let dims = EMBEDDING_DIMS as usize;
+    let dims = embedder.embedding_dims();
 
     // Query embedding
     let q = embedder.embed_query("authentication logic").expect("query");

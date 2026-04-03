@@ -2,23 +2,43 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use super::{ChunkedEmbedding, EMBEDDING_DIMS, Embed, EmbedError};
 
-fn one_hot(index: usize) -> Vec<f32> {
-    let mut v = vec![0.0_f32; EMBEDDING_DIMS as usize];
-    v[index % EMBEDDING_DIMS as usize] = 1.0;
+fn one_hot(index: usize, dims: usize) -> Vec<f32> {
+    let mut v = vec![0.0_f32; dims];
+    v[index % dims] = 1.0;
     v
 }
 
 /// Returns deterministic one-hot vectors for all inputs.
-pub struct MockEmbedder;
+///
+/// Default dimension is [`EMBEDDING_DIMS`] (768, matching `ruri-v3-310m`).
+/// Use [`MockEmbedder::with_dims`] to test other model sizes.
+pub struct MockEmbedder {
+    dims: usize,
+}
+
+impl Default for MockEmbedder {
+    fn default() -> Self {
+        Self {
+            dims: EMBEDDING_DIMS,
+        }
+    }
+}
+
+impl MockEmbedder {
+    /// Create with a custom embedding dimension.
+    pub fn with_dims(dims: usize) -> Self {
+        Self { dims }
+    }
+}
 
 impl Embed for MockEmbedder {
     fn embed_query(&self, _text: &str) -> Result<Vec<f32>, EmbedError> {
-        Ok(one_hot(0))
+        Ok(one_hot(0, self.dims))
     }
 
     fn embed_document(&self, _text: &str) -> Result<ChunkedEmbedding, EmbedError> {
         Ok(ChunkedEmbedding {
-            chunks: vec![one_hot(0)],
+            chunks: vec![one_hot(0, self.dims)],
         })
     }
 
@@ -27,7 +47,7 @@ impl Embed for MockEmbedder {
             .iter()
             .enumerate()
             .map(|(i, _)| ChunkedEmbedding {
-                chunks: vec![one_hot(i)],
+                chunks: vec![one_hot(i, self.dims)],
             })
             .collect())
     }
@@ -41,6 +61,7 @@ impl Embed for MockEmbedder {
 pub struct FailingEmbedder {
     message: &'static str,
     docs_fail: bool,
+    dims: usize,
 }
 
 impl FailingEmbedder {
@@ -49,6 +70,7 @@ impl FailingEmbedder {
         Self {
             message,
             docs_fail: true,
+            dims: EMBEDDING_DIMS,
         }
     }
 
@@ -57,6 +79,7 @@ impl FailingEmbedder {
         Self {
             message,
             docs_fail: false,
+            dims: EMBEDDING_DIMS,
         }
     }
 }
@@ -71,7 +94,7 @@ impl Embed for FailingEmbedder {
             Err(EmbedError::Inference(self.message.into()))
         } else {
             Ok(ChunkedEmbedding {
-                chunks: vec![one_hot(0)],
+                chunks: vec![one_hot(0, self.dims)],
             })
         }
     }
@@ -86,18 +109,18 @@ pub struct MismatchEmbedder;
 
 impl Embed for MismatchEmbedder {
     fn embed_query(&self, _text: &str) -> Result<Vec<f32>, EmbedError> {
-        Ok(one_hot(0))
+        Ok(one_hot(0, EMBEDDING_DIMS))
     }
 
     fn embed_document(&self, _text: &str) -> Result<ChunkedEmbedding, EmbedError> {
         Ok(ChunkedEmbedding {
-            chunks: vec![one_hot(0)],
+            chunks: vec![one_hot(0, EMBEDDING_DIMS)],
         })
     }
 
     fn embed_documents_batch(&self, _texts: &[&str]) -> Result<Vec<ChunkedEmbedding>, EmbedError> {
         Ok(vec![ChunkedEmbedding {
-            chunks: vec![one_hot(0)],
+            chunks: vec![one_hot(0, EMBEDDING_DIMS)],
         }])
     }
 
@@ -110,25 +133,42 @@ impl Embed for MismatchEmbedder {
 ///
 /// `embed_document` returns `chunks_per_doc` chunks per document.
 /// `embed_query` returns a single vector as usual.
+///
+/// Default dimension is [`EMBEDDING_DIMS`] (768). Use [`MockChunkedEmbedder::with_dims`]
+/// to test other model sizes.
 pub struct MockChunkedEmbedder {
     chunks_per_doc: usize,
+    dims: usize,
 }
 
 impl MockChunkedEmbedder {
-    /// Create with the given number of chunks per document.
+    /// Create with the given number of chunks per document (default dimension).
     pub fn new(chunks_per_doc: usize) -> Self {
-        Self { chunks_per_doc }
+        Self {
+            chunks_per_doc,
+            dims: EMBEDDING_DIMS,
+        }
+    }
+
+    /// Create with the given number of chunks per document and a custom embedding dimension.
+    pub fn with_dims(chunks_per_doc: usize, dims: usize) -> Self {
+        Self {
+            chunks_per_doc,
+            dims,
+        }
     }
 }
 
 impl Embed for MockChunkedEmbedder {
     fn embed_query(&self, _text: &str) -> Result<Vec<f32>, EmbedError> {
-        Ok(one_hot(0))
+        Ok(one_hot(0, self.dims))
     }
 
     fn embed_document(&self, _text: &str) -> Result<ChunkedEmbedding, EmbedError> {
         Ok(ChunkedEmbedding {
-            chunks: (0..self.chunks_per_doc).map(one_hot).collect(),
+            chunks: (0..self.chunks_per_doc)
+                .map(|i| one_hot(i, self.dims))
+                .collect(),
         })
     }
 
@@ -138,7 +178,7 @@ impl Embed for MockChunkedEmbedder {
             .enumerate()
             .map(|(i, _)| ChunkedEmbedding {
                 chunks: (0..self.chunks_per_doc)
-                    .map(|j| one_hot(i * self.chunks_per_doc + j))
+                    .map(|j| one_hot(i * self.chunks_per_doc + j, self.dims))
                     .collect(),
             })
             .collect())
@@ -153,6 +193,7 @@ impl Embed for MockChunkedEmbedder {
 /// The first call (call_count=0) fails; odd-numbered calls succeed.
 pub struct AlternatingEmbedder {
     call_count: AtomicU32,
+    dims: usize,
 }
 
 impl AlternatingEmbedder {
@@ -160,6 +201,7 @@ impl AlternatingEmbedder {
     pub fn new() -> Self {
         Self {
             call_count: AtomicU32::new(0),
+            dims: EMBEDDING_DIMS,
         }
     }
 }
@@ -172,7 +214,7 @@ impl Default for AlternatingEmbedder {
 
 impl Embed for AlternatingEmbedder {
     fn embed_query(&self, _text: &str) -> Result<Vec<f32>, EmbedError> {
-        Ok(one_hot(0))
+        Ok(one_hot(0, self.dims))
     }
 
     fn embed_document(&self, _text: &str) -> Result<ChunkedEmbedding, EmbedError> {
@@ -181,7 +223,7 @@ impl Embed for AlternatingEmbedder {
             Err(EmbedError::Inference("alternating failure".into()))
         } else {
             Ok(ChunkedEmbedding {
-                chunks: vec![one_hot(0)],
+                chunks: vec![one_hot(0, self.dims)],
             })
         }
     }
