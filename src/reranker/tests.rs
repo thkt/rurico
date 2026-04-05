@@ -148,7 +148,6 @@ fn t_015_candidate_verify_returns_invalid_tokenizer_for_bad_tokenizer() {
     );
 }
 
-
 #[test]
 fn probe_env_to_paths_returns_none_when_model_absent() {
     let result = super::probe_env_to_paths(None, Some("c".into()), Some("t".into()));
@@ -371,7 +370,7 @@ mod mlx_runtime_tests {
         let reranker = Reranker::new(&load_cached_artifacts()).unwrap();
         let score = reranker.score("test", "テスト文").unwrap();
         assert!(
-            score >= 0.0 && score <= 1.0 && score.is_finite(),
+            (0.0..=1.0).contains(&score) && score.is_finite(),
             "score should be in [0,1], got: {score}"
         );
     }
@@ -406,7 +405,10 @@ mod mlx_runtime_tests {
             scores[1]
         );
         for &s in &scores {
-            assert!(s >= 0.0 && s <= 1.0, "score should be in [0,1], got: {s}");
+            assert!(
+                (0.0..=1.0).contains(&s),
+                "score should be in [0,1], got: {s}"
+            );
         }
     }
 

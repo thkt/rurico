@@ -20,8 +20,8 @@ impl RerankerInner {
         let config = &artifacts.config;
         let tokenizer = artifacts.tokenizer.clone();
 
-        let model =
-            RerankerModel::load(&artifacts.paths.model, config).map_err(RerankerInitError::backend)?;
+        let model = RerankerModel::load(&artifacts.paths.model, config)
+            .map_err(RerankerInitError::backend)?;
 
         Ok(Self { model, tokenizer })
     }

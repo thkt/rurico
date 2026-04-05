@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use super::mlx::{shrink_chunk_to_fit, unpack_batch_output};
 use super::pooling::{l2_normalize, mean_pooling};
 use super::probe::probe_env_to_paths;
@@ -152,7 +150,6 @@ fn postprocess_embedding_accepts_any_dims() {
     }
 }
 
-
 #[test]
 fn validate_partial_download_reports_missing_file() {
     let dir = tempfile::tempdir().unwrap();
@@ -164,7 +161,6 @@ fn validate_partial_download_reports_missing_file() {
     };
     assert!(path.ends_with("config.json"), "{path:?}");
 }
-
 
 #[test]
 fn mean_pooling_short_mask_truncates_safely() {
@@ -375,7 +371,6 @@ fn model_id_default_is_310m() {
     assert_eq!(ModelId::default(), ModelId::RuriV3_310m);
     assert_eq!(ModelId::default().repo_id(), "cl-nagoya/ruri-v3-310m");
 }
-
 
 #[test]
 fn candidate_verify_returns_invalid_config_for_malformed_config() {
@@ -591,7 +586,11 @@ fn shrink_chunk_to_fit_short_text_returns_immediately() {
 
     let mut end = n;
     let result = shrink_chunk_to_fit(&tokenizer, text, &offsets, 0, &mut end);
-    assert!(result.is_ok(), "short text should fit MAX_SEQ_LEN: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "short text should fit MAX_SEQ_LEN: {:?}",
+        result.err()
+    );
     // end must be unchanged (no shrinking occurred)
     assert_eq!(end, n, "end should not be decremented for short text");
 }

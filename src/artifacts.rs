@@ -157,8 +157,7 @@ fn verify_files_exist(paths: &crate::model_io::ModelPaths) -> Result<(), Artifac
 fn verify_config(
     paths: &crate::model_io::ModelPaths,
 ) -> Result<crate::modernbert::Config, ArtifactError> {
-    let config =
-        crate::model_io::read_config::<crate::modernbert::Config>(&paths.config)?;
+    let config = crate::model_io::read_config::<crate::modernbert::Config>(&paths.config)?;
     config
         .validate()
         .map_err(|reason| ArtifactError::InvalidConfig {
@@ -176,11 +175,24 @@ fn verify_tokenizer(
 
 // ── Kind check (safetensors header inspection) ───────────────────────────────
 
+/// Tensor key prefixes that must be present in all ModernBERT-based models.
+const MODERNBERT_KEY_PREFIXES: &[&str] = &["model."];
+
 /// Tensor key prefixes that are present in reranker models and absent in embed models.
 const RERANKER_KEY_PREFIXES: &[&str] = &["classifier.", "head.dense.", "head.norm."];
 
 fn verify_embed_kind(paths: &crate::model_io::ModelPaths) -> Result<(), ArtifactError> {
     let keys = read_safetensors_keys(&paths.model)?;
+    // Positive check: must have ModernBERT encoder keys.
+    for prefix in MODERNBERT_KEY_PREFIXES {
+        if !keys.iter().any(|k| k.starts_with(prefix)) {
+            return Err(ArtifactError::WrongModelKind {
+                expected: "embed model",
+                keys_hint: format!("missing required key with prefix '{prefix}'"),
+            });
+        }
+    }
+    // Negative check: must not have reranker-specific classifier/head keys.
     for prefix in RERANKER_KEY_PREFIXES {
         if keys.iter().any(|k| k.starts_with(prefix)) {
             return Err(ArtifactError::WrongModelKind {
@@ -253,46 +265,41 @@ fn read_safetensors_keys(path: &Path) -> Result<Vec<String>, ArtifactError> {
         .collect())
 }
 
-// ── Test helpers ─────────────────────────────────────────────────────────────
-
-/// Write a minimal but structurally valid safetensors file containing the given
-/// tensor keys. Each tensor has one `f32` element of weight data.
-///
-/// Used by unit tests to create model files that pass the kind check.
-#[cfg(any(test, feature = "test-support"))]
-pub(crate) fn write_fake_safetensors(path: &Path, tensor_keys: &[&str]) {
-    let mut header_obj = serde_json::Map::new();
-    header_obj.insert("__metadata__".to_string(), serde_json::json!({}));
-    let mut offset = 0usize;
-    for &key in tensor_keys {
-        let end = offset + 4; // 4 bytes per f32
-        header_obj.insert(
-            key.to_string(),
-            serde_json::json!({
-                "dtype": "F32",
-                "shape": [1],
-                "data_offsets": [offset, end]
-            }),
-        );
-        offset = end;
-    }
-    let header_json = serde_json::to_vec(&header_obj).unwrap();
-    let header_len = header_json.len() as u64;
-
-    let mut data = Vec::new();
-    data.extend_from_slice(&header_len.to_le_bytes());
-    data.extend_from_slice(&header_json);
-    for _ in tensor_keys {
-        data.extend_from_slice(&0f32.to_le_bytes());
-    }
-    std::fs::write(path, data).unwrap();
-}
-
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Write a minimal but structurally valid safetensors file containing the given
+    /// tensor keys. Each tensor has one `f32` element of weight data.
+    fn write_fake_safetensors(path: &std::path::Path, tensor_keys: &[&str]) {
+        let mut header_obj = serde_json::Map::new();
+        header_obj.insert("__metadata__".to_string(), serde_json::json!({}));
+        let mut offset = 0usize;
+        for &key in tensor_keys {
+            let end = offset + 4; // 4 bytes per f32
+            header_obj.insert(
+                key.to_string(),
+                serde_json::json!({
+                    "dtype": "F32",
+                    "shape": [1],
+                    "data_offsets": [offset, end]
+                }),
+            );
+            offset = end;
+        }
+        let header_json = serde_json::to_vec(&header_obj).unwrap();
+        let header_len = header_json.len() as u64;
+
+        let mut data = Vec::new();
+        data.extend_from_slice(&header_len.to_le_bytes());
+        data.extend_from_slice(&header_json);
+        for _ in tensor_keys {
+            data.extend_from_slice(&0f32.to_le_bytes());
+        }
+        std::fs::write(path, data).unwrap();
+    }
 
     #[test]
     fn read_safetensors_keys_returns_expected_keys() {
@@ -560,7 +567,11 @@ mod tests {
     }
 
     fn write_valid_tokenizer(dir: &std::path::Path) {
-        std::fs::write(dir.join("tokenizer.json"), MINIMAL_TOKENIZER_JSON.as_bytes()).unwrap();
+        std::fs::write(
+            dir.join("tokenizer.json"),
+            MINIMAL_TOKENIZER_JSON.as_bytes(),
+        )
+        .unwrap();
     }
 
     #[test]
@@ -577,7 +588,28 @@ mod tests {
             config: dir.path().join("config.json"),
             tokenizer: dir.path().join("tokenizer.json"),
         };
-        assert!(verify_as_embed(paths).is_ok(), "verify_as_embed should succeed");
+        assert!(
+            verify_as_embed(paths).is_ok(),
+            "verify_as_embed should succeed"
+        );
+    }
+
+    #[test]
+    fn verify_as_embed_rejects_unrelated_safetensors() {
+        let dir = tempfile::tempdir().unwrap();
+        // No "model." prefix keys — should fail the positive check.
+        write_fake_safetensors(&dir.path().join("model.safetensors"), &["foo.weight"]);
+        write_valid_config(dir.path());
+        write_valid_tokenizer(dir.path());
+        let paths = crate::model_io::ModelPaths {
+            model: dir.path().join("model.safetensors"),
+            config: dir.path().join("config.json"),
+            tokenizer: dir.path().join("tokenizer.json"),
+        };
+        assert!(
+            verify_as_embed(paths).is_err(),
+            "verify_as_embed should reject unrelated safetensors"
+        );
     }
 
     #[test]

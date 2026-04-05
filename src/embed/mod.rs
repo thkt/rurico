@@ -382,23 +382,7 @@ pub fn download_model(model: ModelId) -> Result<Artifacts, ArtifactError> {
 /// Returns [`ArtifactError`] if cached files fail verification.
 /// Cache misses are reported as `Ok(None)`.
 pub fn cached_artifacts(model: ModelId) -> Result<Option<Artifacts>, ArtifactError> {
-    let Some(paths) = crate::model_io::artifacts_if_cached(model)?
-    else {
-        return Ok(None);
-    };
-    crate::artifacts::verify_as_embed(paths).map(Some)
-}
-
-/// Look up embed model artifacts from a specific HF Hub cache instance.
-///
-/// Returns `Ok(None)` on cache miss; verifies files before returning `Ok(Some(_))`.
-#[cfg(test)]
-pub(crate) fn artifacts_from_cache(
-    cache: &hf_hub::Cache,
-    model: ModelId,
-) -> Result<Option<Artifacts>, ArtifactError> {
-    let Some(paths) = crate::model_io::artifacts_from_cache(cache, model)?
-    else {
+    let Some(paths) = crate::model_io::artifacts_if_cached(model)? else {
         return Ok(None);
     };
     crate::artifacts::verify_as_embed(paths).map(Some)

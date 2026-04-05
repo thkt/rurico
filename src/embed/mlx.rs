@@ -20,8 +20,8 @@ impl EmbedderInner {
         let model = crate::modernbert::ModernBert::load(&artifacts.paths.model, config)
             .map_err(EmbedInitError::backend)?;
 
-        let doc_prefix_tokens = extract_prefix_tokens(&tokenizer, DOCUMENT_PREFIX)
-            .map_err(EmbedInitError::backend)?;
+        let doc_prefix_tokens =
+            extract_prefix_tokens(&tokenizer, DOCUMENT_PREFIX).map_err(EmbedInitError::backend)?;
         let embedding_dims = config.hidden_size;
 
         Ok(Self {
@@ -81,8 +81,12 @@ impl EmbedderInner {
         }
 
         let max_content_tokens = max_content(self.doc_prefix_tokens.len());
-        let (all_chunk_tokens, chunks_per_doc) =
-            plan_document_chunks(&self.tokenizer, texts, &self.doc_prefix_tokens, max_content_tokens)?;
+        let (all_chunk_tokens, chunks_per_doc) = plan_document_chunks(
+            &self.tokenizer,
+            texts,
+            &self.doc_prefix_tokens,
+            max_content_tokens,
+        )?;
 
         let (input_ids, attention_mask, batch_size, max_len) =
             crate::model_io::pad_sequences(&all_chunk_tokens, None);

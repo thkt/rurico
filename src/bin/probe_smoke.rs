@@ -16,33 +16,49 @@ fn main() {
     // Must be first: handles re-exec when called as a probe subprocess.
     rurico::model_probe::handle_probe_if_needed();
 
+    let mut ran = 0u32;
+
     // ── Embed probe ───────────────────────────────────────────────────────────
 
-    let embed_artifacts = rurico::embed::cached_artifacts(rurico::embed::ModelId::default())
+    match rurico::embed::cached_artifacts(rurico::embed::ModelId::default())
         .expect("embed cache lookup failed")
-        .expect("embed model not cached; run download first");
-
-    let embed_status = rurico::embed::Embedder::probe(&embed_artifacts)
-        .expect("embed probe subprocess should not error");
-    assert_eq!(
-        embed_status,
-        rurico::embed::ProbeStatus::Available,
-        "embed model should be available"
-    );
+    {
+        None => eprintln!("probe smoke: embed model not cached — skipping"),
+        Some(artifacts) => {
+            let status = rurico::embed::Embedder::probe(&artifacts)
+                .expect("embed probe subprocess should not error");
+            assert_eq!(
+                status,
+                rurico::embed::ProbeStatus::Available,
+                "embed model should be available"
+            );
+            eprintln!("probe smoke: embed OK");
+            ran += 1;
+        }
+    }
 
     // ── Reranker probe ────────────────────────────────────────────────────────
 
-    let reranker_artifacts = reranker::cached_artifacts(reranker::RerankerModelId::default())
+    match reranker::cached_artifacts(reranker::RerankerModelId::default())
         .expect("reranker cache lookup failed")
-        .expect("reranker model not cached; run download first");
+    {
+        None => eprintln!("probe smoke: reranker model not cached — skipping"),
+        Some(artifacts) => {
+            let status = reranker::Reranker::probe(&artifacts)
+                .expect("reranker probe subprocess should not error");
+            assert_eq!(
+                status,
+                reranker::ProbeStatus::Available,
+                "reranker model should be available"
+            );
+            eprintln!("probe smoke: reranker OK");
+            ran += 1;
+        }
+    }
 
-    let reranker_status = reranker::Reranker::probe(&reranker_artifacts)
-        .expect("reranker probe subprocess should not error");
-    assert_eq!(
-        reranker_status,
-        reranker::ProbeStatus::Available,
-        "reranker model should be available"
+    assert!(
+        ran > 0,
+        "no models cached — download at least one before running probe_smoke"
     );
-
-    eprintln!("probe smoke: embed + reranker available");
+    eprintln!("probe smoke: {ran}/2 model(s) verified");
 }
