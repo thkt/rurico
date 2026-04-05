@@ -107,8 +107,6 @@ pub const DOCUMENT_PREFIX: &str = "検索文書: ";
 pub use crate::model_io::MAX_SEQ_LEN;
 /// Number of overlapping tokens between adjacent chunks.
 pub const CHUNK_OVERLAP_TOKENS: usize = 2048;
-/// EOS (end of sequence) token ID for ruri-v3.
-pub(crate) use crate::model_io::EOS_TOKEN_ID;
 
 /// Maximum text content tokens for a given prefix length.
 /// Computed as `MAX_SEQ_LEN - 2 (BOS + EOS) - prefix_len`.
@@ -152,21 +150,16 @@ pub(crate) fn extract_prefix_tokens(
 ///
 /// `max_len` must be ≥ 1. A zero `max_len` returns the inputs unchanged.
 pub(crate) fn truncate_for_query(
-    input_ids: Vec<u32>,
-    attention_mask: Vec<u32>,
+    mut input_ids: Vec<u32>,
+    mut attention_mask: Vec<u32>,
     max_len: usize,
 ) -> (Vec<u32>, Vec<u32>, usize) {
-    let len = input_ids.len();
-    if max_len == 0 || len <= max_len {
-        return (input_ids, attention_mask, len);
+    let orig_len = input_ids.len();
+    if crate::model_io::truncate_with_eos(&mut input_ids, &mut attention_mask, max_len) {
+        log::warn!("query exceeds max_seq_len ({orig_len} > {max_len}), truncating");
     }
-    log::warn!("query exceeds max_seq_len ({len} > {max_len}), truncating");
-    let mut ids = input_ids;
-    ids.truncate(max_len);
-    ids[max_len - 1] = EOS_TOKEN_ID;
-    let mut mask = attention_mask;
-    mask.truncate(max_len);
-    (ids, mask, max_len)
+    let len = input_ids.len();
+    (input_ids, attention_mask, len)
 }
 
 // ── ModelId ───────────────────────────────────────────────────────────────────

@@ -1,5 +1,5 @@
 use super::{Artifacts, RerankerError, RerankerInitError};
-use crate::model_io::{EOS_TOKEN_ID, MAX_SEQ_LEN};
+use crate::model_io::MAX_SEQ_LEN;
 
 use mlx_rs::{
     builder::Builder,
@@ -149,16 +149,10 @@ pub(super) fn truncate_pair(
     max_len: usize,
     pair_idx: usize,
 ) {
-    if max_len == 0 || ids.len() <= max_len {
-        return;
+    let orig_len = ids.len();
+    if crate::model_io::truncate_with_eos(ids, mask, max_len) {
+        log::warn!("pair {pair_idx} exceeds max_seq_len ({orig_len} > {max_len}), truncating");
     }
-    log::warn!(
-        "pair {pair_idx} exceeds max_seq_len ({} > {max_len}), truncating",
-        ids.len()
-    );
-    ids.truncate(max_len);
-    ids[max_len - 1] = EOS_TOKEN_ID;
-    mask.truncate(max_len);
 }
 
 pub(super) fn sigmoid(x: f32) -> f32 {

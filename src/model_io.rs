@@ -11,6 +11,19 @@ pub(crate) const EOS_TOKEN_ID: u32 = 2;
 /// Maximum sequence length for ruri-v3 models (max_position_embeddings).
 pub const MAX_SEQ_LEN: usize = 8192;
 
+/// Truncate `ids` and `mask` to `max_len` in place, replacing the last token with EOS.
+///
+/// Returns `true` if truncation was performed. A `max_len` of 0 is a no-op.
+pub(crate) fn truncate_with_eos(ids: &mut Vec<u32>, mask: &mut Vec<u32>, max_len: usize) -> bool {
+    if max_len == 0 || ids.len() <= max_len {
+        return false;
+    }
+    ids.truncate(max_len);
+    ids[max_len - 1] = EOS_TOKEN_ID;
+    mask.truncate(max_len);
+    true
+}
+
 /// Implemented by model ID enums to provide HuggingFace repository metadata.
 pub trait ModelArtifact: Copy {
     /// HuggingFace repository ID (e.g., `"cl-nagoya/ruri-v3-310m"`).

@@ -2,7 +2,7 @@ use super::mlx::{shrink_chunk_to_fit, unpack_batch_output};
 use super::pooling::{l2_normalize, mean_pooling};
 use super::probe::probe_env_to_paths;
 use super::*;
-use crate::model_io::load_tokenizer;
+use crate::model_io::{EOS_TOKEN_ID, load_tokenizer};
 
 // BOS token ID for ruri-v3 (test-only; used in build_token_chunks and chunk structure assertions)
 const BOS_TOKEN_ID: u32 = 1;

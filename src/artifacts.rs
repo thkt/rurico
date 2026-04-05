@@ -182,45 +182,43 @@ const MODERNBERT_KEY_PREFIXES: &[&str] = &["model."];
 const RERANKER_KEY_PREFIXES: &[&str] = &["classifier.", "head.dense.", "head.norm."];
 
 fn verify_embed_kind(paths: &crate::model_io::ModelPaths) -> Result<(), ArtifactError> {
-    let keys = read_safetensors_keys(&paths.model)?;
-    // Positive check: must have ModernBERT encoder keys.
-    for prefix in MODERNBERT_KEY_PREFIXES {
-        if !keys.iter().any(|k| k.starts_with(prefix)) {
-            return Err(ArtifactError::WrongModelKind {
-                expected: "embed model",
-                keys_hint: format!("missing required key with prefix '{prefix}'"),
-            });
-        }
-    }
-    // Negative check: must not have reranker-specific classifier/head keys.
-    for prefix in RERANKER_KEY_PREFIXES {
-        if keys.iter().any(|k| k.starts_with(prefix)) {
-            return Err(ArtifactError::WrongModelKind {
-                expected: "embed model",
-                keys_hint: format!("found reranker key with prefix '{prefix}'"),
-            });
-        }
-    }
-    Ok(())
+    verify_model_kind(paths, "embed model", false)
 }
 
 fn verify_reranker_kind(paths: &crate::model_io::ModelPaths) -> Result<(), ArtifactError> {
+    verify_model_kind(paths, "reranker model", true)
+}
+
+/// Check safetensors key prefixes for a ModernBERT-based model.
+///
+/// Always requires backbone keys (`MODERNBERT_KEY_PREFIXES`).
+/// When `require_reranker_keys` is `true`, classifier/head keys must also be present.
+/// When `false`, they must be absent.
+fn verify_model_kind(
+    paths: &crate::model_io::ModelPaths,
+    expected: &'static str,
+    require_reranker_keys: bool,
+) -> Result<(), ArtifactError> {
     let keys = read_safetensors_keys(&paths.model)?;
-    // Positive check: must have ModernBERT encoder backbone keys.
     for prefix in MODERNBERT_KEY_PREFIXES {
         if !keys.iter().any(|k| k.starts_with(prefix)) {
             return Err(ArtifactError::WrongModelKind {
-                expected: "reranker model",
+                expected,
                 keys_hint: format!("missing required key with prefix '{prefix}'"),
             });
         }
     }
-    // Positive check: must have reranker-specific classifier/head keys.
     for prefix in RERANKER_KEY_PREFIXES {
-        if !keys.iter().any(|k| k.starts_with(prefix)) {
+        let found = keys.iter().any(|k| k.starts_with(prefix));
+        if require_reranker_keys && !found {
             return Err(ArtifactError::WrongModelKind {
-                expected: "reranker model",
+                expected,
                 keys_hint: format!("missing required key with prefix '{prefix}'"),
+            });
+        } else if !require_reranker_keys && found {
+            return Err(ArtifactError::WrongModelKind {
+                expected,
+                keys_hint: format!("found reranker key with prefix '{prefix}'"),
             });
         }
     }
