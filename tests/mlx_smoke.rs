@@ -4,11 +4,12 @@
 //! kills only the subprocess, not the test runner.
 //!
 //! - `smoke_full`: embed model functionality end-to-end (via `mlx_smoke`)
-//! - `probe_smoke_binary`: subprocess probe contract end-to-end (via `probe_smoke`)
+//! - `probe_embed_smoke_binary`: embed subprocess probe contract (via `probe_embed_smoke`)
+//! - `probe_reranker_smoke_binary`: reranker subprocess probe contract (via `probe_reranker_smoke`)
 
 use std::process::Command;
 
-/// Run the smoke binary and check it succeeds.
+/// Run the embed smoke binary and check it succeeds.
 ///
 /// Covers: query embedding, document embedding (short + long + batch),
 /// consistency, prefix-merge texts.
@@ -16,7 +17,7 @@ use std::process::Command;
 /// The smoke binary loads the model via `cached_artifacts` internally,
 /// so the model must be downloaded before running this test.
 #[test]
-#[ignore] // requires model download + MLX (Apple Silicon)
+#[ignore] // requires ruri-v3-310m cached + MLX (Apple Silicon)
 fn smoke_full() {
     let output = Command::new(env!("CARGO_BIN_EXE_mlx_smoke"))
         .output()
@@ -24,20 +25,33 @@ fn smoke_full() {
     assert_smoke_success(&output);
 }
 
-/// Validate the subprocess probe contract end-to-end for both models.
+/// Validate the embed subprocess probe contract end-to-end.
 ///
-/// Spawns the `probe_smoke` binary, which has `handle_probe_if_needed()` wired
-/// in its `main()`. When `Embedder::probe()` / `Reranker::probe()` re-exec
-/// `current_exe()`, they re-exec `probe_smoke` — the correct probe host — so the
-/// full probe cycle is exercised rather than a test harness that ignores probe env vars.
-///
-/// Each model section is skipped if not cached; at least one model must be cached.
+/// Spawns `probe_embed_smoke`, which has `handle_probe_if_needed()` wired in
+/// its `main()`. When `Embedder::probe()` re-execs `current_exe()`, it
+/// re-execs `probe_embed_smoke` — so the full probe cycle is exercised rather
+/// than a test harness that ignores probe env vars.
 #[test]
-#[ignore] // requires model download + MLX (Apple Silicon)
-fn probe_smoke_binary() {
-    let output = Command::new(env!("CARGO_BIN_EXE_probe_smoke"))
+#[ignore] // requires ruri-v3-310m cached + MLX (Apple Silicon)
+fn probe_embed_smoke_binary() {
+    let output = Command::new(env!("CARGO_BIN_EXE_probe_embed_smoke"))
         .output()
-        .expect("spawn probe_smoke binary");
+        .expect("spawn probe_embed_smoke binary");
+    assert_smoke_success(&output);
+}
+
+/// Validate the reranker subprocess probe contract end-to-end.
+///
+/// Spawns `probe_reranker_smoke`, which has `handle_probe_if_needed()` wired
+/// in its `main()`. When `Reranker::probe()` re-execs `current_exe()`, it
+/// re-execs `probe_reranker_smoke` — so the full probe cycle is exercised
+/// rather than a test harness that ignores probe env vars.
+#[test]
+#[ignore] // requires ruri-v3-reranker-310m cached + MLX (Apple Silicon)
+fn probe_reranker_smoke_binary() {
+    let output = Command::new(env!("CARGO_BIN_EXE_probe_reranker_smoke"))
+        .output()
+        .expect("spawn probe_reranker_smoke binary");
     assert_smoke_success(&output);
 }
 
