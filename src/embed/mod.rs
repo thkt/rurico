@@ -1,3 +1,4 @@
+mod embedder;
 mod mlx;
 mod probe;
 
@@ -9,18 +10,81 @@ mod test_support;
 #[cfg(test)]
 mod tests;
 
-use self::mlx::EmbedderInner;
-
 #[cfg(any(test, feature = "test-support"))]
 pub use test_support::{
     AlternatingEmbedder, FailingEmbedder, MismatchEmbedder, MockChunkedEmbedder, MockEmbedder,
 };
 
+pub use crate::artifacts::{ArtifactError, EmbedKind, VerifiedArtifacts};
+pub use crate::model_probe::{ProbeStatus, handle_probe_if_needed};
+pub use embedder::Embedder;
 pub(crate) use pooling::postprocess_embedding;
-pub use probe::handle_probe_if_needed;
+pub(crate) use probe::probe_env_to_paths;
 
 use std::path::PathBuf;
-use std::sync::Mutex;
+
+// ── Domain alias ─────────────────────────────────────────────────────────────
+
+/// Verified embedding model artifacts.
+///
+/// Produced by [`CandidateArtifacts::verify`] or [`download_model`].
+/// Guarantees that all three artifact files exist, that `config.json` parses
+/// as a valid [`crate::modernbert::Config`], that `tokenizer.json` loads
+/// without error, and that the weights are for an embed model (not a reranker).
+pub type Artifacts = VerifiedArtifacts<EmbedKind>;
+
+// ── CandidateArtifacts ───────────────────────────────────────────────────────
+
+/// Unverified embedding model artifact paths.
+///
+/// Construct with [`from_paths`](Self::from_paths) (or [`from_dir`](Self::from_dir)
+/// in test contexts), then call [`verify`](Self::verify) to obtain
+/// [`Artifacts`] that can be passed to [`Embedder::new`].
+pub struct CandidateArtifacts {
+    paths: crate::model_io::ModelPaths,
+}
+
+impl CandidateArtifacts {
+    /// Construct from explicit file paths without any verification.
+    ///
+    /// Use this when you have raw paths (e.g. from environment variables).
+    /// Call [`verify`](Self::verify) before passing the result to [`Embedder::new`].
+    pub fn from_paths(model: PathBuf, config: PathBuf, tokenizer: PathBuf) -> Self {
+        Self {
+            paths: crate::model_io::ModelPaths {
+                model,
+                config,
+                tokenizer,
+            },
+        }
+    }
+
+    /// Construct from a directory using standard filenames (`model.safetensors`,
+    /// `config.json`, `tokenizer.json`).
+    ///
+    /// Available for development and test use only.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn from_dir(dir: &std::path::Path) -> Self {
+        Self {
+            paths: crate::model_io::ModelPaths::from_dir(dir),
+        }
+    }
+
+    /// Verify file existence, config integrity, tokenizer validity, and embed model kind.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ArtifactError`] for any of the following:
+    /// - A required file is missing ([`ArtifactError::MissingFile`])
+    /// - `config.json` cannot be parsed ([`ArtifactError::InvalidConfig`])
+    /// - `tokenizer.json` cannot be loaded ([`ArtifactError::InvalidTokenizer`])
+    /// - Weights are for a reranker, not an embed model ([`ArtifactError::WrongModelKind`])
+    pub fn verify(self) -> Result<Artifacts, ArtifactError> {
+        crate::artifacts::verify_as_embed(self.paths)
+    }
+}
+
+// ── Constants ────────────────────────────────────────────────────────────────
 
 /// Output vector dimensionality for the default model (`cl-nagoya/ruri-v3-310m`).
 ///
@@ -40,21 +104,19 @@ pub const QUERY_PREFIX: &str = "検索クエリ: ";
 /// Prefix for retrieval documents.
 pub const DOCUMENT_PREFIX: &str = "検索文書: ";
 
-/// Maximum sequence length for the model (ruri-v3 max_position_embeddings).
-pub const MAX_SEQ_LEN: usize = 8192;
+pub use crate::model_io::MAX_SEQ_LEN;
 /// Number of overlapping tokens between adjacent chunks.
 pub const CHUNK_OVERLAP_TOKENS: usize = 2048;
-/// BOS (beginning of sequence) token ID for ruri-v3.
-#[cfg(test)]
-const BOS_TOKEN_ID: u32 = 1;
 /// EOS (end of sequence) token ID for ruri-v3.
-pub(crate) const EOS_TOKEN_ID: u32 = 2;
+pub(crate) use crate::model_io::EOS_TOKEN_ID;
 
 /// Maximum text content tokens for a given prefix length.
 /// Computed as `MAX_SEQ_LEN - 2 (BOS + EOS) - prefix_len`.
 pub(crate) const fn max_content(prefix_len: usize) -> usize {
     MAX_SEQ_LEN - 2 - prefix_len
 }
+
+// ── ChunkedEmbedding ─────────────────────────────────────────────────────────
 
 /// Embedding result for a single text, potentially split into multiple chunks.
 ///
@@ -67,70 +129,7 @@ pub struct ChunkedEmbedding {
     pub chunks: Vec<Vec<f32>>,
 }
 
-/// Compute chunk start positions within the text token array.
-///
-/// Returns a list of start indices. Each chunk reads `max_content` tokens
-/// starting from the given position. The last chunk's start is adjusted
-/// so that it ends exactly at the end of the text tokens (stretch-to-fill).
-///
-/// For texts that fit in a single chunk, returns `[0]`.
-///
-/// NOTE: This function verifies the geometric stride invariant
-/// (stride = max_content − overlap). Production chunking in `mlx.rs`
-/// uses a sequential planner with tokenizer re-encoding, which may
-/// accept fewer tokens per chunk due to prefix boundary merging.
-/// The two algorithms share the overlap/coverage contract but differ
-/// in how chunk boundaries are determined.
-#[cfg(test)]
-pub(crate) fn compute_chunk_starts(
-    text_token_count: usize,
-    max_content: usize,
-    overlap: usize,
-) -> Vec<usize> {
-    if text_token_count <= max_content {
-        return vec![0];
-    }
-
-    let stride = max_content.saturating_sub(overlap);
-    if stride == 0 {
-        return vec![0];
-    }
-
-    let mut starts = Vec::new();
-    let mut pos = 0;
-    while pos + max_content < text_token_count {
-        starts.push(pos);
-        pos += stride;
-    }
-    // Last chunk: stretch to fill max_content
-    starts.push(text_token_count - max_content);
-    starts
-}
-
-/// Build token chunks from text tokens, adding BOS, prefix, and EOS to each.
-///
-/// Each chunk has the structure: `[BOS, prefix..., text_slice..., EOS]`.
-/// The text slice length is at most `max_content` tokens.
-#[cfg(test)]
-pub(crate) fn build_token_chunks(
-    text_tokens: &[u32],
-    prefix_tokens: &[u32],
-    starts: &[usize],
-    max_content: usize,
-) -> Vec<Vec<u32>> {
-    starts
-        .iter()
-        .map(|&start| {
-            let end = (start + max_content).min(text_tokens.len());
-            let mut chunk = Vec::with_capacity(2 + prefix_tokens.len() + (end - start));
-            chunk.push(BOS_TOKEN_ID);
-            chunk.extend_from_slice(prefix_tokens);
-            chunk.extend_from_slice(&text_tokens[start..end]);
-            chunk.push(EOS_TOKEN_ID);
-            chunk
-        })
-        .collect()
-}
+// ── Token helpers ─────────────────────────────────────────────────────────────
 
 /// Extract prefix tokens by encoding the prefix string without special tokens.
 pub(crate) fn extract_prefix_tokens(
@@ -148,13 +147,17 @@ pub(crate) fn extract_prefix_tokens(
 /// If the sequence already fits, returns the inputs unchanged. Otherwise,
 /// truncates to the first `max_len - 1` tokens and replaces the last with EOS.
 /// Logs a warning on truncation.
+///
+/// # Precondition
+///
+/// `max_len` must be ≥ 1. A zero `max_len` returns the inputs unchanged.
 pub(crate) fn truncate_for_query(
     input_ids: Vec<u32>,
     attention_mask: Vec<u32>,
     max_len: usize,
 ) -> (Vec<u32>, Vec<u32>, usize) {
     let len = input_ids.len();
-    if len <= max_len {
+    if max_len == 0 || len <= max_len {
         return (input_ids, attention_mask, len);
     }
     log::warn!("query exceeds max_seq_len ({len} > {max_len}), truncating");
@@ -165,6 +168,8 @@ pub(crate) fn truncate_for_query(
     mask.truncate(max_len);
     (ids, mask, max_len)
 }
+
+// ── ModelId ───────────────────────────────────────────────────────────────────
 
 /// Identifies a ruri-v3 embedding model variant.
 ///
@@ -205,23 +210,63 @@ impl ModelId {
     }
 }
 
-fn model_repo_for(model: ModelId) -> hf_hub::Repo {
-    hf_hub::Repo::with_revision(
-        model.repo_id().to_string(),
-        hf_hub::RepoType::Model,
-        model.revision().to_string(),
-    )
+impl crate::model_io::ModelArtifact for ModelId {
+    fn repo_id(self) -> &'static str {
+        ModelId::repo_id(self)
+    }
+
+    fn revision(self) -> &'static str {
+        self.revision()
+    }
 }
 
-/// Errors from embedding operations.
+// ── EmbedInitError ────────────────────────────────────────────────────────────
+
+/// Errors from initialising the embedding backend ([`Embedder::new`], [`Embedder::probe`]).
+///
+/// These errors occur after artifact verification has already succeeded. They
+/// indicate a failure during MLX backend setup or model weight loading.
+#[derive(Debug, thiserror::Error)]
+pub enum EmbedInitError {
+    /// MLX backend initialisation, weight loading, or subprocess probe failure.
+    #[error("embed init failed: {0}")]
+    Backend(String),
+    /// Model weights loaded but are corrupt or incompatible with the expected architecture.
+    #[error("model load failed: {reason}")]
+    ModelCorrupt {
+        /// Failure detail from the backend.
+        reason: String,
+    },
+}
+
+impl EmbedInitError {
+    pub(crate) fn backend(e: impl std::fmt::Display) -> Self {
+        Self::Backend(e.to_string())
+    }
+}
+
+impl From<crate::model_probe::ProbeError> for EmbedInitError {
+    fn from(e: crate::model_probe::ProbeError) -> Self {
+        match e {
+            crate::model_probe::ProbeError::HandlerNotInstalled => {
+                EmbedInitError::Backend(e.to_string())
+            }
+            crate::model_probe::ProbeError::ModelLoadFailed { reason } => {
+                EmbedInitError::ModelCorrupt { reason }
+            }
+            crate::model_probe::ProbeError::SubprocessFailed(msg) => EmbedInitError::Backend(msg),
+        }
+    }
+}
+
+// ── EmbedError (runtime) ──────────────────────────────────────────────────────
+
+/// Errors from embedding operations at runtime.
+///
+/// These errors occur during calls to [`Embed`] trait methods after the
+/// [`Embedder`] has been successfully initialised.
 #[derive(Debug, thiserror::Error)]
 pub enum EmbedError {
-    /// Model weights file not found.
-    #[error("model not found at {path}")]
-    ModelNotFound {
-        /// Path that was looked up.
-        path: PathBuf,
-    },
     /// Model returned an empty sequence (seq_len is 0).
     #[error("empty sequence: seq_len is 0")]
     EmptySequence,
@@ -233,42 +278,18 @@ pub enum EmbedError {
         /// Actual total elements.
         actual: usize,
     },
-    /// Config file missing or unparseable.
-    #[error("config error at {path}: {reason}")]
-    Config {
-        /// Config file path.
-        path: PathBuf,
-        /// Parse or IO failure detail.
-        reason: String,
-    },
-    /// MLX inference failure.
+    /// MLX inference failure during a forward pass.
     #[error("inference error: {0}")]
     Inference(String),
-    /// Tokenizer load or encode failure.
+    /// Tokenizer encode failure (e.g. unsupported character sequence).
     #[error("tokenizer error: {0}")]
     Tokenizer(String),
-    /// Model download failure.
-    #[error("download failed: {0}")]
-    Download(String),
-    /// Weights loaded but model is corrupt or incompatible.
-    #[error("model load failed: {reason}")]
-    ModelCorrupt {
-        /// Failure detail from the backend.
-        reason: String,
-    },
     /// Embedding output contains non-finite values (NaN or infinity).
     #[error("non-finite values in embedding output (NaN or inf)")]
     NonFiniteOutput,
 }
 
 impl EmbedError {
-    pub(crate) fn config(path: &std::path::Path, e: impl std::fmt::Display) -> Self {
-        Self::Config {
-            path: path.to_path_buf(),
-            reason: e.to_string(),
-        }
-    }
-
     pub(crate) fn inference(e: impl std::fmt::Display) -> Self {
         Self::Inference(e.to_string())
     }
@@ -276,20 +297,9 @@ impl EmbedError {
     pub(crate) fn tokenizer(e: impl std::fmt::Display) -> Self {
         Self::Tokenizer(e.to_string())
     }
-
-    pub(crate) fn download(e: impl std::fmt::Display) -> Self {
-        Self::Download(e.to_string())
-    }
 }
 
-/// Result of [`Embedder::probe`] — whether the MLX backend can load the model.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProbeStatus {
-    /// Model loaded successfully.
-    Available,
-    /// MLX backend crashed or is unsupported on this hardware.
-    BackendUnavailable,
-}
+// ── Embed trait ───────────────────────────────────────────────────────────────
 
 /// Embedding provider.
 ///
@@ -306,8 +316,8 @@ pub trait Embed: Send + Sync {
     /// # Errors
     ///
     /// Implementations should return [`EmbedError`] for operational failures
-    /// such as model availability, tokenization, inference, or output
-    /// post-processing. Callers should not rely on exact error message text.
+    /// such as tokenization, inference, or output post-processing.
+    /// Callers should not rely on exact error message text.
     fn embed_query(&self, text: &str) -> Result<Vec<f32>, EmbedError>;
 
     /// Embed a document for indexing (prepends [`DOCUMENT_PREFIX`]).
@@ -316,8 +326,8 @@ pub trait Embed: Send + Sync {
     /// # Errors
     ///
     /// Implementations should return [`EmbedError`] for operational failures
-    /// such as model availability, tokenization, inference, or output
-    /// post-processing. Callers should not rely on exact error message text.
+    /// such as tokenization, inference, or output post-processing.
+    /// Callers should not rely on exact error message text.
     fn embed_document(&self, text: &str) -> Result<ChunkedEmbedding, EmbedError>;
 
     /// Batch-embed documents. Returns one [`ChunkedEmbedding`] per input text, in the
@@ -342,130 +352,59 @@ pub trait Embed: Send + Sync {
     /// # Errors
     ///
     /// Implementations should return [`EmbedError`] for operational failures
-    /// such as model availability, tokenization, inference, or output
-    /// post-processing. Callers should not rely on exact error message text.
+    /// such as tokenization, inference, or output post-processing.
+    /// Callers should not rely on exact error message text.
     fn embed_text(&self, text: &str, prefix: &str) -> Result<Vec<f32>, EmbedError>;
 }
 
-/// Paths to the three model artifacts (weights, config, tokenizer).
-#[derive(Debug, Clone)]
-pub struct ModelPaths {
-    /// SafeTensors weights file.
-    pub model: PathBuf,
-    /// `config.json` (ModernBERT hyperparameters).
-    pub config: PathBuf,
-    /// `tokenizer.json` (HuggingFace tokenizer).
-    pub tokenizer: PathBuf,
-}
+// ── Public API: download / cache ──────────────────────────────────────────────
 
-impl ModelPaths {
-    /// Build paths assuming standard filenames under `dir`.
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn from_dir(dir: &std::path::Path) -> Self {
-        Self {
-            model: dir.join("model.safetensors"),
-            config: dir.join("config.json"),
-            tokenizer: dir.join("tokenizer.json"),
-        }
-    }
-
-    /// Check that all three files exist, returning [`EmbedError::ModelNotFound`] on the first miss.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`EmbedError::ModelNotFound`] when any of `model.safetensors`,
-    /// `config.json`, or `tokenizer.json` is missing.
-    pub fn validate(&self) -> Result<(), EmbedError> {
-        for path in [&self.model, &self.config, &self.tokenizer] {
-            if !path.exists() {
-                return Err(EmbedError::ModelNotFound { path: path.clone() });
-            }
-        }
-        Ok(())
-    }
-}
-
-/// Download model files from Hugging Face Hub (cached after first download).
+/// Download model files from Hugging Face Hub and verify them as embed artifacts.
 ///
 /// # Errors
 ///
-/// Returns [`EmbedError::Download`] if the Hugging Face client cannot be
-/// initialized or any required artifact download fails.
-pub fn download_model(model: ModelId) -> Result<ModelPaths, EmbedError> {
-    let api = hf_hub::api::sync::Api::new()
-        .map_err(|e| EmbedError::download(format!("HF Hub init failed: {e}")))?;
-    let repo = api.repo(model_repo_for(model));
+/// Returns [`ArtifactError::DownloadFailed`] if the Hugging Face client cannot be
+/// initialised or any required artifact download fails.
+/// Returns other [`ArtifactError`] variants if verification of the downloaded
+/// files fails.
+pub fn download_model(model: ModelId) -> Result<Artifacts, ArtifactError> {
+    let paths = crate::model_io::download_artifacts(model)?;
+    crate::artifacts::verify_as_embed(paths)
+}
 
-    let get = |name: &str| {
-        repo.get(name)
-            .map_err(|e| EmbedError::download(format!("{name} download failed: {e}")))
+/// Check whether embed model files exist in the local HF Hub cache and verify them.
+///
+/// Returns `Ok(Some(artifacts))` if all three files are cached and pass
+/// verification, `Ok(None)` otherwise. Never accesses the network.
+///
+/// # Errors
+///
+/// Returns [`ArtifactError`] if cached files fail verification.
+/// Cache misses are reported as `Ok(None)`.
+pub fn cached_artifacts(model: ModelId) -> Result<Option<Artifacts>, ArtifactError> {
+    let Some(paths) = crate::model_io::artifacts_if_cached(model)?
+    else {
+        return Ok(None);
     };
-
-    let model_weights = get("model.safetensors")?;
-    let config = get("config.json")?;
-    let tokenizer = get("tokenizer.json")?;
-
-    Ok(ModelPaths {
-        model: model_weights,
-        config,
-        tokenizer,
-    })
+    crate::artifacts::verify_as_embed(paths).map(Some)
 }
 
-/// Check whether model files exist in the local HF Hub cache.
+/// Look up embed model artifacts from a specific HF Hub cache instance.
 ///
-/// Returns `Ok(Some(paths))` if all three files are cached, `Ok(None)` otherwise.
-/// Never accesses the network.
-///
-/// # Errors
-///
-/// This function reports cache misses as `Ok(None)` and never returns `Err`.
-pub fn model_paths_if_cached(model: ModelId) -> Result<Option<ModelPaths>, EmbedError> {
-    model_paths_from_cache(&hf_hub::Cache::from_env(), model)
-}
-
-fn model_paths_from_cache(
+/// Returns `Ok(None)` on cache miss; verifies files before returning `Ok(Some(_))`.
+#[cfg(test)]
+pub(crate) fn artifacts_from_cache(
     cache: &hf_hub::Cache,
     model: ModelId,
-) -> Result<Option<ModelPaths>, EmbedError> {
-    let repo = cache.repo(model_repo_for(model));
-    let Some(model_weights) = repo.get("model.safetensors") else {
+) -> Result<Option<Artifacts>, ArtifactError> {
+    let Some(paths) = crate::model_io::artifacts_from_cache(cache, model)?
+    else {
         return Ok(None);
     };
-    let Some(config) = repo.get("config.json") else {
-        return Ok(None);
-    };
-    let Some(tokenizer) = repo.get("tokenizer.json") else {
-        return Ok(None);
-    };
-    Ok(Some(ModelPaths {
-        model: model_weights,
-        config,
-        tokenizer,
-    }))
+    crate::artifacts::verify_as_embed(paths).map(Some)
 }
 
-/// Deserialize a JSON config file into `T`.
-///
-/// # Errors
-///
-/// Returns [`EmbedError::Config`] on IO failure or JSON parse error.
-pub fn read_config<T: serde::de::DeserializeOwned>(
-    path: &std::path::Path,
-) -> Result<T, EmbedError> {
-    let text = std::fs::read_to_string(path).map_err(|e| EmbedError::config(path, e))?;
-    serde_json::from_str(&text).map_err(|e| EmbedError::config(path, format!("parse error: {e}")))
-}
-
-/// Load a HuggingFace tokenizer from a JSON file.
-///
-/// # Errors
-///
-/// Returns [`EmbedError::Tokenizer`] if the tokenizer file cannot be read or
-/// parsed by the `tokenizers` crate.
-pub fn load_tokenizer(path: &std::path::Path) -> Result<tokenizers::Tokenizer, EmbedError> {
-    tokenizers::Tokenizer::from_file(path).map_err(EmbedError::tokenizer)
-}
+// ── TokenizedInput ────────────────────────────────────────────────────────────
 
 /// Output of [`tokenize_with_prefix`]: token IDs, attention mask, and sequence length.
 pub struct TokenizedInput {
@@ -501,101 +440,4 @@ pub fn tokenize_with_prefix(
         attention_mask,
         seq_len,
     })
-}
-
-/// Thread-safe embedding model backed by MLX. Wraps the backend in a [`Mutex`].
-pub struct Embedder {
-    inner: Mutex<EmbedderInner>,
-    embedding_dims: usize,
-}
-
-impl std::fmt::Debug for Embedder {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Embedder").finish_non_exhaustive()
-    }
-}
-
-impl Embedder {
-    /// Load model weights, config, and tokenizer from `paths`.
-    ///
-    /// # Single-instance expectation
-    ///
-    /// `mlx_clear_cache()` operates on process-global Metal allocator state.
-    /// Concurrent calls are serialized by an internal lock, but holding
-    /// multiple `Embedder` instances doubles GPU memory usage (~600 MB).
-    /// Prefer one `Embedder` per process.
-    ///
-    /// # Errors
-    ///
-    /// Returns:
-    /// - [`EmbedError::ModelNotFound`] if any required model artifact is missing
-    /// - [`EmbedError::Config`] if `config.json` cannot be read or parsed
-    /// - [`EmbedError::Tokenizer`] if `tokenizer.json` cannot be loaded or used
-    /// - [`EmbedError::Inference`] if MLX model construction or weight loading fails
-    pub fn new(paths: &ModelPaths) -> Result<Self, EmbedError> {
-        let inner = EmbedderInner::new(paths)?;
-        let embedding_dims = inner.embedding_dims();
-        Ok(Self {
-            inner: Mutex::new(inner),
-            embedding_dims,
-        })
-    }
-
-    /// Embedding vector length for this model (read from `config.json.hidden_size`).
-    ///
-    /// All vectors returned by [`embed_query`](Embed::embed_query),
-    /// [`embed_document`](Embed::embed_document), and
-    /// [`embed_text`](Embed::embed_text) have this length.
-    pub fn embedding_dims(&self) -> usize {
-        self.embedding_dims
-    }
-
-    /// Test whether the model can load without aborting the caller.
-    ///
-    /// Re-execs the current binary as a probe subprocess (via `Command`), so a
-    /// crash is contained and reported as [`ProbeStatus::BackendUnavailable`].
-    ///
-    /// The host binary must call [`handle_probe_if_needed`] at the start of `main()`.
-    ///
-    /// # Errors
-    ///
-    /// Returns:
-    /// - [`EmbedError::ModelNotFound`] if any required model artifact is missing
-    /// - [`EmbedError::Config`] if `config.json` cannot be read or parsed
-    /// - [`EmbedError::Tokenizer`] if `tokenizer.json` cannot be loaded
-    /// - [`EmbedError::Inference`] if the probe subprocess cannot be spawned or awaited,
-    ///   or the probe handler is not installed in the host binary
-    /// - [`EmbedError::ModelCorrupt`] if the subprocess exits non-zero after
-    ///   starting successfully
-    pub fn probe(paths: &ModelPaths) -> Result<ProbeStatus, EmbedError> {
-        paths.validate()?;
-        let config: crate::modernbert::Config = read_config(&paths.config)?;
-        config.validate().map_err(EmbedError::inference)?;
-        let _ = load_tokenizer(&paths.tokenizer)?;
-        probe::probe_via_subprocess(paths)
-    }
-
-    fn lock_inner(&self) -> Result<std::sync::MutexGuard<'_, EmbedderInner>, EmbedError> {
-        self.inner
-            .lock()
-            .map_err(|_| EmbedError::inference("embedder lock poisoned"))
-    }
-}
-
-impl Embed for Embedder {
-    fn embed_query(&self, text: &str) -> Result<Vec<f32>, EmbedError> {
-        self.lock_inner()?.embed_query_truncated(text, QUERY_PREFIX)
-    }
-
-    fn embed_document(&self, text: &str) -> Result<ChunkedEmbedding, EmbedError> {
-        self.lock_inner()?.embed_document_chunked(text)
-    }
-
-    fn embed_documents_batch(&self, texts: &[&str]) -> Result<Vec<ChunkedEmbedding>, EmbedError> {
-        self.lock_inner()?.embed_documents_batch_chunked(texts)
-    }
-
-    fn embed_text(&self, text: &str, prefix: &str) -> Result<Vec<f32>, EmbedError> {
-        self.lock_inner()?.embed_query_truncated(text, prefix)
-    }
 }

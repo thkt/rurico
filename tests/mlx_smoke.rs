@@ -1,7 +1,10 @@
-//! Integration tests that run the `mlx_smoke` binary in a subprocess.
+//! Integration tests that run smoke binaries in subprocesses.
 //!
 //! All MLX-dependent verification is isolated here. A SIGABRT from MLX FFI
 //! kills only the subprocess, not the test runner.
+//!
+//! - `smoke_full`: embed model functionality end-to-end (via `mlx_smoke`)
+//! - `probe_smoke_binary`: subprocess probe contract end-to-end (via `probe_smoke`)
 
 use std::process::Command;
 
@@ -9,47 +12,33 @@ use std::process::Command;
 ///
 /// Covers: query embedding, document embedding (short + long + batch),
 /// consistency, prefix-merge texts.
+///
+/// The smoke binary loads the model via `cached_artifacts` internally,
+/// so the model must be downloaded before running this test.
 #[test]
 #[ignore] // requires model download + MLX (Apple Silicon)
 fn smoke_full() {
-    let paths =
-        rurico::embed::download_model(rurico::embed::ModelId::default()).expect("download model");
-    let output = smoke_command(&paths).output().expect("spawn smoke binary");
+    let output = Command::new(env!("CARGO_BIN_EXE_mlx_smoke"))
+        .output()
+        .expect("spawn smoke binary");
     assert_smoke_success(&output);
 }
 
-/// Run the smoke binary in probe mode (env vars from `handle_probe_if_needed`).
+/// Validate the subprocess probe contract end-to-end for both models.
+///
+/// Spawns the `probe_smoke` binary, which has `handle_probe_if_needed()` wired
+/// in its `main()`. When `Embedder::probe()` / `Reranker::probe()` re-exec
+/// `current_exe()`, they re-exec `probe_smoke` — the correct probe host — so the
+/// full probe cycle is exercised rather than a test harness that ignores probe env vars.
+///
+/// Both models must be downloaded before running this test.
 #[test]
 #[ignore] // requires model download + MLX (Apple Silicon)
-fn smoke_probe() {
-    let paths =
-        rurico::embed::download_model(rurico::embed::ModelId::default()).expect("download model");
-    let output = Command::new(env!("CARGO_BIN_EXE_mlx_smoke"))
-        .env("__RURICO_PROBE_MODEL", &paths.model)
-        .env("__RURICO_PROBE_CONFIG", &paths.config)
-        .env("__RURICO_PROBE_TOKENIZER", &paths.tokenizer)
+fn probe_smoke_binary() {
+    let output = Command::new(env!("CARGO_BIN_EXE_probe_smoke"))
         .output()
-        .expect("spawn probe");
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains("RURICO_PROBE_OK"),
-        "probe handshake missing in stdout: {stdout:?}"
-    );
-    assert!(
-        output.status.success(),
-        "probe exited {:?}\nstderr: {}",
-        output.status.code(),
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
-
-fn smoke_command(paths: &rurico::embed::ModelPaths) -> Command {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_mlx_smoke"));
-    cmd.env("RURICO_SMOKE_MODEL", &paths.model)
-        .env("RURICO_SMOKE_CONFIG", &paths.config)
-        .env("RURICO_SMOKE_TOKENIZER", &paths.tokenizer);
-    cmd
+        .expect("spawn probe_smoke binary");
+    assert_smoke_success(&output);
 }
 
 fn assert_smoke_success(output: &std::process::Output) {

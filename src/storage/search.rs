@@ -165,7 +165,7 @@ pub fn fts_quote(s: &str) -> String {
 
 /// Sanitize user input and expand short terms into a query safe for FTS5 `MATCH`.
 ///
-/// Combines [`sanitize_fts_query`] and [`fts_expand_short_terms`] into a single call.
+/// Combines `sanitize_fts_query` and `fts_expand_short_terms` into a single call.
 ///
 /// # Errors
 ///
@@ -178,6 +178,32 @@ pub fn fts_quote(s: &str) -> String {
 pub fn prepare_match_query(conn: &Connection, query: &str) -> Result<MatchFtsQuery, SanitizeError> {
     let sanitized = sanitize_fts_query(query)?;
     Ok(fts_expand_short_terms(conn, &sanitized))
+}
+
+/// Expand a single short token via vocab prefix matching.
+///
+/// Returns `Some(expanded_group)` when matches are found, `None` when the
+/// vocab lookup fails or returns no results (caller falls back to quoting as-is).
+fn expand_token_via_vocab(stmt: &mut rusqlite::CachedStatement<'_>, token: &str) -> Option<String> {
+    let escaped = token
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
+    let pattern = format!("{escaped}%");
+    match stmt
+        .query_map([&pattern], |row| row.get::<_, String>(0))
+        .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
+    {
+        Ok(terms) if !terms.is_empty() => {
+            let quoted: Vec<String> = terms.iter().map(|t| fts_quote(t)).collect();
+            Some(format!("({})", quoted.join(" OR ")))
+        }
+        Ok(_) => None,
+        Err(e) => {
+            log::warn!("fts vocab query failed: {e}");
+            None
+        }
+    }
 }
 
 /// Expand short terms (1-2 chars) via `fts_chunks_vocab` prefix matching.
@@ -208,30 +234,8 @@ pub(crate) fn fts_expand_short_terms(
             parts.push(fts_quote(token));
             continue;
         }
-        let expanded = stmt.as_mut().and_then(|s| {
-            let escaped = token
-                .replace('\\', "\\\\")
-                .replace('%', "\\%")
-                .replace('_', "\\_");
-            let pattern = format!("{escaped}%");
-            match s
-                .query_map([&pattern], |row| row.get::<_, String>(0))
-                .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
-            {
-                Ok(terms) => Some(terms),
-                Err(e) => {
-                    log::warn!("fts vocab query failed: {e}");
-                    None
-                }
-            }
-        });
-        match expanded {
-            Some(terms) if !terms.is_empty() => {
-                let quoted: Vec<String> = terms.iter().map(|t| fts_quote(t)).collect();
-                parts.push(format!("({})", quoted.join(" OR ")));
-            }
-            _ => parts.push(fts_quote(token)),
-        }
+        let expanded = stmt.as_mut().and_then(|s| expand_token_via_vocab(s, token));
+        parts.push(expanded.unwrap_or_else(|| fts_quote(token)));
     }
     MatchFtsQuery(parts.join(" "))
 }

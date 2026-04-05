@@ -3,24 +3,20 @@
 //! Invoked by integration tests via `Command` so MLX FFI crashes
 //! (SIGABRT) are contained without killing the test runner.
 //!
-//! Env vars:
-//!   RURICO_SMOKE_MODEL     — path to model.safetensors
-//!   RURICO_SMOKE_CONFIG    — path to config.json
-//!   RURICO_SMOKE_TOKENIZER — path to tokenizer.json
+//! Loads the default embed model from the local HF Hub cache. The model
+//! must be downloaded before running smoke tests.
 
 use rurico::embed::{self, Embed};
 
 fn main() {
     // Also acts as a probe subprocess when probe env vars are set.
-    embed::handle_probe_if_needed();
+    rurico::model_probe::handle_probe_if_needed();
 
-    let paths = embed::ModelPaths {
-        model: expect_env("RURICO_SMOKE_MODEL").into(),
-        config: expect_env("RURICO_SMOKE_CONFIG").into(),
-        tokenizer: expect_env("RURICO_SMOKE_TOKENIZER").into(),
-    };
+    let artifacts = embed::cached_artifacts(embed::ModelId::default())
+        .expect("cache lookup failed")
+        .expect("model not cached; run download first");
 
-    let embedder = embed::Embedder::new(&paths).expect("model load");
+    let embedder = embed::Embedder::new(&artifacts).expect("model load");
     let dims = embedder.embedding_dims();
 
     // Query embedding
@@ -66,11 +62,4 @@ fn main() {
     }
 
     eprintln!("smoke: all checks passed");
-}
-
-fn expect_env(key: &str) -> String {
-    std::env::var(key).unwrap_or_else(|_| {
-        eprintln!("missing env var: {key}");
-        std::process::exit(2);
-    })
 }
