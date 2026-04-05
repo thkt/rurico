@@ -10,13 +10,15 @@ Apple Silicon (MLX) 上で日本語テキストのembedding・reranking・類似
 
 ## モジュール構成
 
-| モジュール   | 役割                                                                              |
-| ------------ | --------------------------------------------------------------------------------- |
-| `embed`      | embedding 生成（MLX 推論、tokenization、pooling、probe）                          |
-| `reranker`   | 検索結果の reranking（cross-encoder スコアリング、probe）                         |
-| `modernbert` | ModernBERT モデル定義と config                                                    |
-| `storage`    | SQLite + sqlite-vec のベクトル検索ユーティリティ（FTS、RRF merge、recency decay） |
-| `text`       | テキスト分割（段落 > 行 > 文字境界で UTF-8 安全に分割）                           |
+| モジュール    | 役割                                                                                 |
+| ------------- | ------------------------------------------------------------------------------------ |
+| `embed`       | embedding 生成（MLX 推論、tokenization、pooling、probe）                             |
+| `reranker`    | 検索結果の reranking（cross-encoder スコアリング、probe）                            |
+| `modernbert`  | ModernBERT モデル定義と config                                                       |
+| `storage`     | SQLite + sqlite-vec のベクトル検索ユーティリティ（FTS、RRF merge、recency decay）    |
+| `text`        | テキスト分割（段落 > 行 > 文字境界で UTF-8 安全に分割）                              |
+| `artifacts`   | モデルファイルの型付き検証パイプライン（`CandidateArtifacts` → `VerifiedArtifacts`） |
+| `model_probe` | サブプロセス probe 基盤（`handle_probe_if_needed`、`ProbeStatus`）                   |
 
 ## 要件
 
@@ -33,7 +35,8 @@ rurico = { git = "https://github.com/thkt/rurico", rev = "main" }
 MLXの初期化失敗はプロセスをabortする可能性がある。`probe` でモデルのロード可否を子プロセスで検証してからEmbedderを作成する。
 
 ```rust
-use rurico::embed::{Embed, Embedder, ModelId, ProbeStatus, download_model, handle_probe_if_needed};
+use rurico::embed::{Embed, Embedder, ModelId, download_model};
+use rurico::model_probe::{ProbeStatus, handle_probe_if_needed};
 
 // probe 子プロセスのハンドラ登録（main() の冒頭で呼ぶ）
 handle_probe_if_needed();
@@ -73,12 +76,23 @@ for chunk_vec in &doc.chunks {
 | `CHUNK_OVERLAP_TOKENS` | `2048`           | document chunk 間の overlap token 数                                               |
 | `QUERY_PREFIX`         | `"検索クエリ: "` | クエリ埋め込みときに先頭へ付加                                                     |
 | `DOCUMENT_PREFIX`      | `"検索文書: "`   | ドキュメント埋め込みときに先頭へ付加                                               |
+| `SEMANTIC_PREFIX`      | `""`             | semantic/clustering タスク用（プレフィックスなし）                                 |
+| `TOPIC_PREFIX`         | `"トピック: "`   | 分類・クラスタリングタスク用                                                       |
 
 ### Document Embedding
 
 `embed_document` は `ChunkedEmbedding` を返す。テキストが `MAX_SEQ_LEN` 以内なら `chunks.len() == 1` で従来と同等のembeddingを返す。超過時はprefixを保持したoverlapping chunksに分割され、各chunkが独立したembeddingになる（次元数はモデルにより異なる）。
 
 `embed_documents_batch` は入力件数と同数の `Vec<ChunkedEmbedding>` を返し、入力順を保持する。
+
+`embed_text` はプレフィックスを明示指定して埋め込む低レベルAPI（chunkingなし、超過時はtruncate）。検索用途では `embed_query` / `embed_document` を使う。
+
+```rust
+use rurico::embed::{TOPIC_PREFIX, SEMANTIC_PREFIX};
+
+let topic_vec = embedder.embed_text("ニュース記事...", TOPIC_PREFIX)?;
+let semantic_vec = embedder.embed_text("任意テキスト", SEMANTIC_PREFIX)?;
+```
 
 ### モデルキャッシュの確認
 
