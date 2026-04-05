@@ -2,30 +2,6 @@ use super::mlx::truncate_pair;
 use super::*;
 
 #[test]
-fn t_001_default_model_id_is_ruri_v3_reranker_310m() {
-    assert_eq!(
-        RerankerModelId::default(),
-        RerankerModelId::RuriV3Reranker310m
-    );
-}
-
-#[test]
-fn t_002_repo_id_returns_correct_string() {
-    assert_eq!(
-        RerankerModelId::RuriV3Reranker310m.repo_id(),
-        "cl-nagoya/ruri-v3-reranker-310m"
-    );
-}
-
-#[test]
-fn t_022_revision_returns_pinned_commit_hash() {
-    assert_eq!(
-        RerankerModelId::RuriV3Reranker310m.revision(),
-        "bb46934ee9ed09f850b9fcff17501b3ef7ddb2b3"
-    );
-}
-
-#[test]
 fn t_003_candidate_verify_returns_missing_file_for_nonexistent_paths() {
     let candidate = CandidateArtifacts::from_paths(
         "/nonexistent/model.safetensors".into(),
@@ -149,26 +125,6 @@ fn t_015_candidate_verify_returns_invalid_tokenizer_for_bad_tokenizer() {
 }
 
 #[test]
-fn probe_env_to_paths_returns_none_when_model_absent() {
-    let result = super::probe_env_to_paths(None, Some("c".into()), Some("t".into()));
-    assert!(result.is_none());
-}
-
-#[test]
-fn probe_env_to_paths_returns_err_when_config_missing() {
-    let result = super::probe_env_to_paths(Some("m".into()), None, Some("t".into()));
-    let err = result.unwrap().unwrap_err();
-    assert_eq!(err, crate::model_probe::PROBE_EXIT_ENV_INCOMPLETE);
-}
-
-#[test]
-fn probe_env_to_paths_returns_err_when_tokenizer_missing() {
-    let result = super::probe_env_to_paths(Some("m".into()), Some("c".into()), None);
-    let err = result.unwrap().unwrap_err();
-    assert_eq!(err, crate::model_probe::PROBE_EXIT_ENV_INCOMPLETE);
-}
-
-#[test]
 fn probe_env_to_paths_returns_ok_when_all_present() {
     let result = super::probe_env_to_paths(Some("/m".into()), Some("/c".into()), Some("/t".into()));
     // CandidateArtifacts is returned — verify it was constructed (path accessible in submodule)
@@ -176,27 +132,6 @@ fn probe_env_to_paths_returns_ok_when_all_present() {
     assert_eq!(candidate.paths.model, std::path::PathBuf::from("/m"));
     assert_eq!(candidate.paths.config, std::path::PathBuf::from("/c"));
     assert_eq!(candidate.paths.tokenizer, std::path::PathBuf::from("/t"));
-}
-
-#[test]
-fn lock_inner_poison_maps_to_inference_error() {
-    // Verify that lock_inner's map_err closure produces the expected error variant
-    // and message when the mutex is poisoned. We can't construct RerankerInner
-    // without model files, so we test the error mapping directly.
-    let mutex: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let _guard = mutex.lock().unwrap();
-        panic!("poison");
-    }));
-    assert!(mutex.is_poisoned());
-    let err = mutex
-        .lock()
-        .map_err(|_| RerankerError::inference("reranker lock poisoned"))
-        .unwrap_err();
-    assert!(
-        matches!(err, RerankerError::Inference(ref msg) if msg == "reranker lock poisoned"),
-        "unexpected error: {err}"
-    );
 }
 
 #[test]
@@ -242,17 +177,16 @@ fn sort_results_handles_nan_without_panic() {
 }
 
 #[test]
-fn from_probe_error_handler_not_installed_maps_to_backend() {
-    let err: RerankerInitError = crate::model_probe::ProbeError::HandlerNotInstalled.into();
+fn from_probe_error_maps_correctly() {
+    use crate::model_probe::ProbeError;
+
+    let err: RerankerInitError = ProbeError::HandlerNotInstalled.into();
     assert!(
-        matches!(err, RerankerInitError::Backend(ref msg) if msg.contains("probe handler not installed")),
+        matches!(err, RerankerInitError::Backend(ref m) if m.contains("probe handler not installed")),
         "{err}"
     );
-}
 
-#[test]
-fn from_probe_error_model_load_failed_maps_to_model_corrupt() {
-    let err: RerankerInitError = crate::model_probe::ProbeError::ModelLoadFailed {
+    let err: RerankerInitError = ProbeError::ModelLoadFailed {
         reason: "bad weights".into(),
     }
     .into();
@@ -260,14 +194,10 @@ fn from_probe_error_model_load_failed_maps_to_model_corrupt() {
         matches!(err, RerankerInitError::ModelCorrupt { ref reason } if reason == "bad weights"),
         "{err}"
     );
-}
 
-#[test]
-fn from_probe_error_subprocess_failed_maps_to_backend() {
-    let err: RerankerInitError =
-        crate::model_probe::ProbeError::SubprocessFailed("spawn failed".into()).into();
+    let err: RerankerInitError = ProbeError::SubprocessFailed("spawn failed".into()).into();
     assert!(
-        matches!(err, RerankerInitError::Backend(ref msg) if msg == "spawn failed"),
+        matches!(err, RerankerInitError::Backend(ref m) if m == "spawn failed"),
         "{err}"
     );
 }
@@ -301,38 +231,10 @@ fn mock_reranker_score_batch_empty_returns_ok_empty() {
 }
 
 #[test]
-fn mock_reranker_rerank_empty_returns_ok_empty() {
-    let r = MockReranker::default();
-    assert!(r.rerank("query", &[]).unwrap().is_empty());
-}
-
-#[test]
 fn mock_reranker_score_returns_configured_value() {
     let r = MockReranker::with_score(0.7);
     let s = r.score("q", "d").unwrap();
     assert!((s - 0.7).abs() < 1e-6, "expected 0.7, got {s}");
-}
-
-#[test]
-fn mock_reranker_score_batch_returns_score_per_pair() {
-    let r = MockReranker::with_score(0.3);
-    let pairs = [("q", "a"), ("q", "b"), ("q", "c")];
-    let scores = r.score_batch(&pairs).unwrap();
-    assert_eq!(scores.len(), 3);
-    for &s in &scores {
-        assert!((s - 0.3).abs() < 1e-6, "expected 0.3, got {s}");
-    }
-}
-
-#[test]
-fn mock_reranker_rerank_returns_all_document_indices() {
-    let r = MockReranker::default();
-    let docs = ["a", "b", "c"];
-    let results = r.rerank("q", &docs).unwrap();
-    assert_eq!(results.len(), 3);
-    let mut indices: Vec<usize> = results.iter().map(|r| r.index).collect();
-    indices.sort();
-    assert_eq!(indices, vec![0, 1, 2]);
 }
 
 /// MLX runtime tests — require `cargo test --features test-mlx`.

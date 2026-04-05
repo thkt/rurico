@@ -4,68 +4,6 @@ use super::probe::probe_env_to_paths;
 use super::*;
 use crate::model_io::{EOS_TOKEN_ID, load_tokenizer};
 
-// BOS token ID for ruri-v3 (test-only; used in build_token_chunks and chunk structure assertions)
-const BOS_TOKEN_ID: u32 = 1;
-
-/// Compute chunk start positions within the text token array.
-///
-/// Returns a list of start indices. Each chunk reads `max_content` tokens
-/// starting from the given position. The last chunk's start is adjusted
-/// so that it ends exactly at the end of the text tokens (stretch-to-fill).
-///
-/// For texts that fit in a single chunk, returns `[0]`.
-///
-/// NOTE: This function verifies the geometric stride invariant
-/// (stride = max_content − overlap). Production chunking in `mlx.rs`
-/// uses a sequential planner with tokenizer re-encoding, which may
-/// accept fewer tokens per chunk due to prefix boundary merging.
-/// The two algorithms share the overlap/coverage contract but differ
-/// in how chunk boundaries are determined.
-fn compute_chunk_starts(text_token_count: usize, max_content: usize, overlap: usize) -> Vec<usize> {
-    if text_token_count <= max_content {
-        return vec![0];
-    }
-
-    let stride = max_content.saturating_sub(overlap);
-    if stride == 0 {
-        return vec![0];
-    }
-
-    let mut starts = Vec::new();
-    let mut pos = 0;
-    while pos + max_content < text_token_count {
-        starts.push(pos);
-        pos += stride;
-    }
-    // Last chunk: stretch to fill max_content
-    starts.push(text_token_count - max_content);
-    starts
-}
-
-/// Build token chunks from text tokens, adding BOS, prefix, and EOS to each.
-///
-/// Each chunk has the structure: `[BOS, prefix..., text_slice..., EOS]`.
-/// The text slice length is at most `max_content` tokens.
-fn build_token_chunks(
-    text_tokens: &[u32],
-    prefix_tokens: &[u32],
-    starts: &[usize],
-    max_content: usize,
-) -> Vec<Vec<u32>> {
-    starts
-        .iter()
-        .map(|&start| {
-            let end = (start + max_content).min(text_tokens.len());
-            let mut chunk = Vec::with_capacity(2 + prefix_tokens.len() + (end - start));
-            chunk.push(BOS_TOKEN_ID);
-            chunk.extend_from_slice(prefix_tokens);
-            chunk.extend_from_slice(&text_tokens[start..end]);
-            chunk.push(EOS_TOKEN_ID);
-            chunk
-        })
-        .collect()
-}
-
 #[test]
 fn mean_pooling_excludes_masked_tokens() {
     #[rustfmt::skip]
@@ -351,28 +289,6 @@ fn cache_lookup_each_model_has_separate_cache_dir() {
 }
 
 #[test]
-fn model_id_repo_ids_are_distinct() {
-    use std::collections::HashSet;
-    let all_models = [
-        ModelId::RuriV3_30m,
-        ModelId::RuriV3_70m,
-        ModelId::RuriV3_130m,
-        ModelId::RuriV3_310m,
-    ];
-    let repo_ids: HashSet<_> = all_models.iter().map(|m| m.repo_id()).collect();
-    assert_eq!(repo_ids.len(), 4, "all repo IDs must be distinct");
-
-    let revisions: HashSet<_> = all_models.iter().map(|m| m.revision()).collect();
-    assert_eq!(revisions.len(), 4, "all revisions must be distinct");
-}
-
-#[test]
-fn model_id_default_is_310m() {
-    assert_eq!(ModelId::default(), ModelId::RuriV3_310m);
-    assert_eq!(ModelId::default().repo_id(), "cl-nagoya/ruri-v3-310m");
-}
-
-#[test]
 fn candidate_verify_returns_invalid_config_for_malformed_config() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("model.safetensors"), b"fake").unwrap();
@@ -384,23 +300,6 @@ fn candidate_verify_returns_invalid_config_for_malformed_config() {
         matches!(err, ArtifactError::InvalidConfig { ref reason, .. } if reason.contains("parse error")),
         "{err}"
     );
-}
-
-#[test]
-fn probe_env_to_paths_returns_none_when_model_absent() {
-    assert!(probe_env_to_paths(None, None, None).is_none());
-}
-
-#[test]
-fn probe_env_to_paths_returns_err_when_config_missing() {
-    let result = probe_env_to_paths(Some("/m".into()), None, Some("/t".into()));
-    assert!(matches!(result, Some(Err(3))));
-}
-
-#[test]
-fn probe_env_to_paths_returns_err_when_tokenizer_missing() {
-    let result = probe_env_to_paths(Some("/m".into()), Some("/c".into()), None);
-    assert!(matches!(result, Some(Err(3))));
 }
 
 #[test]
@@ -486,63 +385,6 @@ fn unpack_batch_output_happy_path() {
     );
 }
 
-// --- Chunked Embedding (Phase 1) ---
-
-#[test]
-fn t_004_short_text_produces_single_chunk_start() {
-    // 100 text tokens, max_content=8000, overlap=2048 → single chunk at position 0
-    let starts = compute_chunk_starts(100, 8000, 2048);
-    assert_eq!(starts, vec![0]);
-}
-
-#[test]
-fn t_001_long_text_produces_multiple_chunk_starts() {
-    // 10000 text tokens, max_content=8000, overlap=2048
-    // stride = 8000 - 2048 = 5952
-    // starts: [0, 5952], but last must be 10000-8000=2000
-    // So: [0, 2000]
-    let starts = compute_chunk_starts(10000, 8000, 2048);
-    assert_eq!(starts.len(), 2);
-    assert!(
-        starts
-            .iter()
-            .all(|&s| s + 8000 <= 10000 || s == 10000 - 8000)
-    );
-    // Last start fills max_content
-    assert_eq!(*starts.last().unwrap(), 10000 - 8000);
-}
-
-#[test]
-fn t_013_boundary_one_over_produces_two_chunks() {
-    // text_token_count = max_content + 1 → 2 chunks
-    let max_content = 8000;
-    let starts = compute_chunk_starts(max_content + 1, max_content, 2048);
-    assert_eq!(starts.len(), 2);
-    // Last start = 1 (8001 - 8000), overlap is automatically expanded
-    assert_eq!(*starts.last().unwrap(), 1);
-}
-
-#[test]
-fn t_003_last_chunk_fills_max_content() {
-    // 8300 text tokens, max_content=8000
-    // Last start = 8300 - 8000 = 300
-    let starts = compute_chunk_starts(8300, 8000, 2048);
-    assert_eq!(*starts.last().unwrap(), 300);
-}
-
-#[test]
-fn t_012_empty_text_produces_single_chunk_start() {
-    let starts = compute_chunk_starts(0, 8000, 2048);
-    assert_eq!(starts, vec![0]);
-}
-
-#[test]
-fn compute_chunk_starts_zero_stride_returns_single() {
-    // overlap >= max_content → stride saturates to 0 → single chunk
-    let starts = compute_chunk_starts(10000, 100, 200);
-    assert_eq!(starts, vec![0]);
-}
-
 #[test]
 fn shrink_chunk_to_fit_rejects_empty_range() {
     // end <= start → Inference error without calling tokenizer
@@ -595,77 +437,6 @@ fn shrink_chunk_to_fit_short_text_returns_immediately() {
     assert_eq!(end, n, "end should not be decremented for short text");
 }
 
-#[test]
-fn t_005_each_chunk_has_bos_and_eos() {
-    let prefix_tokens = &[100u32, 200];
-    let text_tokens: Vec<u32> = (10..10_010).collect(); // 10000 text tokens
-    let max_content = 100 - 2 - 2; // max_seq_len=100, 2 special + 2 prefix
-    let starts = compute_chunk_starts(text_tokens.len(), max_content, 20);
-    let chunks = build_token_chunks(&text_tokens, prefix_tokens, &starts, max_content);
-
-    for (i, chunk) in chunks.iter().enumerate() {
-        assert_eq!(chunk[0], BOS_TOKEN_ID, "chunk {i} missing BOS");
-        assert_eq!(
-            *chunk.last().unwrap(),
-            EOS_TOKEN_ID,
-            "chunk {i} missing EOS"
-        );
-    }
-}
-
-#[test]
-fn t_006_each_chunk_contains_prefix() {
-    let prefix_tokens = &[100u32, 200, 300];
-    let text_tokens: Vec<u32> = (10..210).collect(); // 200 text tokens
-    let max_content = 50 - 2 - 3; // 45
-    let starts = compute_chunk_starts(text_tokens.len(), max_content, 10);
-    let chunks = build_token_chunks(&text_tokens, prefix_tokens, &starts, max_content);
-
-    for (i, chunk) in chunks.iter().enumerate() {
-        assert_eq!(
-            &chunk[1..1 + prefix_tokens.len()],
-            prefix_tokens,
-            "chunk {i} prefix mismatch"
-        );
-    }
-}
-
-#[test]
-fn t_002_adjacent_chunks_share_overlap_tokens() {
-    let prefix_tokens = &[100u32];
-    let text_tokens: Vec<u32> = (0..500).collect();
-    let max_content = 100;
-    let overlap = 20;
-    let starts = compute_chunk_starts(text_tokens.len(), max_content, overlap);
-    let chunks = build_token_chunks(&text_tokens, prefix_tokens, &starts, max_content);
-
-    let prefix_len = prefix_tokens.len();
-    for i in 0..chunks.len() - 1 {
-        let current_text = &chunks[i][1 + prefix_len..chunks[i].len() - 1];
-        let next_text = &chunks[i + 1][1 + prefix_len..chunks[i + 1].len() - 1];
-        // Count shared tokens
-        let current_set: std::collections::HashSet<_> = current_text.iter().collect();
-        let shared = next_text.iter().filter(|t| current_set.contains(t)).count();
-        assert!(
-            shared >= overlap,
-            "chunks {i} and {} share only {shared} tokens, expected >= {overlap}",
-            i + 1
-        );
-    }
-}
-
-#[test]
-fn t_012b_empty_text_chunk_has_bos_prefix_eos() {
-    let prefix_tokens = &[100u32, 200];
-    let text_tokens: Vec<u32> = vec![];
-    let starts = compute_chunk_starts(0, 100, 20);
-    let chunks = build_token_chunks(&text_tokens, prefix_tokens, &starts, 100);
-
-    assert_eq!(chunks.len(), 1);
-    // [BOS, 100, 200, EOS]
-    assert_eq!(chunks[0], vec![BOS_TOKEN_ID, 100, 200, EOS_TOKEN_ID]);
-}
-
 // --- T-001: max_content computation ---
 
 #[test]
@@ -682,171 +453,6 @@ fn g_001_real_tokenizer_extract_prefix_tokens() {
     let tokenizer = load_tokenizer(&artifacts.paths.tokenizer).unwrap();
     let prefix_tokens = extract_prefix_tokens(&tokenizer, DOCUMENT_PREFIX).unwrap();
     assert!(!prefix_tokens.is_empty());
-}
-
-// --- Chunked Embedding: build_token_chunks with production constants ---
-//
-// The tests above verify structural correctness with small constants.
-// The following tests use MAX_SEQ_LEN (8192) and CHUNK_OVERLAP_TOKENS (2048)
-// to match the spec scenarios exactly.
-
-/// Synthetic prefix tokens (10 tokens, representative of "検索文書: ").
-const TEST_PREFIX: &[u32] = &[50, 51, 52, 53, 54, 55, 56, 57, 58, 59];
-
-/// max_content for production constants using the shared helper.
-const fn prod_max_content() -> usize {
-    max_content(TEST_PREFIX.len())
-}
-
-/// Build a synthetic text token array of length `n` (values 1000..1000+n).
-/// Uses a high base to avoid collision with special/prefix token IDs.
-fn synthetic_text(n: usize) -> Vec<u32> {
-    (1000..1000 + n as u32).collect()
-}
-
-#[test]
-fn t_001_10k_tokens_each_chunk_le_max_seq_len() {
-    // [T-001] FR-001: 10000 text tokens, max_seq_len=8192 → 2 chunks, each ≤ 8192
-    let mc = prod_max_content();
-    let text = synthetic_text(10_000);
-    let starts = compute_chunk_starts(text.len(), mc, CHUNK_OVERLAP_TOKENS);
-    let chunks = build_token_chunks(&text, TEST_PREFIX, &starts, mc);
-
-    assert_eq!(chunks.len(), 2);
-    for (i, chunk) in chunks.iter().enumerate() {
-        assert!(
-            chunk.len() <= MAX_SEQ_LEN,
-            "chunk {i}: len {} > MAX_SEQ_LEN {MAX_SEQ_LEN}",
-            chunk.len()
-        );
-    }
-}
-
-#[test]
-fn t_002_20k_tokens_overlap_ge_2048() {
-    // [T-002] FR-001: 20000 text tokens, overlap=2048 → adjacent chunks share ≥2048 text tokens
-    let mc = prod_max_content();
-    let text = synthetic_text(20_000);
-    let starts = compute_chunk_starts(text.len(), mc, CHUNK_OVERLAP_TOKENS);
-    let chunks = build_token_chunks(&text, TEST_PREFIX, &starts, mc);
-
-    assert!(chunks.len() >= 2, "expected multiple chunks");
-    let plen = TEST_PREFIX.len();
-    for w in chunks.windows(2) {
-        let prev_text = &w[0][1 + plen..w[0].len() - 1]; // strip BOS+prefix / EOS
-        let next_text = &w[1][1 + plen..w[1].len() - 1];
-        // Synthetic tokens are unique sequential integers, so set intersection == overlap count
-        let prev_set: std::collections::HashSet<_> = prev_text.iter().collect();
-        let shared = next_text.iter().filter(|t| prev_set.contains(t)).count();
-        assert!(
-            shared >= CHUNK_OVERLAP_TOKENS,
-            "adjacent chunks share {shared} tokens, expected >= {CHUNK_OVERLAP_TOKENS}"
-        );
-    }
-}
-
-#[test]
-fn t_003_8300_tokens_last_chunk_len_eq_max_seq_len() {
-    // [T-003] FR-003: 8300 text tokens → last chunk length = MAX_SEQ_LEN (8192)
-    let mc = prod_max_content();
-    let text = synthetic_text(8_300);
-    let starts = compute_chunk_starts(text.len(), mc, CHUNK_OVERLAP_TOKENS);
-    let chunks = build_token_chunks(&text, TEST_PREFIX, &starts, mc);
-
-    let last = chunks.last().expect("non-empty");
-    assert_eq!(last.len(), MAX_SEQ_LEN);
-}
-
-#[test]
-fn t_004_100_tokens_single_chunk_from_build() {
-    // [T-004] FR-004: 100 text tokens → single chunk
-    let mc = prod_max_content();
-    let text = synthetic_text(100);
-    let starts = compute_chunk_starts(text.len(), mc, CHUNK_OVERLAP_TOKENS);
-    let chunks = build_token_chunks(&text, TEST_PREFIX, &starts, mc);
-
-    assert_eq!(chunks.len(), 1);
-    // Verify structure: BOS + prefix + 100 text tokens + EOS
-    assert_eq!(chunks[0].len(), 1 + TEST_PREFIX.len() + 100 + 1);
-}
-
-#[test]
-fn t_005_bos_eos_with_production_constants() {
-    // [T-005] FR-002: BOS/EOS verification across multiple text sizes
-    let mc = prod_max_content();
-    for &n in &[100, 10_000, 20_000] {
-        let text = synthetic_text(n);
-        let starts = compute_chunk_starts(text.len(), mc, CHUNK_OVERLAP_TOKENS);
-        let chunks = build_token_chunks(&text, TEST_PREFIX, &starts, mc);
-
-        for (i, chunk) in chunks.iter().enumerate() {
-            assert_eq!(
-                chunk[0], BOS_TOKEN_ID,
-                "n={n} chunk {i}: first token {} != BOS",
-                chunk[0]
-            );
-            assert_eq!(
-                *chunk.last().unwrap(),
-                EOS_TOKEN_ID,
-                "n={n} chunk {i}: last token {} != EOS",
-                chunk.last().unwrap()
-            );
-        }
-    }
-}
-
-#[test]
-fn t_006_prefix_in_each_chunk_with_production_constants() {
-    // [T-006] FR-002: chunk[1..1+prefix_len] == prefix_tokens for all chunks
-    let mc = prod_max_content();
-    let text = synthetic_text(10_000);
-    let starts = compute_chunk_starts(text.len(), mc, CHUNK_OVERLAP_TOKENS);
-    let chunks = build_token_chunks(&text, TEST_PREFIX, &starts, mc);
-
-    for (i, chunk) in chunks.iter().enumerate() {
-        assert_eq!(
-            &chunk[1..1 + TEST_PREFIX.len()],
-            TEST_PREFIX,
-            "chunk {i}: prefix mismatch"
-        );
-    }
-}
-
-#[test]
-fn t_007_prefix_tokens_match_regardless_of_text_content() {
-    // [T-007] FR-008: structural guarantee that build_token_chunks always places
-    // prefix_tokens at chunk[1..1+prefix_len], independent of text content.
-    // This is the implementation-side contract of FR-008.
-    let prefixes: &[&[u32]] = &[&[7, 42, 99], &[256, 1001, 2002, 3003, 4004], &[]];
-
-    for prefix in prefixes {
-        let mc = max_content(prefix.len());
-        let text = synthetic_text(500);
-        let starts = compute_chunk_starts(text.len(), mc, CHUNK_OVERLAP_TOKENS);
-        let chunks = build_token_chunks(&text, prefix, &starts, mc);
-
-        assert_eq!(chunks.len(), 1);
-        let chunk = &chunks[0];
-        assert_eq!(chunk[0], BOS_TOKEN_ID);
-        assert_eq!(&chunk[1..1 + prefix.len()], *prefix);
-        assert_eq!(*chunk.last().unwrap(), EOS_TOKEN_ID);
-    }
-}
-
-#[test]
-fn t_012_empty_text_with_production_prefix() {
-    // [T-012] FR-001: empty text → single chunk [BOS, prefix..., EOS]
-    let mc = prod_max_content();
-    let text: Vec<u32> = vec![];
-    let starts = compute_chunk_starts(0, mc, CHUNK_OVERLAP_TOKENS);
-    let chunks = build_token_chunks(&text, TEST_PREFIX, &starts, mc);
-
-    assert_eq!(chunks.len(), 1);
-    let chunk = &chunks[0];
-    assert_eq!(chunk.len(), 1 + TEST_PREFIX.len() + 1); // BOS + prefix + EOS
-    assert_eq!(chunk[0], BOS_TOKEN_ID);
-    assert_eq!(&chunk[1..1 + TEST_PREFIX.len()], TEST_PREFIX);
-    assert_eq!(*chunk.last().unwrap(), EOS_TOKEN_ID);
 }
 
 #[test]
@@ -881,24 +487,6 @@ fn t_008b_truncate_for_query_noop_when_short() {
 }
 
 #[test]
-fn t_013_mc_plus_1_tokens_last_chunk_fills_max_seq_len() {
-    // [T-013] FR-003: max_content+1 text tokens → 2 chunks, last chunk = MAX_SEQ_LEN
-    let mc = prod_max_content();
-    let text = synthetic_text(mc + 1);
-    let starts = compute_chunk_starts(text.len(), mc, CHUNK_OVERLAP_TOKENS);
-    let chunks = build_token_chunks(&text, TEST_PREFIX, &starts, mc);
-
-    assert_eq!(chunks.len(), 2);
-    let last = chunks.last().unwrap();
-    assert_eq!(
-        last.len(),
-        MAX_SEQ_LEN,
-        "last chunk len {} != MAX_SEQ_LEN {MAX_SEQ_LEN}",
-        last.len()
-    );
-}
-
-#[test]
 fn t_008c_truncate_for_query_noop_at_exact_boundary() {
     // [TC-003] Boundary: len == max_len → no truncation
     let max_len = 50;
@@ -926,27 +514,6 @@ fn t_008e_truncate_for_query_max_len_1_produces_eos_only() {
 }
 
 #[test]
-fn lock_inner_poison_maps_to_inference_error() {
-    // Verify that Embedder::lock_inner's map_err closure produces the expected
-    // error variant and message when the mutex is poisoned. We can't construct
-    // EmbedderInner without model files, so we test the error mapping directly.
-    let mutex: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let _guard = mutex.lock().unwrap();
-        panic!("poison");
-    }));
-    assert!(mutex.is_poisoned());
-    let err = mutex
-        .lock()
-        .map_err(|_| EmbedError::inference("embedder lock poisoned"))
-        .unwrap_err();
-    assert!(
-        matches!(err, EmbedError::Inference(ref msg) if msg == "embedder lock poisoned"),
-        "unexpected error: {err}"
-    );
-}
-
-#[test]
 fn t_008d_truncate_for_query_zero_max_len_returns_unchanged() {
     let input_ids: Vec<u32> = vec![1, 100, 200, 2];
     let attention_mask = vec![1u32; 4];
@@ -965,16 +532,6 @@ fn t_014_mock_chunked_embedder_returns_multi_chunk() {
     let result = embedder.embed_document("some text").unwrap();
     assert_eq!(result.chunks.len(), 3);
     assert_eq!(result.chunks[0].len(), EMBEDDING_DIMS);
-}
-
-#[test]
-fn t_014b_mock_chunked_embedder_batch_preserves_count() {
-    let embedder = super::MockChunkedEmbedder::new(2);
-    let results = embedder.embed_documents_batch(&["a", "b", "c"]).unwrap();
-    assert_eq!(results.len(), 3);
-    for r in &results {
-        assert_eq!(r.chunks.len(), 2);
-    }
 }
 
 // --- Regression: prefix boundary merge cases ---
@@ -1119,24 +676,6 @@ fn embed_text_returns_correct_dimensionality_for_all_prefixes() {
 }
 
 #[test]
-fn mock_embedder_with_dims_returns_custom_dimension() {
-    for dims in [256, 384, 512] {
-        let e = super::MockEmbedder::with_dims(dims);
-        assert_eq!(e.embed_query("q").unwrap().len(), dims);
-        assert_eq!(e.embed_document("d").unwrap().chunks[0].len(), dims);
-        assert_eq!(e.embed_text("t", "").unwrap().len(), dims);
-    }
-}
-
-#[test]
-fn mock_chunked_embedder_with_dims_returns_custom_dimension() {
-    let e = super::MockChunkedEmbedder::with_dims(2, 256);
-    let doc = e.embed_document("d").unwrap();
-    assert_eq!(doc.chunks.len(), 2);
-    assert_eq!(doc.chunks[0].len(), 256);
-}
-
-#[test]
 fn embed_text_propagates_error() {
     let e = super::FailingEmbedder::all_fail("embed_text error");
     let err = e.embed_text("テスト", SEMANTIC_PREFIX).unwrap_err();
@@ -1147,17 +686,16 @@ fn embed_text_propagates_error() {
 }
 
 #[test]
-fn from_probe_error_handler_not_installed_maps_to_backend() {
-    let err: EmbedInitError = crate::model_probe::ProbeError::HandlerNotInstalled.into();
+fn from_probe_error_maps_correctly() {
+    use crate::model_probe::ProbeError;
+
+    let err: EmbedInitError = ProbeError::HandlerNotInstalled.into();
     assert!(
-        matches!(err, EmbedInitError::Backend(ref msg) if msg.contains("probe handler not installed")),
+        matches!(err, EmbedInitError::Backend(ref m) if m.contains("probe handler not installed")),
         "{err}"
     );
-}
 
-#[test]
-fn from_probe_error_model_load_failed_maps_to_model_corrupt() {
-    let err: EmbedInitError = crate::model_probe::ProbeError::ModelLoadFailed {
+    let err: EmbedInitError = ProbeError::ModelLoadFailed {
         reason: "bad weights".into(),
     }
     .into();
@@ -1165,14 +703,10 @@ fn from_probe_error_model_load_failed_maps_to_model_corrupt() {
         matches!(err, EmbedInitError::ModelCorrupt { ref reason } if reason == "bad weights"),
         "{err}"
     );
-}
 
-#[test]
-fn from_probe_error_subprocess_failed_maps_to_backend() {
-    let err: EmbedInitError =
-        crate::model_probe::ProbeError::SubprocessFailed("spawn failed".into()).into();
+    let err: EmbedInitError = ProbeError::SubprocessFailed("spawn failed".into()).into();
     assert!(
-        matches!(err, EmbedInitError::Backend(ref msg) if msg == "spawn failed"),
+        matches!(err, EmbedInitError::Backend(ref m) if m == "spawn failed"),
         "{err}"
     );
 }

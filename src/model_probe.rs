@@ -322,6 +322,35 @@ pub(crate) fn interpret_probe_output(
 mod tests {
     use super::*;
 
+    #[test]
+    fn resolve_probe_env_returns_none_when_model_absent() {
+        assert!(resolve_probe_env(None, None, None).is_none());
+        assert!(resolve_probe_env(None, Some("c".into()), Some("t".into())).is_none());
+    }
+
+    #[test]
+    fn resolve_probe_env_returns_err_when_incomplete() {
+        assert_eq!(
+            resolve_probe_env(Some("m".into()), None, Some("t".into())),
+            Some(Err(PROBE_EXIT_ENV_INCOMPLETE))
+        );
+        assert_eq!(
+            resolve_probe_env(Some("m".into()), Some("c".into()), None),
+            Some(Err(PROBE_EXIT_ENV_INCOMPLETE))
+        );
+    }
+
+    #[test]
+    fn resolve_probe_env_returns_paths_when_all_present() {
+        let (model, config, tokenizer) =
+            resolve_probe_env(Some("/m".into()), Some("/c".into()), Some("/t".into()))
+                .unwrap()
+                .unwrap();
+        assert_eq!(model, std::path::PathBuf::from("/m"));
+        assert_eq!(config, std::path::PathBuf::from("/c"));
+        assert_eq!(tokenizer, std::path::PathBuf::from("/t"));
+    }
+
     fn exit_status(code: i32) -> std::process::ExitStatus {
         std::process::Command::new("sh")
             .args(["-c", &format!("exit {code}")])
