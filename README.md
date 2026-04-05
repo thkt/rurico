@@ -1,18 +1,19 @@
 # rurico
 
-Apple Silicon (MLX) 上で日本語テキストのembeddingと類似検索を行うためのRustライブラリ。
+Apple Silicon (MLX) 上で日本語テキストのembedding・reranking・類似検索を行うためのRustライブラリ。
 
-[cl-nagoya/ruri-v3](https://huggingface.co/cl-nagoya/ruri-v3-310m) ファミリー (ModernBERT) をMLX backendで推論し、256〜768次元のembeddingを生成する（モデルサイズにより異なる）。生成したembeddingはSQLite + [sqlite-vec](https://github.com/asg017/sqlite-vec) でベクトル検索できる。
+[cl-nagoya/ruri-v3](https://huggingface.co/cl-nagoya/ruri-v3-310m) ファミリー (ModernBERT) をMLX backendで推論する。embedモデルは256〜768次元のembeddingを生成し（モデルサイズにより異なる）、rerankerは検索結果をcross-encoderでスコアリングする。生成したembeddingはSQLite + [sqlite-vec](https://github.com/asg017/sqlite-vec) でベクトル検索できる。
 
 ## 解決する問題
 
-日本語semantic search CLIを複数構築する際に、embedding生成・モデル管理・ベクトルストレージが各CLIで重複する。ruricoはこの共通基盤を1 crateに集約し、downstreamのCLIは検索ロジックに集中できるようにする。
+日本語semantic search CLIを複数構築する際に、embedding生成・reranking・モデル管理・ベクトルストレージが各CLIで重複する。ruricoはこの共通基盤を1 crateに集約し、downstreamのCLIは検索ロジックに集中できるようにする。
 
 ## モジュール構成
 
 | モジュール   | 役割                                                                              |
 | ------------ | --------------------------------------------------------------------------------- |
 | `embed`      | embedding 生成（MLX 推論、tokenization、pooling、probe）                          |
+| `reranker`   | 検索結果の reranking（cross-encoder スコアリング、probe）                         |
 | `modernbert` | ModernBERT モデル定義と config                                                    |
 | `storage`    | SQLite + sqlite-vec のベクトル検索ユーティリティ（FTS、RRF merge、recency decay） |
 | `text`       | テキスト分割（段落 > 行 > 文字境界で UTF-8 安全に分割）                           |
@@ -181,30 +182,30 @@ stmt.execute(rusqlite::params![f32_as_bytes(&vector)])?;
 
 **`ArtifactError`** — モデルファイルの取得・検証フェーズ
 
-| variant            | 発生条件                                     |
-| ------------------ | -------------------------------------------- |
-| `MissingFile`      | 重みファイル / config / tokenizer が存在しない |
-| `InvalidConfig`    | config.json の読み込み/パース失敗            |
-| `InvalidTokenizer` | tokenizer.json のロード失敗                  |
+| variant            | 発生条件                                               |
+| ------------------ | ------------------------------------------------------ |
+| `MissingFile`      | 重みファイル / config / tokenizer が存在しない         |
+| `InvalidConfig`    | config.json の読み込み/パース失敗                      |
+| `InvalidTokenizer` | tokenizer.json のロード失敗                            |
 | `WrongModelKind`   | safetensors のテンソルキーが期待するモデル種別と不一致 |
-| `DownloadFailed`   | HF Hub からのダウンロード失敗                |
+| `DownloadFailed`   | HF Hub からのダウンロード失敗                          |
 
 **`EmbedInitError`** — `Embedder::new` / `Embedder::probe` フェーズ
 
-| variant       | 発生条件                                       |
-| ------------- | ---------------------------------------------- |
-| `Backend`     | MLX バックエンド初期化・重みロード失敗         |
-| `ModelCorrupt`| 重みは読めたがモデルが破損/非互換              |
+| variant        | 発生条件                               |
+| -------------- | -------------------------------------- |
+| `Backend`      | MLX バックエンド初期化・重みロード失敗 |
+| `ModelCorrupt` | 重みは読めたがモデルが破損/非互換      |
 
 **`EmbedError`** — `Embed` トレイトメソッド（推論）フェーズ
 
-| variant              | 発生条件                                   |
-| -------------------- | ------------------------------------------ |
-| `EmptySequence`      | モデルが seq_len=0 の出力を返した          |
-| `BufferShapeMismatch`| 推論出力のバッファサイズが期待値と不一致   |
-| `Inference`          | MLX 推論失敗                               |
-| `Tokenizer`          | tokenizer エンコード失敗                   |
-| `NonFiniteOutput`    | embedding 出力に NaN または Inf が含まれる |
+| variant               | 発生条件                                   |
+| --------------------- | ------------------------------------------ |
+| `EmptySequence`       | モデルが seq_len=0 の出力を返した          |
+| `BufferShapeMismatch` | 推論出力のバッファサイズが期待値と不一致   |
+| `Inference`           | MLX 推論失敗                               |
+| `Tokenizer`           | tokenizer エンコード失敗                   |
+| `NonFiniteOutput`     | embedding 出力に NaN または Inf が含まれる |
 
 公開APIの失敗契約はrustdocの `# Errors` に記載する。repoの運用ルールは
 [`docs/errors.md`](docs/errors.md) を参照。

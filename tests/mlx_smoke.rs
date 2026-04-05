@@ -31,7 +31,7 @@ fn smoke_full() {
 /// `current_exe()`, they re-exec `probe_smoke` — the correct probe host — so the
 /// full probe cycle is exercised rather than a test harness that ignores probe env vars.
 ///
-/// Both models must be downloaded before running this test.
+/// Each model section is skipped if not cached; at least one model must be cached.
 #[test]
 #[ignore] // requires model download + MLX (Apple Silicon)
 fn probe_smoke_binary() {

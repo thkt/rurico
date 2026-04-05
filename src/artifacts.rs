@@ -206,6 +206,16 @@ fn verify_embed_kind(paths: &crate::model_io::ModelPaths) -> Result<(), Artifact
 
 fn verify_reranker_kind(paths: &crate::model_io::ModelPaths) -> Result<(), ArtifactError> {
     let keys = read_safetensors_keys(&paths.model)?;
+    // Positive check: must have ModernBERT encoder backbone keys.
+    for prefix in MODERNBERT_KEY_PREFIXES {
+        if !keys.iter().any(|k| k.starts_with(prefix)) {
+            return Err(ArtifactError::WrongModelKind {
+                expected: "reranker model",
+                keys_hint: format!("missing required key with prefix '{prefix}'"),
+            });
+        }
+    }
+    // Positive check: must have reranker-specific classifier/head keys.
     for prefix in RERANKER_KEY_PREFIXES {
         if !keys.iter().any(|k| k.starts_with(prefix)) {
             return Err(ArtifactError::WrongModelKind {
@@ -456,7 +466,12 @@ mod tests {
         let model_path = dir.path().join("model.safetensors");
         write_fake_safetensors(
             &model_path,
-            &["classifier.weight", "head.dense.weight", "head.norm.weight"],
+            &[
+                "model.encoder.layer.0.weight",
+                "classifier.weight",
+                "head.dense.weight",
+                "head.norm.weight",
+            ],
         );
         let paths = crate::model_io::ModelPaths {
             model: model_path,
@@ -615,6 +630,33 @@ mod tests {
     #[test]
     fn verify_as_reranker_succeeds_with_valid_reranker_artifacts() {
         let dir = tempfile::tempdir().unwrap();
+        // Realistic key set: backbone + classifier/head (both required).
+        write_fake_safetensors(
+            &dir.path().join("model.safetensors"),
+            &[
+                "model.encoder.layer.0.weight",
+                "classifier.weight",
+                "head.dense.weight",
+                "head.norm.weight",
+            ],
+        );
+        write_valid_config(dir.path());
+        write_valid_tokenizer(dir.path());
+        let paths = crate::model_io::ModelPaths {
+            model: dir.path().join("model.safetensors"),
+            config: dir.path().join("config.json"),
+            tokenizer: dir.path().join("tokenizer.json"),
+        };
+        assert!(
+            verify_as_reranker(paths).is_ok(),
+            "verify_as_reranker should succeed"
+        );
+    }
+
+    #[test]
+    fn verify_as_reranker_rejects_classifier_only_safetensors() {
+        let dir = tempfile::tempdir().unwrap();
+        // Classifier/head keys present but backbone absent — should fail positive backbone check.
         write_fake_safetensors(
             &dir.path().join("model.safetensors"),
             &["classifier.weight", "head.dense.weight", "head.norm.weight"],
@@ -627,8 +669,8 @@ mod tests {
             tokenizer: dir.path().join("tokenizer.json"),
         };
         assert!(
-            verify_as_reranker(paths).is_ok(),
-            "verify_as_reranker should succeed"
+            verify_as_reranker(paths).is_err(),
+            "verify_as_reranker should reject safetensors without backbone keys"
         );
     }
 }

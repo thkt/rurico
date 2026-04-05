@@ -8,7 +8,8 @@
 //! binary that actually calls `handle_probe_if_needed()` — so the probe contract
 //! is tested end-to-end rather than against a test harness that ignores probe env vars.
 //!
-//! Both models must be downloaded before running probe smoke tests.
+//! Each model section is skipped if the model is not cached locally; at least one
+//! model must be cached for the binary to exit successfully.
 
 use rurico::reranker;
 
