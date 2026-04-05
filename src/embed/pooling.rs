@@ -6,6 +6,15 @@ use super::EmbedError;
 /// Mask values act as weights: 0 excludes the token, 1 includes it equally,
 /// and values > 1 increase the token's contribution proportionally.
 /// Only the first `seq_len` mask entries are read (mask may be longer).
+///
+/// # Preconditions
+///
+/// - `attention_mask` must contain at least `seq_len` entries (only the first
+///   `seq_len` entries are read; the caller is responsible for this invariant).
+/// - At least one mask entry in `[0..seq_len]` must be non-zero. If all
+///   entries are zero, pooling returns a zero vector (division is skipped),
+///   which after L2 normalisation remains zero. Callers must ensure the
+///   tokenizer always emits at least one real token (BOS/EOS count).
 pub(crate) fn mean_pooling(
     data: &[f32],
     seq_len: usize,
@@ -60,12 +69,13 @@ pub(crate) fn postprocess_embedding(
         )));
     }
     let hidden_size = flat.len() / seq_len;
-    debug_assert!(
-        attention_mask.len() >= seq_len,
-        "attention_mask length {} < seq_len {}",
-        attention_mask.len(),
-        seq_len
-    );
+    if attention_mask.len() < seq_len {
+        return Err(EmbedError::inference(format!(
+            "attention_mask length {} < seq_len {}",
+            attention_mask.len(),
+            seq_len
+        )));
+    }
     let mut pooled = mean_pooling(flat, seq_len, hidden_size, attention_mask);
     l2_normalize(&mut pooled);
     if pooled.iter().any(|v| !v.is_finite()) {

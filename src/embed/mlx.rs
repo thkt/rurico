@@ -1,7 +1,8 @@
+use super::Artifacts;
 use super::{
-    CHUNK_OVERLAP_TOKENS, ChunkedEmbedding, DOCUMENT_PREFIX, EmbedError, MAX_SEQ_LEN, ModelPaths,
-    extract_prefix_tokens, load_tokenizer, max_content, postprocess_embedding, read_config,
-    tokenize_with_prefix, truncate_for_query,
+    CHUNK_OVERLAP_TOKENS, ChunkedEmbedding, DOCUMENT_PREFIX, EmbedError, EmbedInitError,
+    MAX_SEQ_LEN, extract_prefix_tokens, max_content, postprocess_embedding, tokenize_with_prefix,
+    truncate_for_query,
 };
 
 pub(super) struct EmbedderInner {
@@ -12,16 +13,15 @@ pub(super) struct EmbedderInner {
 }
 
 impl EmbedderInner {
-    pub(super) fn new(paths: &ModelPaths) -> Result<Self, EmbedError> {
-        paths.validate()?;
+    pub(super) fn new(artifacts: &Artifacts) -> Result<Self, EmbedInitError> {
+        let config = &artifacts.config;
+        let tokenizer = artifacts.tokenizer.clone();
 
-        let config: crate::modernbert::Config = read_config(&paths.config)?;
+        let model = crate::modernbert::ModernBert::load(&artifacts.paths.model, config)
+            .map_err(EmbedInitError::backend)?;
 
-        let model = crate::modernbert::ModernBert::load(&paths.model, &config)
-            .map_err(EmbedError::inference)?;
-
-        let tokenizer = load_tokenizer(&paths.tokenizer)?;
-        let doc_prefix_tokens = extract_prefix_tokens(&tokenizer, DOCUMENT_PREFIX)?;
+        let doc_prefix_tokens =
+            extract_prefix_tokens(&tokenizer, DOCUMENT_PREFIX).map_err(EmbedInitError::backend)?;
         let embedding_dims = config.hidden_size;
 
         Ok(Self {
@@ -36,7 +36,6 @@ impl EmbedderInner {
         self.embedding_dims
     }
 
-    /// Embed a query with truncation (no chunking). FR-009, FR-010.
     pub(super) fn embed_query_truncated(
         &mut self,
         text: &str,
@@ -51,14 +50,15 @@ impl EmbedderInner {
             .forward(&input_ids, &attention_mask, 1, seq_len as i32)
             .map_err(EmbedError::inference)?;
 
-        output.eval().map_err(EmbedError::inference)?;
-        let flat: &[f32] = output.as_slice();
-        let result = postprocess_embedding(flat, seq_len, &attention_mask)?;
-        release_inference_output(output);
-        Ok(result)
+        let result = (|| {
+            output.eval().map_err(EmbedError::inference)?;
+            let flat: &[f32] = output.as_slice();
+            postprocess_embedding(flat, seq_len, &attention_mask)
+        })();
+        crate::mlx_cache::release_inference_output(output);
+        result
     }
 
-    /// Embed a single document with chunking support. FR-003, FR-006, FR-012.
     pub(super) fn embed_document_chunked(
         &mut self,
         text: &str,
@@ -67,11 +67,11 @@ impl EmbedderInner {
         Ok(results.remove(0))
     }
 
-    /// Batch-embed documents with chunking support. FR-003, FR-006, FR-007, FR-012.
+    /// Batch-embed documents with chunking support.
     ///
     /// Short documents produce a single chunk identical to pre-chunking output.
     /// Long documents are split into overlapping chunks. All chunks from all
-    /// documents are flattened into a single forward pass (NFR-002).
+    /// documents are flattened into a single forward pass.
     pub(super) fn embed_documents_batch_chunked(
         &mut self,
         texts: &[&str],
@@ -80,27 +80,17 @@ impl EmbedderInner {
             return Ok(Vec::new());
         }
 
-        let mc = max_content(self.doc_prefix_tokens.len());
-        let (all_chunk_tokens, chunks_per_doc) =
-            plan_document_chunks(&self.tokenizer, texts, &self.doc_prefix_tokens, mc)?;
+        let max_content_tokens = max_content(self.doc_prefix_tokens.len());
+        let (all_chunk_tokens, chunks_per_doc) = plan_document_chunks(
+            &self.tokenizer,
+            texts,
+            &self.doc_prefix_tokens,
+            max_content_tokens,
+        )?;
 
-        // Pad and flatten into batch (sorted by length for padding efficiency)
-        let max_len = all_chunk_tokens.iter().map(|c| c.len()).max().unwrap_or(0);
-        let batch_size = all_chunk_tokens.len();
+        let (input_ids, attention_mask, batch_size, max_len) =
+            crate::model_io::pad_sequences(&all_chunk_tokens, None);
 
-        let mut sorted_indices: Vec<usize> = (0..batch_size).collect();
-        sorted_indices.sort_unstable_by_key(|&i| all_chunk_tokens[i].len());
-
-        let mut input_ids = vec![0u32; batch_size * max_len];
-        let mut attention_mask = vec![0u32; batch_size * max_len];
-        for (sorted_pos, &orig_idx) in sorted_indices.iter().enumerate() {
-            let chunk = &all_chunk_tokens[orig_idx];
-            let offset = sorted_pos * max_len;
-            input_ids[offset..offset + chunk.len()].copy_from_slice(chunk);
-            attention_mask[offset..offset + chunk.len()].fill(1);
-        }
-
-        // Single forward pass (NFR-002)
         let output = self
             .model
             .forward(
@@ -111,14 +101,15 @@ impl EmbedderInner {
             )
             .map_err(EmbedError::inference)?;
 
-        output.eval().map_err(EmbedError::inference)?;
-        let flat: &[f32] = output.as_slice();
+        let result = (|| {
+            output.eval().map_err(EmbedError::inference)?;
+            let flat: &[f32] = output.as_slice();
+            unpack_batch_output(flat, batch_size, max_len, &attention_mask)
+        })();
+        crate::mlx_cache::release_inference_output(output);
+        let all_embeddings = result?;
 
-        // Unpack (sorted → original chunk order)
-        let all_embeddings = unpack_batch_output(flat, &sorted_indices, max_len, &attention_mask)?;
-        release_inference_output(output);
-
-        // Regroup by document (FR-007: preserving input order)
+        // Regroup by document, preserving input order
         let mut results = Vec::with_capacity(texts.len());
         let mut offset = 0;
         for &count in &chunks_per_doc {
@@ -142,7 +133,7 @@ fn plan_document_chunks(
     tokenizer: &tokenizers::Tokenizer,
     texts: &[&str],
     prefix_tokens: &[u32],
-    mc: usize,
+    max_content_tokens: usize,
 ) -> Result<(Vec<Vec<u32>>, Vec<usize>), EmbedError> {
     let mut all_chunk_tokens: Vec<Vec<u32>> = Vec::new();
     let mut chunks_per_doc: Vec<usize> = Vec::new();
@@ -154,12 +145,12 @@ fn plan_document_chunks(
         // affects the path selection for texts near the boundary — both paths are correct.
         let text_token_count = tok.seq_len.saturating_sub(2 + prefix_tokens.len());
 
-        if text_token_count <= mc {
+        if text_token_count <= max_content_tokens {
             // Short document: use full tokenization as-is (FR-012)
             all_chunk_tokens.push(tok.input_ids);
             chunks_per_doc.push(1);
         } else {
-            let chunks = plan_long_document(tokenizer, text, mc)?;
+            let chunks = plan_long_document(tokenizer, text, max_content_tokens)?;
             chunks_per_doc.push(chunks.len());
             all_chunk_tokens.extend(chunks);
         }
@@ -176,7 +167,7 @@ fn plan_document_chunks(
 fn plan_long_document(
     tokenizer: &tokenizers::Tokenizer,
     text: &str,
-    mc: usize,
+    max_content_tokens: usize,
 ) -> Result<Vec<Vec<u32>>, EmbedError> {
     let text_enc = tokenizer
         .encode(text, false)
@@ -188,7 +179,7 @@ fn plan_long_document(
     let mut start = 0usize;
 
     while start < n {
-        let mut end = (start + mc).min(n);
+        let mut end = (start + max_content_tokens).min(n);
         let ids = shrink_chunk_to_fit(tokenizer, text, offsets, start, &mut end)?;
         chunks.push(ids);
 
@@ -233,63 +224,20 @@ pub(super) fn shrink_chunk_to_fit(
     }
 }
 
-static MLX_CACHE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn clear_cache() -> Result<(), EmbedError> {
-    // Recover from poison: cache-clear is stateless (guards `()`), safe to proceed
-    // after a panic in another thread. Contrast with `Embedder::lock_inner` (mod.rs)
-    // which propagates poison because it guards mutable model state.
-    let _guard = MLX_CACHE_LOCK.lock().unwrap_or_else(|e| {
-        log::warn!("MLX cache lock was poisoned; recovering");
-        e.into_inner()
-    });
-    // SAFETY:
-    // 1. Callers use `release_inference_output` which takes the Array by value,
-    //    ensuring no borrows/references to inference output remain
-    // 2. model weights remain live on `&mut self` — only unused cache buffers are freed
-    // 3. MLX_CACHE_LOCK guarantees exclusive access — no concurrent mlx_clear_cache calls
-    let code = unsafe { mlx_sys::mlx_clear_cache() };
-    check_clear_cache_result(code)
-}
-
-fn check_clear_cache_result(code: std::ffi::c_int) -> Result<(), EmbedError> {
-    if code != 0 {
-        return Err(EmbedError::inference(format!(
-            "mlx_clear_cache failed (code: {code})"
-        )));
-    }
-    Ok(())
-}
-
-/// Consume the MLX output array and attempt best-effort cache clearing.
+/// Validate output shape and unpack batched model output into per-chunk embeddings.
 ///
-/// Takes `output` by value to enforce the drop-before-clear ordering at
-/// compile time. Cache-clear failure is non-fatal: the embedding result
-/// is already in CPU memory as an owned `Vec`.
-fn release_inference_output(output: mlx_rs::Array) {
-    drop(output);
-    if let Err(e) = clear_cache() {
-        log::warn!("{e}");
-    }
-}
-
-/// Validate output shape and unpack batched model output into per-input embeddings.
-///
-/// `sorted_indices` maps sorted position → original index (as produced by
-/// sorting chunk indices by token length). Returns a `Vec` indexed by
-/// original input order, not sorted order.
+/// Returns a `Vec` in the same order as the input batch.
 pub(super) fn unpack_batch_output(
     flat: &[f32],
-    sorted_indices: &[usize],
+    batch_size: usize,
     max_seq_len: usize,
     attention_mask: &[u32],
 ) -> Result<Vec<Vec<f32>>, EmbedError> {
-    let total = sorted_indices
-        .len()
+    let total = batch_size
         .checked_mul(max_seq_len)
         .filter(|&t| t > 0 && flat.len().is_multiple_of(t))
         .ok_or(EmbedError::BufferShapeMismatch {
-            expected: sorted_indices.len().saturating_mul(max_seq_len),
+            expected: batch_size.saturating_mul(max_seq_len),
             actual: flat.len(),
         })?;
     let hidden_size = flat.len() / total;
@@ -299,11 +247,11 @@ pub(super) fn unpack_batch_output(
             expected: total,
             actual: flat.len(),
         })?;
-    let mut results = vec![Vec::new(); sorted_indices.len()];
-    for (sorted_pos, &orig_idx) in sorted_indices.iter().enumerate() {
-        let seq_data = &flat[sorted_pos * stride..(sorted_pos + 1) * stride];
-        let mask_slice = &attention_mask[sorted_pos * max_seq_len..(sorted_pos + 1) * max_seq_len];
-        results[orig_idx] = postprocess_embedding(seq_data, max_seq_len, mask_slice)?;
+    let mut results = vec![Vec::new(); batch_size];
+    for i in 0..batch_size {
+        let seq_data = &flat[i * stride..(i + 1) * stride];
+        let mask_slice = &attention_mask[i * max_seq_len..(i + 1) * max_seq_len];
+        results[i] = postprocess_embedding(seq_data, max_seq_len, mask_slice)?;
     }
     Ok(results)
 }
@@ -312,28 +260,6 @@ pub(super) fn unpack_batch_output(
 /// Tests without spec references omit the prefix.
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    #[test]
-    fn t_001_check_clear_cache_result_nonzero_returns_inference_error() {
-        let err = check_clear_cache_result(1).unwrap_err();
-        assert!(
-            matches!(err, EmbedError::Inference(ref msg) if msg.contains("1")),
-            "expected Inference error containing code '1', got: {err}"
-        );
-    }
-
-    #[test]
-    fn check_clear_cache_result_zero_returns_ok() {
-        assert!(check_clear_cache_result(0).is_ok());
-    }
-
-    #[test]
-    fn mlx_cache_lock_is_acquirable() {
-        let guard = MLX_CACHE_LOCK.lock().unwrap();
-        drop(guard);
-    }
-
     #[test]
     fn poison_recovery_pattern_works() {
         let lock = std::sync::Mutex::new(());
@@ -342,7 +268,7 @@ mod tests {
             panic!("intentional panic to poison lock");
         });
         assert!(lock.is_poisoned());
-        // Same pattern as clear_cache — unwrap_or_else recovers the guard
+        // Same pattern as mlx_cache::release_inference_output — unwrap_or_else recovers the guard
         let guard = lock.lock().unwrap_or_else(|e| e.into_inner());
         drop(guard);
     }

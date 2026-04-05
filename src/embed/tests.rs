@@ -1,9 +1,8 @@
-use std::path::Path;
-
 use super::mlx::{shrink_chunk_to_fit, unpack_batch_output};
 use super::pooling::{l2_normalize, mean_pooling};
-use super::probe::{PROBE_ACK, interpret_probe_output, probe_env_to_paths};
+use super::probe::probe_env_to_paths;
 use super::*;
+use crate::model_io::{EOS_TOKEN_ID, load_tokenizer};
 
 #[test]
 fn mean_pooling_excludes_masked_tokens() {
@@ -75,7 +74,6 @@ fn postprocess_embedding_zero_seq_len() {
 
 #[test]
 fn postprocess_embedding_accepts_any_dims() {
-    // postprocess_embedding works with any hidden size (not fixed to EMBEDDING_DIMS)
     for hidden_size in [3, 64, 256, 384, 512, 768] {
         let seq_len = 2;
         let data = vec![1.0f32; seq_len * hidden_size];
@@ -91,55 +89,15 @@ fn postprocess_embedding_accepts_any_dims() {
 }
 
 #[test]
-fn read_config_missing_file() {
-    let err = read_config::<serde_json::Value>(Path::new("/nonexistent/config.json")).unwrap_err();
-    assert!(
-        matches!(err, EmbedError::Config { ref reason, .. } if reason.contains("No such file")),
-        "{err}"
-    );
-}
-
-#[test]
-fn read_config_invalid_json() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("config.json");
-    std::fs::write(&path, b"not valid json {{{").unwrap();
-    let err = read_config::<serde_json::Value>(&path).unwrap_err();
-    assert!(
-        matches!(err, EmbedError::Config { ref reason, .. } if reason.contains("parse error")),
-        "{err}"
-    );
-}
-
-#[test]
-fn read_config_missing_fields() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("config.json");
-    std::fs::write(&path, b"{ \"vocab_size\": 1000 }").unwrap();
-    let err = read_config::<crate::modernbert::Config>(&path).unwrap_err();
-    assert!(
-        matches!(err, EmbedError::Config { ref reason, .. } if reason.contains("parse error")),
-        "{err}"
-    );
-}
-
-#[test]
 fn validate_partial_download_reports_missing_file() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("model.safetensors"), b"fake").unwrap();
-    let paths = ModelPaths::from_dir(dir.path());
-    let err = paths.validate().unwrap_err();
-    let EmbedError::ModelNotFound { path } = &err else {
+    let candidate = CandidateArtifacts::from_dir(dir.path());
+    let err = candidate.verify().unwrap_err();
+    let ArtifactError::MissingFile { path } = &err else {
         panic!("{err}");
     };
     assert!(path.ends_with("config.json"), "{path:?}");
-}
-
-#[test]
-fn embedder_new_model_not_found() {
-    let paths = ModelPaths::from_dir(Path::new("/nonexistent/path"));
-    let err = Embedder::new(&paths).unwrap_err();
-    assert!(matches!(err, EmbedError::ModelNotFound { .. }), "{err}");
 }
 
 #[test]
@@ -214,16 +172,28 @@ fn postprocess_embedding_rejects_inf_output() {
 }
 
 #[test]
+fn postprocess_embedding_rejects_short_attention_mask() {
+    // SF-001 regression: short mask must error (not silently produce wrong embedding)
+    let hidden_size = EMBEDDING_DIMS;
+    let seq_len = 3;
+    let data = vec![1.0f32; seq_len * hidden_size];
+    let short_mask = vec![1u32; seq_len - 1]; // one entry too few
+    let err = postprocess_embedding(&data, seq_len, &short_mask).unwrap_err();
+    assert!(
+        matches!(err, EmbedError::Inference(ref msg) if msg.contains("attention_mask length")),
+        "expected attention_mask length error, got: {err}"
+    );
+}
+
+#[test]
 fn unpack_batch_output_rejects_nan_embedding() {
     let hidden_size = EMBEDDING_DIMS;
     let max_seq_len = 1;
     let batch_size = 1;
     let mut flat = vec![0.0f32; batch_size * max_seq_len * hidden_size];
     flat[0] = f32::NAN;
-    let sorted_indices = vec![0usize];
     let attention_mask = vec![1u32; batch_size * max_seq_len];
-    let err =
-        unpack_batch_output(&flat, &sorted_indices, max_seq_len, &attention_mask).unwrap_err();
+    let err = unpack_batch_output(&flat, batch_size, max_seq_len, &attention_mask).unwrap_err();
     assert!(
         matches!(err, EmbedError::NonFiniteOutput),
         "expected NonFiniteOutput, got: {err}"
@@ -231,34 +201,32 @@ fn unpack_batch_output_rejects_nan_embedding() {
 }
 
 fn setup_fake_cache_for(hub_dir: &std::path::Path, model: ModelId) {
-    let repo_slug = model.repo_id().replace('/', "--");
-    let repo_dir = hub_dir.join(format!("models--{repo_slug}"));
-    let refs_dir = repo_dir.join("refs");
-    std::fs::create_dir_all(&refs_dir).unwrap();
-    let commit_hash = "abc123";
-    std::fs::write(refs_dir.join(model.revision()), commit_hash).unwrap();
-
-    let snapshot_dir = repo_dir.join("snapshots").join(commit_hash);
-    std::fs::create_dir_all(&snapshot_dir).unwrap();
-    std::fs::write(snapshot_dir.join("model.safetensors"), b"fake").unwrap();
-    std::fs::write(snapshot_dir.join("config.json"), b"{}").unwrap();
-    std::fs::write(snapshot_dir.join("tokenizer.json"), b"{}").unwrap();
+    crate::test_support::setup_fake_hf_cache(
+        hub_dir,
+        model.repo_id(),
+        model.revision(),
+        &[
+            ("model.safetensors", b"fake"),
+            ("config.json", b"{}"),
+            ("tokenizer.json", b"{}"),
+        ],
+    );
 }
 
 #[test]
-fn model_paths_from_cache_returns_none_when_empty() {
+fn cache_lookup_returns_none_when_empty() {
     let dir = tempfile::tempdir().unwrap();
     let cache = hf_hub::Cache::new(dir.path().to_path_buf());
-    let result = model_paths_from_cache(&cache, ModelId::default()).unwrap();
+    let result = crate::model_io::artifacts_from_cache(&cache, ModelId::default()).unwrap();
     assert!(result.is_none());
 }
 
 #[test]
-fn model_paths_from_cache_returns_some_when_all_files_present() {
+fn cache_lookup_returns_some_when_all_files_present() {
     let dir = tempfile::tempdir().unwrap();
     setup_fake_cache_for(dir.path(), ModelId::default());
     let cache = hf_hub::Cache::new(dir.path().to_path_buf());
-    let result = model_paths_from_cache(&cache, ModelId::default()).unwrap();
+    let result = crate::model_io::artifacts_from_cache(&cache, ModelId::default()).unwrap();
     let paths = result.expect("should return Some when all files cached");
     assert!(paths.model.ends_with("model.safetensors"));
     assert!(paths.config.ends_with("config.json"));
@@ -266,7 +234,7 @@ fn model_paths_from_cache_returns_some_when_all_files_present() {
 }
 
 #[test]
-fn model_paths_from_cache_returns_none_when_partial() {
+fn cache_lookup_returns_none_when_partial() {
     let dir = tempfile::tempdir().unwrap();
     setup_fake_cache_for(dir.path(), ModelId::default());
     let repo_slug = ModelId::default().repo_id().replace('/', "--");
@@ -277,12 +245,12 @@ fn model_paths_from_cache_returns_none_when_partial() {
     std::fs::remove_file(snapshot_dir.join("tokenizer.json")).unwrap();
 
     let cache = hf_hub::Cache::new(dir.path().to_path_buf());
-    let result = model_paths_from_cache(&cache, ModelId::default()).unwrap();
+    let result = crate::model_io::artifacts_from_cache(&cache, ModelId::default()).unwrap();
     assert!(result.is_none());
 }
 
 #[test]
-fn model_paths_from_cache_each_model_has_separate_cache_dir() {
+fn cache_lookup_each_model_has_separate_cache_dir() {
     let all_models = [
         ModelId::RuriV3_30m,
         ModelId::RuriV3_70m,
@@ -297,7 +265,9 @@ fn model_paths_from_cache_each_model_has_separate_cache_dir() {
 
         // The populated model should be found
         assert!(
-            model_paths_from_cache(&cache, target).unwrap().is_some(),
+            crate::model_io::artifacts_from_cache(&cache, target)
+                .unwrap()
+                .is_some(),
             "{:?} should be cached",
             target
         );
@@ -307,7 +277,9 @@ fn model_paths_from_cache_each_model_has_separate_cache_dir() {
                 continue;
             }
             assert!(
-                model_paths_from_cache(&cache, other).unwrap().is_none(),
+                crate::model_io::artifacts_from_cache(&cache, other)
+                    .unwrap()
+                    .is_none(),
                 "{:?} should not be cached when only {:?} is populated",
                 other,
                 target
@@ -317,106 +289,35 @@ fn model_paths_from_cache_each_model_has_separate_cache_dir() {
 }
 
 #[test]
-fn model_id_repo_ids_are_distinct() {
-    use std::collections::HashSet;
-    let all_models = [
-        ModelId::RuriV3_30m,
-        ModelId::RuriV3_70m,
-        ModelId::RuriV3_130m,
-        ModelId::RuriV3_310m,
-    ];
-    let repo_ids: HashSet<_> = all_models.iter().map(|m| m.repo_id()).collect();
-    assert_eq!(repo_ids.len(), 4, "all repo IDs must be distinct");
-
-    let revisions: HashSet<_> = all_models.iter().map(|m| m.revision()).collect();
-    assert_eq!(revisions.len(), 4, "all revisions must be distinct");
-}
-
-#[test]
-fn model_id_default_is_310m() {
-    assert_eq!(ModelId::default(), ModelId::RuriV3_310m);
-    assert_eq!(ModelId::default().repo_id(), "cl-nagoya/ruri-v3-310m");
-}
-
-#[test]
-fn probe_rejects_missing_paths() {
-    let paths = ModelPaths::from_dir(Path::new("/nonexistent/path"));
-    let err = Embedder::probe(&paths).unwrap_err();
-    assert!(matches!(err, EmbedError::ModelNotFound { .. }), "{err}");
-}
-
-#[test]
-fn probe_rejects_invalid_config() {
+fn candidate_verify_returns_invalid_config_for_malformed_config() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("model.safetensors"), b"fake").unwrap();
     std::fs::write(dir.path().join("config.json"), b"not json").unwrap();
     std::fs::write(dir.path().join("tokenizer.json"), b"{}").unwrap();
-    let paths = ModelPaths::from_dir(dir.path());
-    let err = Embedder::probe(&paths).unwrap_err();
+    let candidate = CandidateArtifacts::from_dir(dir.path());
+    let err = candidate.verify().unwrap_err();
     assert!(
-        matches!(err, EmbedError::Config { ref reason, .. } if reason.contains("parse error")),
+        matches!(err, ArtifactError::InvalidConfig { ref reason, .. } if reason.contains("parse error")),
         "{err}"
     );
-}
-
-#[test]
-fn probe_rejects_invalid_config_values() {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("model.safetensors"), b"fake").unwrap();
-    std::fs::write(
-        dir.path().join("config.json"),
-        br#"{
-        "vocab_size": 0, "hidden_size": 768, "num_hidden_layers": 2,
-        "num_attention_heads": 12, "intermediate_size": 3072,
-        "max_position_embeddings": 512, "layer_norm_eps": 1e-5,
-        "pad_token_id": 0, "global_attn_every_n_layers": 3,
-        "global_rope_theta": 160000.0, "local_attention": 128,
-        "local_rope_theta": 10000.0
-    }"#,
-    )
-    .unwrap();
-    std::fs::write(dir.path().join("tokenizer.json"), b"{}").unwrap();
-    let paths = ModelPaths::from_dir(dir.path());
-    let err = Embedder::probe(&paths).unwrap_err();
-    assert!(
-        matches!(err, EmbedError::Inference(ref msg) if msg.contains("vocab_size")),
-        "{err}"
-    );
-}
-
-#[test]
-fn probe_env_to_paths_returns_none_when_model_absent() {
-    assert!(probe_env_to_paths(None, None, None).is_none());
-}
-
-#[test]
-fn probe_env_to_paths_returns_err_when_config_missing() {
-    let result = probe_env_to_paths(Some("/m".into()), None, Some("/t".into()));
-    assert!(matches!(result, Some(Err(3))));
-}
-
-#[test]
-fn probe_env_to_paths_returns_err_when_tokenizer_missing() {
-    let result = probe_env_to_paths(Some("/m".into()), Some("/c".into()), None);
-    assert!(matches!(result, Some(Err(3))));
 }
 
 #[test]
 fn probe_env_to_paths_returns_paths_when_all_present() {
-    let paths = probe_env_to_paths(Some("/m".into()), Some("/c".into()), Some("/t".into()))
+    let candidate = probe_env_to_paths(Some("/m".into()), Some("/c".into()), Some("/t".into()))
         .unwrap()
         .unwrap();
-    assert_eq!(paths.model, PathBuf::from("/m"));
-    assert_eq!(paths.config, PathBuf::from("/c"));
-    assert_eq!(paths.tokenizer, PathBuf::from("/t"));
+    // paths field is accessible within the embed module (child module can access parent's private)
+    assert_eq!(candidate.paths.model, PathBuf::from("/m"));
+    assert_eq!(candidate.paths.config, PathBuf::from("/c"));
+    assert_eq!(candidate.paths.tokenizer, PathBuf::from("/t"));
 }
 
 #[test]
 fn unpack_batch_output_rejects_indivisible_shape() {
     let flat = vec![0.0f32; 10];
-    let sorted = vec![0usize, 1];
     let mask = vec![1u32; 6];
-    let err = unpack_batch_output(&flat, &sorted, 3, &mask).unwrap_err();
+    let err = unpack_batch_output(&flat, 2, 3, &mask).unwrap_err();
     assert!(
         matches!(
             err,
@@ -432,7 +333,7 @@ fn unpack_batch_output_rejects_indivisible_shape() {
 #[test]
 fn unpack_batch_output_rejects_zero_total() {
     let flat = vec![0.0f32; 10];
-    let err = unpack_batch_output(&flat, &[], 0, &[]).unwrap_err();
+    let err = unpack_batch_output(&flat, 0, 0, &[]).unwrap_err();
     assert!(
         matches!(
             err,
@@ -451,174 +352,37 @@ fn unpack_batch_output_happy_path() {
     let batch_size = 2;
     let max_seq_len = 1;
     let mut flat = vec![0.0f32; batch_size * max_seq_len * hidden];
-    // sorted_pos=0 → orig_idx=1: nonzero at dim 1
+    // chunk 0: nonzero at dim 1
     flat[1] = 1.0;
-    // sorted_pos=1 → orig_idx=0: nonzero at dim 0
+    // chunk 1: nonzero at dim 0
     flat[hidden] = 1.0;
-    let sorted = vec![1usize, 0];
     let mask = vec![1u32; batch_size * max_seq_len];
-    let results = unpack_batch_output(&flat, &sorted, max_seq_len, &mask).unwrap();
+    let results = unpack_batch_output(&flat, batch_size, max_seq_len, &mask).unwrap();
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].len(), hidden);
     assert_eq!(results[1].len(), hidden);
-    // results[0] from sorted_pos=1 (dim 0 nonzero)
+    // results[0] from chunk 0 (dim 1 nonzero)
     assert!(
-        (results[0][0] - 1.0).abs() < 1e-6,
+        results[0][0].abs() < 1e-6,
         "results[0][0]={}",
         results[0][0]
     );
     assert!(
-        results[0][1].abs() < 1e-6,
+        (results[0][1] - 1.0).abs() < 1e-6,
         "results[0][1]={}",
         results[0][1]
     );
-    // results[1] from sorted_pos=0 (dim 1 nonzero)
+    // results[1] from chunk 1 (dim 0 nonzero)
     assert!(
-        results[1][0].abs() < 1e-6,
+        (results[1][0] - 1.0).abs() < 1e-6,
         "results[1][0]={}",
         results[1][0]
     );
     assert!(
-        (results[1][1] - 1.0).abs() < 1e-6,
+        results[1][1].abs() < 1e-6,
         "results[1][1]={}",
         results[1][1]
     );
-}
-
-fn exit_status(code: i32) -> std::process::ExitStatus {
-    std::process::Command::new("sh")
-        .args(["-c", &format!("exit {code}")])
-        .status()
-        .unwrap()
-}
-
-#[test]
-fn interpret_probe_output_available_on_exit_0() {
-    let output = std::process::Output {
-        status: exit_status(0),
-        stdout: format!("{PROBE_ACK}\n").into_bytes(),
-        stderr: Vec::new(),
-    };
-    assert_eq!(
-        interpret_probe_output(&output).unwrap(),
-        ProbeStatus::Available
-    );
-}
-
-#[test]
-fn interpret_probe_output_model_corrupt_on_nonzero_exit() {
-    let output = std::process::Output {
-        status: exit_status(1),
-        stdout: format!("{PROBE_ACK}\n").into_bytes(),
-        stderr: b"inference error: bad model".to_vec(),
-    };
-    let err = interpret_probe_output(&output).unwrap_err();
-    assert!(
-        matches!(err, EmbedError::ModelCorrupt { ref reason } if reason.contains("bad model")),
-        "{err}"
-    );
-}
-
-#[test]
-fn interpret_probe_output_model_corrupt_empty_stderr() {
-    let output = std::process::Output {
-        status: exit_status(1),
-        stdout: format!("{PROBE_ACK}\n").into_bytes(),
-        stderr: Vec::new(),
-    };
-    let err = interpret_probe_output(&output).unwrap_err();
-    assert!(
-        matches!(err, EmbedError::ModelCorrupt { ref reason } if reason == "model load failed"),
-        "{err}"
-    );
-}
-
-#[test]
-fn interpret_probe_output_missing_ack() {
-    let output = std::process::Output {
-        status: exit_status(0),
-        stdout: b"unexpected output".to_vec(),
-        stderr: Vec::new(),
-    };
-    let err = interpret_probe_output(&output).unwrap_err();
-    assert!(
-        matches!(err, EmbedError::Inference(ref msg) if msg.contains("handler not installed")),
-        "{err}"
-    );
-}
-
-#[test]
-fn interpret_probe_output_backend_unavailable_on_signal() {
-    let status = std::process::Command::new("sh")
-        .args(["-c", "kill -ABRT $$"])
-        .status()
-        .unwrap();
-    let output = std::process::Output {
-        status,
-        stdout: format!("{PROBE_ACK}\n").into_bytes(),
-        stderr: Vec::new(),
-    };
-    assert_eq!(
-        interpret_probe_output(&output).unwrap(),
-        ProbeStatus::BackendUnavailable
-    );
-}
-
-// --- Chunked Embedding (Phase 1) ---
-
-#[test]
-fn t_004_short_text_produces_single_chunk_start() {
-    // 100 text tokens, max_content=8000, overlap=2048 → single chunk at position 0
-    let starts = compute_chunk_starts(100, 8000, 2048);
-    assert_eq!(starts, vec![0]);
-}
-
-#[test]
-fn t_001_long_text_produces_multiple_chunk_starts() {
-    // 10000 text tokens, max_content=8000, overlap=2048
-    // stride = 8000 - 2048 = 5952
-    // starts: [0, 5952], but last must be 10000-8000=2000
-    // So: [0, 2000]
-    let starts = compute_chunk_starts(10000, 8000, 2048);
-    assert_eq!(starts.len(), 2);
-    assert!(
-        starts
-            .iter()
-            .all(|&s| s + 8000 <= 10000 || s == 10000 - 8000)
-    );
-    // Last start fills max_content
-    assert_eq!(*starts.last().unwrap(), 10000 - 8000);
-}
-
-#[test]
-fn t_013_boundary_one_over_produces_two_chunks() {
-    // text_token_count = max_content + 1 → 2 chunks
-    let max_content = 8000;
-    let starts = compute_chunk_starts(max_content + 1, max_content, 2048);
-    assert_eq!(starts.len(), 2);
-    // Last start = 1 (8001 - 8000), overlap is automatically expanded
-    assert_eq!(*starts.last().unwrap(), 1);
-}
-
-#[test]
-fn t_003_last_chunk_fills_max_content() {
-    // 8300 text tokens, max_content=8000
-    // Last start = 8300 - 8000 = 300
-    let starts = compute_chunk_starts(8300, 8000, 2048);
-    assert_eq!(*starts.last().unwrap(), 300);
-}
-
-#[test]
-fn t_012_empty_text_produces_single_chunk_start() {
-    let starts = compute_chunk_starts(0, 8000, 2048);
-    assert_eq!(starts, vec![0]);
-}
-
-#[test]
-fn compute_chunk_starts_zero_stride_returns_single() {
-    // overlap >= max_content → stride saturates to 0 → single chunk
-    let starts = compute_chunk_starts(10000, 100, 200);
-    assert_eq!(starts, vec![0]);
 }
 
 #[test]
@@ -642,74 +406,35 @@ fn shrink_chunk_to_fit_rejects_empty_range() {
 }
 
 #[test]
-fn t_005_each_chunk_has_bos_and_eos() {
-    let prefix_tokens = &[100u32, 200];
-    let text_tokens: Vec<u32> = (10..10_010).collect(); // 10000 text tokens
-    let max_content = 100 - 2 - 2; // max_seq_len=100, 2 special + 2 prefix
-    let starts = compute_chunk_starts(text_tokens.len(), max_content, 20);
-    let chunks = build_token_chunks(&text_tokens, prefix_tokens, &starts, max_content);
+fn shrink_chunk_to_fit_short_text_returns_immediately() {
+    // [TC-006] Convergence happy path: text already fits MAX_SEQ_LEN → returns on
+    // first iteration without decrementing end.
+    let dir = tempfile::TempDir::new().unwrap();
+    let tok_path = dir.path().join("tokenizer.json");
+    std::fs::write(
+        &tok_path,
+        r#"{"model":{"type":"BPE","vocab":{},"merges":[]}}"#,
+    )
+    .unwrap();
+    let tokenizer = load_tokenizer(&tok_path).unwrap();
 
-    for (i, chunk) in chunks.iter().enumerate() {
-        assert_eq!(chunk[0], BOS_TOKEN_ID, "chunk {i} missing BOS");
-        assert_eq!(
-            *chunk.last().unwrap(),
-            EOS_TOKEN_ID,
-            "chunk {i} missing EOS"
-        );
-    }
-}
+    let text = "hello";
+    // Character-level offsets: each byte maps to a (start, end) span
+    let offsets: Vec<(usize, usize)> = text
+        .char_indices()
+        .map(|(s, c)| (s, s + c.len_utf8()))
+        .collect();
+    let n = offsets.len();
 
-#[test]
-fn t_006_each_chunk_contains_prefix() {
-    let prefix_tokens = &[100u32, 200, 300];
-    let text_tokens: Vec<u32> = (10..210).collect(); // 200 text tokens
-    let max_content = 50 - 2 - 3; // 45
-    let starts = compute_chunk_starts(text_tokens.len(), max_content, 10);
-    let chunks = build_token_chunks(&text_tokens, prefix_tokens, &starts, max_content);
-
-    for (i, chunk) in chunks.iter().enumerate() {
-        assert_eq!(
-            &chunk[1..1 + prefix_tokens.len()],
-            prefix_tokens,
-            "chunk {i} prefix mismatch"
-        );
-    }
-}
-
-#[test]
-fn t_002_adjacent_chunks_share_overlap_tokens() {
-    let prefix_tokens = &[100u32];
-    let text_tokens: Vec<u32> = (0..500).collect();
-    let max_content = 100;
-    let overlap = 20;
-    let starts = compute_chunk_starts(text_tokens.len(), max_content, overlap);
-    let chunks = build_token_chunks(&text_tokens, prefix_tokens, &starts, max_content);
-
-    let prefix_len = prefix_tokens.len();
-    for i in 0..chunks.len() - 1 {
-        let current_text = &chunks[i][1 + prefix_len..chunks[i].len() - 1];
-        let next_text = &chunks[i + 1][1 + prefix_len..chunks[i + 1].len() - 1];
-        // Count shared tokens
-        let current_set: std::collections::HashSet<_> = current_text.iter().collect();
-        let shared = next_text.iter().filter(|t| current_set.contains(t)).count();
-        assert!(
-            shared >= overlap,
-            "chunks {i} and {} share only {shared} tokens, expected >= {overlap}",
-            i + 1
-        );
-    }
-}
-
-#[test]
-fn t_012b_empty_text_chunk_has_bos_prefix_eos() {
-    let prefix_tokens = &[100u32, 200];
-    let text_tokens: Vec<u32> = vec![];
-    let starts = compute_chunk_starts(0, 100, 20);
-    let chunks = build_token_chunks(&text_tokens, prefix_tokens, &starts, 100);
-
-    assert_eq!(chunks.len(), 1);
-    // [BOS, 100, 200, EOS]
-    assert_eq!(chunks[0], vec![BOS_TOKEN_ID, 100, 200, EOS_TOKEN_ID]);
+    let mut end = n;
+    let result = shrink_chunk_to_fit(&tokenizer, text, &offsets, 0, &mut end);
+    assert!(
+        result.is_ok(),
+        "short text should fit MAX_SEQ_LEN: {:?}",
+        result.err()
+    );
+    // end must be unchanged (no shrinking occurred)
+    assert_eq!(end, n, "end should not be decremented for short text");
 }
 
 // --- T-001: max_content computation ---
@@ -724,175 +449,10 @@ fn t_001_max_content_equals_max_seq_len_minus_2_minus_prefix_len() {
 #[test]
 #[ignore] // requires model download
 fn g_001_real_tokenizer_extract_prefix_tokens() {
-    let paths = download_model(ModelId::default()).expect("download model");
-    let tokenizer = load_tokenizer(&paths.tokenizer).unwrap();
+    let artifacts = download_model(ModelId::default()).expect("download model");
+    let tokenizer = load_tokenizer(&artifacts.paths.tokenizer).unwrap();
     let prefix_tokens = extract_prefix_tokens(&tokenizer, DOCUMENT_PREFIX).unwrap();
     assert!(!prefix_tokens.is_empty());
-}
-
-// --- Chunked Embedding: build_token_chunks with production constants ---
-//
-// The tests above verify structural correctness with small constants.
-// The following tests use MAX_SEQ_LEN (8192) and CHUNK_OVERLAP_TOKENS (2048)
-// to match the spec scenarios exactly.
-
-/// Synthetic prefix tokens (10 tokens, representative of "検索文書: ").
-const TEST_PREFIX: &[u32] = &[50, 51, 52, 53, 54, 55, 56, 57, 58, 59];
-
-/// max_content for production constants using the shared helper.
-const fn prod_max_content() -> usize {
-    max_content(TEST_PREFIX.len())
-}
-
-/// Build a synthetic text token array of length `n` (values 1000..1000+n).
-/// Uses a high base to avoid collision with special/prefix token IDs.
-fn synthetic_text(n: usize) -> Vec<u32> {
-    (1000..1000 + n as u32).collect()
-}
-
-#[test]
-fn t_001_10k_tokens_each_chunk_le_max_seq_len() {
-    // [T-001] FR-001: 10000 text tokens, max_seq_len=8192 → 2 chunks, each ≤ 8192
-    let mc = prod_max_content();
-    let text = synthetic_text(10_000);
-    let starts = compute_chunk_starts(text.len(), mc, CHUNK_OVERLAP_TOKENS);
-    let chunks = build_token_chunks(&text, TEST_PREFIX, &starts, mc);
-
-    assert_eq!(chunks.len(), 2);
-    for (i, chunk) in chunks.iter().enumerate() {
-        assert!(
-            chunk.len() <= MAX_SEQ_LEN,
-            "chunk {i}: len {} > MAX_SEQ_LEN {MAX_SEQ_LEN}",
-            chunk.len()
-        );
-    }
-}
-
-#[test]
-fn t_002_20k_tokens_overlap_ge_2048() {
-    // [T-002] FR-001: 20000 text tokens, overlap=2048 → adjacent chunks share ≥2048 text tokens
-    let mc = prod_max_content();
-    let text = synthetic_text(20_000);
-    let starts = compute_chunk_starts(text.len(), mc, CHUNK_OVERLAP_TOKENS);
-    let chunks = build_token_chunks(&text, TEST_PREFIX, &starts, mc);
-
-    assert!(chunks.len() >= 2, "expected multiple chunks");
-    let plen = TEST_PREFIX.len();
-    for w in chunks.windows(2) {
-        let prev_text = &w[0][1 + plen..w[0].len() - 1]; // strip BOS+prefix / EOS
-        let next_text = &w[1][1 + plen..w[1].len() - 1];
-        // Synthetic tokens are unique sequential integers, so set intersection == overlap count
-        let prev_set: std::collections::HashSet<_> = prev_text.iter().collect();
-        let shared = next_text.iter().filter(|t| prev_set.contains(t)).count();
-        assert!(
-            shared >= CHUNK_OVERLAP_TOKENS,
-            "adjacent chunks share {shared} tokens, expected >= {CHUNK_OVERLAP_TOKENS}"
-        );
-    }
-}
-
-#[test]
-fn t_003_8300_tokens_last_chunk_len_eq_max_seq_len() {
-    // [T-003] FR-003: 8300 text tokens → last chunk length = MAX_SEQ_LEN (8192)
-    let mc = prod_max_content();
-    let text = synthetic_text(8_300);
-    let starts = compute_chunk_starts(text.len(), mc, CHUNK_OVERLAP_TOKENS);
-    let chunks = build_token_chunks(&text, TEST_PREFIX, &starts, mc);
-
-    let last = chunks.last().expect("non-empty");
-    assert_eq!(last.len(), MAX_SEQ_LEN);
-}
-
-#[test]
-fn t_004_100_tokens_single_chunk_from_build() {
-    // [T-004] FR-004: 100 text tokens → single chunk
-    let mc = prod_max_content();
-    let text = synthetic_text(100);
-    let starts = compute_chunk_starts(text.len(), mc, CHUNK_OVERLAP_TOKENS);
-    let chunks = build_token_chunks(&text, TEST_PREFIX, &starts, mc);
-
-    assert_eq!(chunks.len(), 1);
-    // Verify structure: BOS + prefix + 100 text tokens + EOS
-    assert_eq!(chunks[0].len(), 1 + TEST_PREFIX.len() + 100 + 1);
-}
-
-#[test]
-fn t_005_bos_eos_with_production_constants() {
-    // [T-005] FR-002: BOS/EOS verification across multiple text sizes
-    let mc = prod_max_content();
-    for &n in &[100, 10_000, 20_000] {
-        let text = synthetic_text(n);
-        let starts = compute_chunk_starts(text.len(), mc, CHUNK_OVERLAP_TOKENS);
-        let chunks = build_token_chunks(&text, TEST_PREFIX, &starts, mc);
-
-        for (i, chunk) in chunks.iter().enumerate() {
-            assert_eq!(
-                chunk[0], BOS_TOKEN_ID,
-                "n={n} chunk {i}: first token {} != BOS",
-                chunk[0]
-            );
-            assert_eq!(
-                *chunk.last().unwrap(),
-                EOS_TOKEN_ID,
-                "n={n} chunk {i}: last token {} != EOS",
-                chunk.last().unwrap()
-            );
-        }
-    }
-}
-
-#[test]
-fn t_006_prefix_in_each_chunk_with_production_constants() {
-    // [T-006] FR-002: chunk[1..1+prefix_len] == prefix_tokens for all chunks
-    let mc = prod_max_content();
-    let text = synthetic_text(10_000);
-    let starts = compute_chunk_starts(text.len(), mc, CHUNK_OVERLAP_TOKENS);
-    let chunks = build_token_chunks(&text, TEST_PREFIX, &starts, mc);
-
-    for (i, chunk) in chunks.iter().enumerate() {
-        assert_eq!(
-            &chunk[1..1 + TEST_PREFIX.len()],
-            TEST_PREFIX,
-            "chunk {i}: prefix mismatch"
-        );
-    }
-}
-
-#[test]
-fn t_007_prefix_tokens_match_regardless_of_text_content() {
-    // [T-007] FR-008: structural guarantee that build_token_chunks always places
-    // prefix_tokens at chunk[1..1+prefix_len], independent of text content.
-    // This is the implementation-side contract of FR-008.
-    let prefixes: &[&[u32]] = &[&[7, 42, 99], &[256, 1001, 2002, 3003, 4004], &[]];
-
-    for prefix in prefixes {
-        let mc = max_content(prefix.len());
-        let text = synthetic_text(500);
-        let starts = compute_chunk_starts(text.len(), mc, CHUNK_OVERLAP_TOKENS);
-        let chunks = build_token_chunks(&text, prefix, &starts, mc);
-
-        assert_eq!(chunks.len(), 1);
-        let chunk = &chunks[0];
-        assert_eq!(chunk[0], BOS_TOKEN_ID);
-        assert_eq!(&chunk[1..1 + prefix.len()], *prefix);
-        assert_eq!(*chunk.last().unwrap(), EOS_TOKEN_ID);
-    }
-}
-
-#[test]
-fn t_012_empty_text_with_production_prefix() {
-    // [T-012] FR-001: empty text → single chunk [BOS, prefix..., EOS]
-    let mc = prod_max_content();
-    let text: Vec<u32> = vec![];
-    let starts = compute_chunk_starts(0, mc, CHUNK_OVERLAP_TOKENS);
-    let chunks = build_token_chunks(&text, TEST_PREFIX, &starts, mc);
-
-    assert_eq!(chunks.len(), 1);
-    let chunk = &chunks[0];
-    assert_eq!(chunk.len(), 1 + TEST_PREFIX.len() + 1); // BOS + prefix + EOS
-    assert_eq!(chunk[0], BOS_TOKEN_ID);
-    assert_eq!(&chunk[1..1 + TEST_PREFIX.len()], TEST_PREFIX);
-    assert_eq!(*chunk.last().unwrap(), EOS_TOKEN_ID);
 }
 
 #[test]
@@ -927,24 +487,6 @@ fn t_008b_truncate_for_query_noop_when_short() {
 }
 
 #[test]
-fn t_013_mc_plus_1_tokens_last_chunk_fills_max_seq_len() {
-    // [T-013] FR-003: max_content+1 text tokens → 2 chunks, last chunk = MAX_SEQ_LEN
-    let mc = prod_max_content();
-    let text = synthetic_text(mc + 1);
-    let starts = compute_chunk_starts(text.len(), mc, CHUNK_OVERLAP_TOKENS);
-    let chunks = build_token_chunks(&text, TEST_PREFIX, &starts, mc);
-
-    assert_eq!(chunks.len(), 2);
-    let last = chunks.last().unwrap();
-    assert_eq!(
-        last.len(),
-        MAX_SEQ_LEN,
-        "last chunk len {} != MAX_SEQ_LEN {MAX_SEQ_LEN}",
-        last.len()
-    );
-}
-
-#[test]
 fn t_008c_truncate_for_query_noop_at_exact_boundary() {
     // [TC-003] Boundary: len == max_len → no truncation
     let max_len = 50;
@@ -960,21 +502,36 @@ fn t_008c_truncate_for_query_noop_at_exact_boundary() {
 }
 
 #[test]
+fn t_008e_truncate_for_query_max_len_1_produces_eos_only() {
+    // [TC-003] max_len=1: the only slot is overwritten with EOS → output is [EOS]
+    let input_ids: Vec<u32> = vec![1, 100, 200, 2]; // BOS, text, text, EOS
+    let attention_mask = vec![1u32; 4];
+
+    let (ids, mask, seq_len) = truncate_for_query(input_ids, attention_mask, 1);
+    assert_eq!(seq_len, 1);
+    assert_eq!(ids, vec![EOS_TOKEN_ID], "single slot must be EOS");
+    assert_eq!(mask.len(), 1);
+}
+
+#[test]
+fn t_008d_truncate_for_query_zero_max_len_returns_unchanged() {
+    let input_ids: Vec<u32> = vec![1, 100, 200, 2];
+    let attention_mask = vec![1u32; 4];
+    let expected_ids = input_ids.clone();
+    let expected_mask = attention_mask.clone();
+
+    let (ids, mask, seq_len) = truncate_for_query(input_ids, attention_mask, 0);
+    assert_eq!(seq_len, 4);
+    assert_eq!(ids, expected_ids, "max_len=0 should return unchanged");
+    assert_eq!(mask, expected_mask);
+}
+
+#[test]
 fn t_014_mock_chunked_embedder_returns_multi_chunk() {
     let embedder = super::MockChunkedEmbedder::new(3);
     let result = embedder.embed_document("some text").unwrap();
     assert_eq!(result.chunks.len(), 3);
     assert_eq!(result.chunks[0].len(), EMBEDDING_DIMS);
-}
-
-#[test]
-fn t_014b_mock_chunked_embedder_batch_preserves_count() {
-    let embedder = super::MockChunkedEmbedder::new(2);
-    let results = embedder.embed_documents_batch(&["a", "b", "c"]).unwrap();
-    assert_eq!(results.len(), 3);
-    for r in &results {
-        assert_eq!(r.chunks.len(), 2);
-    }
 }
 
 // --- Regression: prefix boundary merge cases ---
@@ -992,8 +549,8 @@ fn t_014b_mock_chunked_embedder_batch_preserves_count() {
 fn regression_prefix_merge_standalone_vs_full_tokenization_diverges() {
     // Verify that the prefix boundary actually diverges for these texts,
     // confirming the need for Approach A.
-    let paths = download_model(ModelId::default()).expect("download model");
-    let tokenizer = load_tokenizer(&paths.tokenizer).unwrap();
+    let artifacts = download_model(ModelId::default()).expect("download model");
+    let tokenizer = load_tokenizer(&artifacts.paths.tokenizer).unwrap();
     let prefix_tokens = extract_prefix_tokens(&tokenizer, DOCUMENT_PREFIX).unwrap();
     let pe = 1 + prefix_tokens.len(); // BOS + prefix length
 
@@ -1021,8 +578,8 @@ fn regression_long_document_sequential_planner_overlap_and_coverage() {
     // 2. Adjacent chunks overlap >= CHUNK_OVERLAP_TOKENS (overlap contract)
     // 3. First chunk starts at byte 0 (head preserved)
     // 4. Last chunk ends at document end (tail preserved)
-    let paths = download_model(ModelId::default()).expect("download model");
-    let tokenizer = load_tokenizer(&paths.tokenizer).unwrap();
+    let artifacts = download_model(ModelId::default()).expect("download model");
+    let tokenizer = load_tokenizer(&artifacts.paths.tokenizer).unwrap();
     let prefix_tokens = extract_prefix_tokens(&tokenizer, DOCUMENT_PREFIX).unwrap();
     let mc = max_content(prefix_tokens.len());
 
@@ -1119,29 +676,37 @@ fn embed_text_returns_correct_dimensionality_for_all_prefixes() {
 }
 
 #[test]
-fn mock_embedder_with_dims_returns_custom_dimension() {
-    for dims in [256, 384, 512] {
-        let e = super::MockEmbedder::with_dims(dims);
-        assert_eq!(e.embed_query("q").unwrap().len(), dims);
-        assert_eq!(e.embed_document("d").unwrap().chunks[0].len(), dims);
-        assert_eq!(e.embed_text("t", "").unwrap().len(), dims);
-    }
-}
-
-#[test]
-fn mock_chunked_embedder_with_dims_returns_custom_dimension() {
-    let e = super::MockChunkedEmbedder::with_dims(2, 256);
-    let doc = e.embed_document("d").unwrap();
-    assert_eq!(doc.chunks.len(), 2);
-    assert_eq!(doc.chunks[0].len(), 256);
-}
-
-#[test]
 fn embed_text_propagates_error() {
     let e = super::FailingEmbedder::all_fail("embed_text error");
     let err = e.embed_text("テスト", SEMANTIC_PREFIX).unwrap_err();
     assert!(
         matches!(err, EmbedError::Inference(ref msg) if msg.contains("embed_text error")),
+        "{err}"
+    );
+}
+
+#[test]
+fn from_probe_error_maps_correctly() {
+    use crate::model_probe::ProbeError;
+
+    let err: EmbedInitError = ProbeError::HandlerNotInstalled.into();
+    assert!(
+        matches!(err, EmbedInitError::Backend(ref m) if m.contains("probe handler not installed")),
+        "{err}"
+    );
+
+    let err: EmbedInitError = ProbeError::ModelLoadFailed {
+        reason: "bad weights".into(),
+    }
+    .into();
+    assert!(
+        matches!(err, EmbedInitError::ModelCorrupt { ref reason } if reason == "bad weights"),
+        "{err}"
+    );
+
+    let err: EmbedInitError = ProbeError::SubprocessFailed("spawn failed".into()).into();
+    assert!(
+        matches!(err, EmbedInitError::Backend(ref m) if m == "spawn failed"),
         "{err}"
     );
 }
