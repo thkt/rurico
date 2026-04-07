@@ -79,22 +79,7 @@ fn t_021_cache_lookup_returns_none_when_cache_empty() {
     assert!(result.is_none());
 }
 
-/// Valid config JSON (all required ModernBERT fields) for testing errors
-/// that occur after config parsing.
-const VALID_CONFIG_JSON: &str = r#"{
-    "vocab_size": 1000,
-    "hidden_size": 768,
-    "num_hidden_layers": 2,
-    "num_attention_heads": 12,
-    "intermediate_size": 3072,
-    "max_position_embeddings": 512,
-    "layer_norm_eps": 1e-5,
-    "pad_token_id": 0,
-    "global_attn_every_n_layers": 3,
-    "global_rope_theta": 160000.0,
-    "local_attention": 128,
-    "local_rope_theta": 10000.0
-}"#;
+use crate::test_support::VALID_CONFIG_JSON;
 
 #[test]
 fn t_014_candidate_verify_returns_invalid_config_for_empty_config() {

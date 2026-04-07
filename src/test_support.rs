@@ -1,5 +1,25 @@
 //! Shared test helpers available to all modules within the crate.
 
+/// Valid ModernBERT config JSON with all required fields, for use in tests
+/// that need to bypass config parsing errors and reach later verification stages.
+///
+/// Any change to required [`crate::modernbert::Config`] fields must be reflected here.
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) const VALID_CONFIG_JSON: &str = r#"{
+    "vocab_size": 1000,
+    "hidden_size": 768,
+    "num_hidden_layers": 2,
+    "num_attention_heads": 12,
+    "intermediate_size": 3072,
+    "max_position_embeddings": 512,
+    "layer_norm_eps": 1e-5,
+    "pad_token_id": 0,
+    "global_attn_every_n_layers": 3,
+    "global_rope_theta": 160000.0,
+    "local_attention": 128,
+    "local_rope_theta": 10000.0
+}"#;
+
 /// Create a fake HuggingFace Hub cache directory structure.
 ///
 /// Builds the `models--{repo_slug}/refs/{revision}` → `snapshots/{hash}/`
