@@ -1,10 +1,11 @@
 //! Process-global MLX cache lock shared by embed and reranker modules.
 //!
-//! `mlx_clear_cache()` is a global FFI call that is not thread-safe.
-//! Both embed and reranker call it after inference to free GPU memory.
-//! A single `Mutex` ensures these calls are serialized.
+//! `mlx_clear_cache()` and `mlx_detail_compile_clear_cache()` are global FFI
+//! calls that are not thread-safe. Both embed and reranker call them after
+//! inference to free GPU memory. A single `Mutex` ensures these calls are
+//! serialized.
 
-/// Process-global lock for [`mlx_sys::mlx_clear_cache`] calls.
+/// Process-global lock for [`mlx_sys::mlx_clear_cache`] and [`mlx_sys::mlx_detail_compile_clear_cache`] calls.
 ///
 /// Recover from poison: cache-clear is stateless (guards `()`), safe to
 /// proceed after a panic in another thread.
@@ -13,7 +14,12 @@ pub(crate) static MLX_CACHE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new((
 /// Consume an MLX output array and attempt to clear the GPU cache.
 ///
 /// Takes `output` by value to enforce drop-before-clear ordering at compile
-/// time. Cache-clear failure is non-fatal: logged as a warning.
+/// time. Cache-clear failures are non-fatal: logged as warnings.
+///
+/// Clears both the buffer pool (`mlx_clear_cache`) and the compiled Metal
+/// kernel cache (`mlx_detail_compile_clear_cache`). The compile cache grows
+/// with each unique `(batch_size, seq_len)` pair; clearing it after every
+/// batch prevents Metal OOM across long embedding runs.
 ///
 /// # Safety (caller invariants)
 /// 1. `output` is taken by value — no borrows remain after this call.
@@ -29,6 +35,10 @@ pub(crate) fn release_inference_output(output: mlx_rs::Array) {
     let code = unsafe { mlx_sys::mlx_clear_cache() };
     if code != 0 {
         log::warn!("mlx_clear_cache failed (code: {code})");
+    }
+    let code = unsafe { mlx_sys::mlx_detail_compile_clear_cache() };
+    if code != 0 {
+        log::warn!("mlx_detail_compile_clear_cache failed (code: {code})");
     }
 }
 

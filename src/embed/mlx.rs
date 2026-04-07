@@ -88,34 +88,44 @@ impl EmbedderInner {
             max_content_tokens,
         )?;
 
-        let (input_ids, attention_mask, batch_size, max_len) =
-            crate::model_io::pad_sequences(&all_chunk_tokens, None);
+        // Split into sub-batches bounded by TOKEN_BUDGET total positions to avoid
+        // Metal OOM when long sequences produce large padded tensors.
+        // TOKEN_BUDGET = 256K positions ≈ 128 chunks × 2048 tokens, which matches
+        // the empirically confirmed safe range for ruri-v3-310m on Apple Silicon.
+        const TOKEN_BUDGET: usize = 256_000;
+        let max_len_overall = all_chunk_tokens.iter().map(|c| c.len()).max().unwrap_or(1);
+        let sub_batch_size = (TOKEN_BUDGET / max_len_overall).max(1);
 
-        let output = self
-            .model
-            .forward(
-                &input_ids,
-                &attention_mask,
-                batch_size as i32,
-                max_len as i32,
-            )
-            .map_err(EmbedError::inference)?;
+        let mut all_embeddings = Vec::with_capacity(all_chunk_tokens.len());
+        for sub_batch in all_chunk_tokens.chunks(sub_batch_size) {
+            let (input_ids, attention_mask, batch_size, max_len) =
+                crate::model_io::pad_sequences(sub_batch, None);
 
-        let result = (|| {
-            output.eval().map_err(EmbedError::inference)?;
-            let flat: &[f32] = output.as_slice();
-            unpack_batch_output(flat, batch_size, max_len, &attention_mask)
-        })();
-        crate::mlx_cache::release_inference_output(output);
-        let all_embeddings = result?;
+            let output = self
+                .model
+                .forward(
+                    &input_ids,
+                    &attention_mask,
+                    batch_size as i32,
+                    max_len as i32,
+                )
+                .map_err(EmbedError::inference)?;
+
+            let sub_result = (|| {
+                output.eval().map_err(EmbedError::inference)?;
+                let flat: &[f32] = output.as_slice();
+                unpack_batch_output(flat, batch_size, max_len, &attention_mask)
+            })();
+            crate::mlx_cache::release_inference_output(output);
+            all_embeddings.extend(sub_result?);
+        }
 
         // Regroup by document, preserving input order
         let mut results = Vec::with_capacity(texts.len());
-        let mut offset = 0;
+        let mut iter = all_embeddings.into_iter();
         for &count in &chunks_per_doc {
-            let chunks = all_embeddings[offset..offset + count].to_vec();
+            let chunks: Vec<_> = iter.by_ref().take(count).collect();
             results.push(ChunkedEmbedding { chunks });
-            offset += count;
         }
 
         Ok(results)
