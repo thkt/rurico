@@ -176,7 +176,11 @@ fn verify_tokenizer(
 // ── Kind check (safetensors header inspection) ───────────────────────────────
 
 /// Tensor key prefixes that must be present in all ModernBERT-based models.
-const MODERNBERT_KEY_PREFIXES: &[&str] = &["model."];
+///
+/// The ruri-v3 MLX weight files use a flat naming convention without the `model.`
+/// wrapper common in HuggingFace transformers checkpoints. The backbone layers are
+/// always present and keyed under the `"layers."` namespace.
+const MODERNBERT_KEY_PREFIXES: &[&str] = &["layers."];
 
 /// Tensor key prefixes that are present in reranker models and absent in embed models.
 const RERANKER_KEY_PREFIXES: &[&str] = &["classifier.", "head.dense.", "head.norm."];
@@ -199,17 +203,32 @@ fn verify_model_kind(
     expected: &'static str,
     require_reranker_keys: bool,
 ) -> Result<(), ArtifactError> {
-    let keys = read_safetensors_keys(&paths.model)?;
-    for prefix in MODERNBERT_KEY_PREFIXES {
-        if !keys.iter().any(|k| k.starts_with(prefix)) {
+    let mut backbone_seen = [false; MODERNBERT_KEY_PREFIXES.len()];
+    let mut reranker_seen = [false; RERANKER_KEY_PREFIXES.len()];
+
+    scan_safetensors_keys(&paths.model, |k| {
+        for (i, prefix) in MODERNBERT_KEY_PREFIXES.iter().enumerate() {
+            if !backbone_seen[i] && k.starts_with(prefix) {
+                backbone_seen[i] = true;
+            }
+        }
+        for (i, prefix) in RERANKER_KEY_PREFIXES.iter().enumerate() {
+            if !reranker_seen[i] && k.starts_with(prefix) {
+                reranker_seen[i] = true;
+            }
+        }
+    })?;
+
+    for (i, prefix) in MODERNBERT_KEY_PREFIXES.iter().enumerate() {
+        if !backbone_seen[i] {
             return Err(ArtifactError::WrongModelKind {
                 expected,
                 keys_hint: format!("missing required key with prefix '{prefix}'"),
             });
         }
     }
-    for prefix in RERANKER_KEY_PREFIXES {
-        let found = keys.iter().any(|k| k.starts_with(prefix));
+    for (i, prefix) in RERANKER_KEY_PREFIXES.iter().enumerate() {
+        let found = reranker_seen[i];
         if require_reranker_keys && !found {
             return Err(ArtifactError::WrongModelKind {
                 expected,
@@ -225,12 +244,12 @@ fn verify_model_kind(
     Ok(())
 }
 
-/// Read tensor key names from a safetensors file header without loading weights.
+/// Scan tensor key names from a safetensors file header, calling `f` for each non-metadata key.
 ///
 /// The safetensors format starts with an 8-byte u64 LE value indicating the
 /// header JSON length, followed by the JSON object mapping tensor names to
 /// metadata. Only the header is read; weight data is not accessed.
-fn read_safetensors_keys(path: &Path) -> Result<Vec<String>, ArtifactError> {
+fn scan_safetensors_keys(path: &Path, mut f: impl FnMut(&str)) -> Result<(), ArtifactError> {
     let mut file = std::fs::File::open(path).map_err(|e| ArtifactError::WrongModelKind {
         expected: "valid safetensors file",
         keys_hint: format!("cannot open model file: {e}"),
@@ -266,11 +285,20 @@ fn read_safetensors_keys(path: &Path) -> Result<Vec<String>, ArtifactError> {
             keys_hint: format!("header JSON parse error: {e}"),
         })?;
 
-    Ok(obj
-        .into_iter()
-        .map(|(k, _)| k)
-        .filter(|k| k != "__metadata__")
-        .collect())
+    for (k, _) in obj {
+        if k != "__metadata__" {
+            f(&k);
+        }
+    }
+    Ok(())
+}
+
+/// Collect all tensor key names from a safetensors header into a `Vec`.
+#[cfg(test)]
+fn read_safetensors_keys(path: &Path) -> Result<Vec<String>, ArtifactError> {
+    let mut keys = Vec::new();
+    scan_safetensors_keys(path, |k| keys.push(k.to_owned()))?;
+    Ok(keys)
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -278,6 +306,9 @@ fn read_safetensors_keys(path: &Path) -> Result<Vec<String>, ArtifactError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Representative backbone tensor key that satisfies `MODERNBERT_KEY_PREFIXES`.
+    const FAKE_BACKBONE_KEY: &str = "layers.0.attn.Wo.weight";
 
     /// Write a minimal but structurally valid safetensors file containing the given
     /// tensor keys. Each tensor has one `f32` element of weight data.
@@ -335,11 +366,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("config.json"), b"{}").unwrap();
         std::fs::write(dir.path().join("tokenizer.json"), b"{}").unwrap();
-        let paths = crate::model_io::ModelPaths {
-            model: dir.path().join("model.safetensors"), // does not exist
-            config: dir.path().join("config.json"),
-            tokenizer: dir.path().join("tokenizer.json"),
-        };
+        let paths = crate::model_io::ModelPaths::from_dir(dir.path()); // model.safetensors does not exist
         let err = verify_as_embed(paths).unwrap_err();
         assert!(
             matches!(err, ArtifactError::MissingFile { ref path } if path.ends_with("model.safetensors")),
@@ -350,16 +377,11 @@ mod tests {
     #[test]
     fn verify_as_embed_returns_invalid_config_for_malformed_config() {
         let dir = tempfile::tempdir().unwrap();
-        let model_path = dir.path().join("model.safetensors");
         // model exists (content irrelevant — config check runs first)
-        std::fs::write(&model_path, b"placeholder").unwrap();
+        std::fs::write(dir.path().join("model.safetensors"), b"placeholder").unwrap();
         std::fs::write(dir.path().join("config.json"), b"{}").unwrap();
         std::fs::write(dir.path().join("tokenizer.json"), b"{}").unwrap();
-        let paths = crate::model_io::ModelPaths {
-            model: model_path,
-            config: dir.path().join("config.json"),
-            tokenizer: dir.path().join("tokenizer.json"),
-        };
+        let paths = crate::model_io::ModelPaths::from_dir(dir.path());
         let err = verify_as_embed(paths).unwrap_err();
         assert!(matches!(err, ArtifactError::InvalidConfig { .. }), "{err}");
     }
@@ -380,11 +402,7 @@ mod tests {
         )
         .unwrap();
         std::fs::write(dir.path().join("tokenizer.json"), b"{}").unwrap();
-        let paths = crate::model_io::ModelPaths {
-            model: dir.path().join("model.safetensors"),
-            config: dir.path().join("config.json"),
-            tokenizer: dir.path().join("tokenizer.json"),
-        };
+        let paths = crate::model_io::ModelPaths::from_dir(dir.path());
         let err = verify_as_embed(paths).unwrap_err();
         assert!(
             matches!(err, ArtifactError::InvalidConfig { ref reason, .. } if reason.contains("hidden_size")),
@@ -395,16 +413,11 @@ mod tests {
     #[test]
     fn verify_embed_kind_rejects_reranker_keys() {
         let dir = tempfile::tempdir().unwrap();
-        let model_path = dir.path().join("model.safetensors");
         write_fake_safetensors(
-            &model_path,
+            &dir.path().join("model.safetensors"),
             &["classifier.weight", "head.dense.weight", "head.norm.weight"],
         );
-        let paths = crate::model_io::ModelPaths {
-            model: model_path,
-            config: dir.path().join("config.json"),
-            tokenizer: dir.path().join("tokenizer.json"),
-        };
+        let paths = crate::model_io::ModelPaths::from_dir(dir.path());
         let err = verify_embed_kind(&paths).unwrap_err();
         assert!(
             matches!(
@@ -421,14 +434,9 @@ mod tests {
     #[test]
     fn verify_reranker_kind_rejects_missing_classifier_key() {
         let dir = tempfile::tempdir().unwrap();
-        let model_path = dir.path().join("model.safetensors");
         // embed-only keys — no classifier/head
-        write_fake_safetensors(&model_path, &["model.encoder.layer.0.weight"]);
-        let paths = crate::model_io::ModelPaths {
-            model: model_path,
-            config: dir.path().join("config.json"),
-            tokenizer: dir.path().join("tokenizer.json"),
-        };
+        write_fake_safetensors(&dir.path().join("model.safetensors"), &[FAKE_BACKBONE_KEY]);
+        let paths = crate::model_io::ModelPaths::from_dir(dir.path());
         let err = verify_reranker_kind(&paths).unwrap_err();
         assert!(
             matches!(
@@ -445,37 +453,24 @@ mod tests {
     #[test]
     fn verify_embed_kind_accepts_model_without_reranker_keys() {
         let dir = tempfile::tempdir().unwrap();
-        let model_path = dir.path().join("model.safetensors");
-        write_fake_safetensors(
-            &model_path,
-            &["model.encoder.layer.0.attention.self.query.weight"],
-        );
-        let paths = crate::model_io::ModelPaths {
-            model: model_path,
-            config: dir.path().join("config.json"),
-            tokenizer: dir.path().join("tokenizer.json"),
-        };
+        write_fake_safetensors(&dir.path().join("model.safetensors"), &[FAKE_BACKBONE_KEY]);
+        let paths = crate::model_io::ModelPaths::from_dir(dir.path());
         assert!(verify_embed_kind(&paths).is_ok());
     }
 
     #[test]
     fn verify_reranker_kind_accepts_model_with_all_required_keys() {
         let dir = tempfile::tempdir().unwrap();
-        let model_path = dir.path().join("model.safetensors");
         write_fake_safetensors(
-            &model_path,
+            &dir.path().join("model.safetensors"),
             &[
-                "model.encoder.layer.0.weight",
+                FAKE_BACKBONE_KEY,
                 "classifier.weight",
                 "head.dense.weight",
                 "head.norm.weight",
             ],
         );
-        let paths = crate::model_io::ModelPaths {
-            model: model_path,
-            config: dir.path().join("config.json"),
-            tokenizer: dir.path().join("tokenizer.json"),
-        };
+        let paths = crate::model_io::ModelPaths::from_dir(dir.path());
         assert!(verify_reranker_kind(&paths).is_ok());
     }
 
@@ -560,20 +555,7 @@ mod tests {
         "padding": null
     }"#;
 
-    const VALID_CONFIG_JSON: &str = r#"{
-        "vocab_size": 1000,
-        "hidden_size": 768,
-        "num_hidden_layers": 2,
-        "num_attention_heads": 12,
-        "intermediate_size": 3072,
-        "max_position_embeddings": 512,
-        "layer_norm_eps": 1e-5,
-        "pad_token_id": 0,
-        "global_attn_every_n_layers": 3,
-        "global_rope_theta": 160000.0,
-        "local_attention": 128,
-        "local_rope_theta": 10000.0
-    }"#;
+    use crate::test_support::VALID_CONFIG_JSON;
 
     fn write_valid_config(dir: &std::path::Path) {
         std::fs::write(dir.join("config.json"), VALID_CONFIG_JSON.as_bytes()).unwrap();
@@ -590,17 +572,10 @@ mod tests {
     #[test]
     fn verify_as_embed_succeeds_with_valid_embed_artifacts() {
         let dir = tempfile::tempdir().unwrap();
-        write_fake_safetensors(
-            &dir.path().join("model.safetensors"),
-            &["model.encoder.layer.0.weight"],
-        );
+        write_fake_safetensors(&dir.path().join("model.safetensors"), &[FAKE_BACKBONE_KEY]);
         write_valid_config(dir.path());
         write_valid_tokenizer(dir.path());
-        let paths = crate::model_io::ModelPaths {
-            model: dir.path().join("model.safetensors"),
-            config: dir.path().join("config.json"),
-            tokenizer: dir.path().join("tokenizer.json"),
-        };
+        let paths = crate::model_io::ModelPaths::from_dir(dir.path());
         assert!(
             verify_as_embed(paths).is_ok(),
             "verify_as_embed should succeed"
@@ -610,15 +585,11 @@ mod tests {
     #[test]
     fn verify_as_embed_rejects_unrelated_safetensors() {
         let dir = tempfile::tempdir().unwrap();
-        // No "model." prefix keys — should fail the positive check.
+        // No "layers." prefix keys — should fail the positive check.
         write_fake_safetensors(&dir.path().join("model.safetensors"), &["foo.weight"]);
         write_valid_config(dir.path());
         write_valid_tokenizer(dir.path());
-        let paths = crate::model_io::ModelPaths {
-            model: dir.path().join("model.safetensors"),
-            config: dir.path().join("config.json"),
-            tokenizer: dir.path().join("tokenizer.json"),
-        };
+        let paths = crate::model_io::ModelPaths::from_dir(dir.path());
         assert!(
             verify_as_embed(paths).is_err(),
             "verify_as_embed should reject unrelated safetensors"
@@ -632,7 +603,7 @@ mod tests {
         write_fake_safetensors(
             &dir.path().join("model.safetensors"),
             &[
-                "model.encoder.layer.0.weight",
+                FAKE_BACKBONE_KEY,
                 "classifier.weight",
                 "head.dense.weight",
                 "head.norm.weight",
@@ -640,11 +611,7 @@ mod tests {
         );
         write_valid_config(dir.path());
         write_valid_tokenizer(dir.path());
-        let paths = crate::model_io::ModelPaths {
-            model: dir.path().join("model.safetensors"),
-            config: dir.path().join("config.json"),
-            tokenizer: dir.path().join("tokenizer.json"),
-        };
+        let paths = crate::model_io::ModelPaths::from_dir(dir.path());
         assert!(
             verify_as_reranker(paths).is_ok(),
             "verify_as_reranker should succeed"
@@ -661,11 +628,7 @@ mod tests {
         );
         write_valid_config(dir.path());
         write_valid_tokenizer(dir.path());
-        let paths = crate::model_io::ModelPaths {
-            model: dir.path().join("model.safetensors"),
-            config: dir.path().join("config.json"),
-            tokenizer: dir.path().join("tokenizer.json"),
-        };
+        let paths = crate::model_io::ModelPaths::from_dir(dir.path());
         assert!(
             verify_as_reranker(paths).is_err(),
             "verify_as_reranker should reject safetensors without backbone keys"
