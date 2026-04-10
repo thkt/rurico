@@ -60,6 +60,32 @@ impl<K> VerifiedArtifacts<K> {
             _kind: std::marker::PhantomData,
         }
     }
+
+    /// Delete the artifact files from disk.
+    ///
+    /// Consumes `self` so the artifacts cannot be used after deletion.
+    /// Useful for cleaning up corrupt or incompatible files so that a
+    /// subsequent [`download_model`](crate::embed::download_model) call
+    /// will re-fetch them from the network.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first [`std::io::Error`] encountered. Remaining files are
+    /// still attempted even if an earlier deletion fails.
+    pub fn delete_files(self) -> Result<(), std::io::Error> {
+        let mut first_err: Option<std::io::Error> = None;
+        for path in [&self.paths.model, &self.paths.config, &self.paths.tokenizer] {
+            if let Err(e) = std::fs::remove_file(path) {
+                if first_err.is_none() {
+                    first_err = Some(e);
+                }
+            }
+        }
+        match first_err {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
+    }
 }
 
 // ── ArtifactError ────────────────────────────────────────────────────────────
@@ -633,5 +659,38 @@ mod tests {
             verify_as_reranker(paths).is_err(),
             "verify_as_reranker should reject safetensors without backbone keys"
         );
+    }
+
+    // ── delete_files tests ───────────────────────────────────────────────
+
+    #[test]
+    fn delete_files_removes_all_three_artifact_files() {
+        let dir = tempfile::tempdir().unwrap();
+        write_fake_safetensors(&dir.path().join("model.safetensors"), &[FAKE_BACKBONE_KEY]);
+        write_valid_config(dir.path());
+        write_valid_tokenizer(dir.path());
+        let paths = crate::model_io::ModelPaths::from_dir(dir.path());
+        let artifacts = verify_as_embed(paths).unwrap();
+
+        artifacts.delete_files().unwrap();
+
+        assert!(!dir.path().join("model.safetensors").exists());
+        assert!(!dir.path().join("config.json").exists());
+        assert!(!dir.path().join("tokenizer.json").exists());
+    }
+
+    #[test]
+    fn delete_files_returns_error_when_file_already_removed() {
+        let dir = tempfile::tempdir().unwrap();
+        write_fake_safetensors(&dir.path().join("model.safetensors"), &[FAKE_BACKBONE_KEY]);
+        write_valid_config(dir.path());
+        write_valid_tokenizer(dir.path());
+        let paths = crate::model_io::ModelPaths::from_dir(dir.path());
+        let artifacts = verify_as_embed(paths).unwrap();
+
+        // Pre-remove model so delete_files hits a missing-file error
+        std::fs::remove_file(dir.path().join("model.safetensors")).unwrap();
+
+        assert!(artifacts.delete_files().is_err());
     }
 }
