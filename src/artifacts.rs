@@ -75,7 +75,9 @@ impl<K> VerifiedArtifacts<K> {
     pub fn delete_files(self) -> Result<(), std::io::Error> {
         let mut first_err: Option<std::io::Error> = None;
         for path in [&self.paths.model, &self.paths.config, &self.paths.tokenizer] {
-            if let Err(e) = std::fs::remove_file(path) && first_err.is_none() {
+            if let Err(e) = std::fs::remove_file(path)
+                && first_err.is_none()
+            {
                 first_err = Some(e);
             }
         }
