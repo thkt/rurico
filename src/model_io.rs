@@ -114,6 +114,16 @@ fn model_repo_for<Id: ModelArtifact>(model: Id) -> hf_hub::Repo {
 ///
 /// Returns [`ModelIoError::Download`] if the Hugging Face client cannot be
 /// initialized or any required artifact download fails.
+///
+/// # Interruption Safety
+///
+/// hf-hub downloads each file to a `.part` temporary file and then atomically
+/// renames it to the final blob path (`std::fs::rename`). A signal (e.g. SIGINT)
+/// received during a download leaves only the `.part` file on disk; the final
+/// blob is never partially written.
+///
+/// On the next invocation, [`artifacts_if_cached`] finds no valid pointer and
+/// returns `None`, so the download retries cleanly — no manual cache cleanup needed.
 pub fn download_artifacts<Id: ModelArtifact>(model: Id) -> Result<ModelPaths, ModelIoError> {
     let api = hf_hub::api::sync::Api::new()
         .map_err(|e| ModelIoError::Download(format!("HF Hub init failed: {e}")))?;
