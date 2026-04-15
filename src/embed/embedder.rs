@@ -1,4 +1,5 @@
-use std::sync::Mutex;
+use std::fmt::{self, Debug, Formatter};
+use std::sync::{Mutex, MutexGuard};
 
 use super::mlx::EmbedderInner;
 use super::{
@@ -11,8 +12,8 @@ pub struct Embedder {
     embedding_dims: usize,
 }
 
-impl std::fmt::Debug for Embedder {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Debug for Embedder {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Embedder").finish_non_exhaustive()
     }
 }
@@ -66,7 +67,7 @@ impl Embedder {
         super::probe::probe_via_subprocess(artifacts)
     }
 
-    fn lock_inner(&self) -> Result<std::sync::MutexGuard<'_, EmbedderInner>, EmbedError> {
+    fn lock_inner(&self) -> Result<MutexGuard<'_, EmbedderInner>, EmbedError> {
         self.inner
             .lock()
             .map_err(|_| EmbedError::inference("embedder lock poisoned"))

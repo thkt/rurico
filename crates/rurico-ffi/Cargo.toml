@@ -1,0 +1,16 @@
+[package]
+name = "rurico-ffi"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94"
+description = "Safe FFI wrappers for rurico (mlx-sys, sqlite-vec)"
+license = "MIT"
+publish = false
+
+[lints.rust]
+unsafe_code = "deny"
+
+[dependencies]
+mlx-sys = "0.2"
+rusqlite = { version = "0.39", features = ["bundled"] }
+sqlite-vec = "0.1.6"

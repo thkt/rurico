@@ -4,6 +4,18 @@
 //! Individual modules (embed, reranker) call `probe_via_subprocess` to
 //! re-exec the current binary as an isolated probe.
 
+use std::env;
+use std::fmt;
+use std::io::{self, Read, Write};
+use std::path::PathBuf;
+use std::process::{self, Child, Command, ExitStatus, Output, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
+
+use crate::embed;
+use crate::model_io::ModelPaths;
+use crate::reranker;
+
 /// Handshake token written to stdout by probe subprocesses.
 pub const PROBE_ACK: &str = "RURICO_PROBE_OK";
 
@@ -59,7 +71,7 @@ pub(crate) fn resolve_probe_env(
     model: Option<String>,
     config: Option<String>,
     tokenizer: Option<String>,
-) -> Option<Result<(std::path::PathBuf, std::path::PathBuf, std::path::PathBuf), i32>> {
+) -> Option<Result<(PathBuf, PathBuf, PathBuf), i32>> {
     let model = model?;
     Some(match (config, tokenizer) {
         (Some(config), Some(tokenizer)) => Ok((model.into(), config.into(), tokenizer.into())),
@@ -68,7 +80,7 @@ pub(crate) fn resolve_probe_env(
 }
 
 /// Timeout for probe subprocesses.
-const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+const PROBE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Single entry point for probe subprocess dispatch in host binaries.
 ///
@@ -88,28 +100,28 @@ const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 /// When the current process is not a probe subprocess, it returns immediately.
 pub fn handle_probe_if_needed() {
     // --- Embed probe ---
-    if let Some(result) = crate::embed::probe_env_to_paths(
-        std::env::var(EMBED_PROBE_ENV_MODEL).ok(),
-        std::env::var(EMBED_PROBE_ENV_CONFIG).ok(),
-        std::env::var(EMBED_PROBE_ENV_TOKENIZER).ok(),
+    if let Some(result) = embed::probe_env_to_paths(
+        env::var(EMBED_PROBE_ENV_MODEL).ok(),
+        env::var(EMBED_PROBE_ENV_CONFIG).ok(),
+        env::var(EMBED_PROBE_ENV_TOKENIZER).ok(),
     ) {
         dispatch_probe(result, |candidate| {
             let artifacts = candidate.verify().map_err(|e| e.to_string())?;
-            crate::embed::Embedder::new(&artifacts)
+            embed::Embedder::new(&artifacts)
                 .map(|_| ())
                 .map_err(|e| e.to_string())
         });
     }
 
     // --- Reranker probe ---
-    if let Some(result) = crate::reranker::probe_env_to_paths(
-        std::env::var(RERANKER_PROBE_ENV_MODEL).ok(),
-        std::env::var(RERANKER_PROBE_ENV_CONFIG).ok(),
-        std::env::var(RERANKER_PROBE_ENV_TOKENIZER).ok(),
+    if let Some(result) = reranker::probe_env_to_paths(
+        env::var(RERANKER_PROBE_ENV_MODEL).ok(),
+        env::var(RERANKER_PROBE_ENV_CONFIG).ok(),
+        env::var(RERANKER_PROBE_ENV_TOKENIZER).ok(),
     ) {
         dispatch_probe(result, |candidate| {
             let artifacts = candidate.verify().map_err(|e| e.to_string())?;
-            crate::reranker::Reranker::new(&artifacts)
+            reranker::Reranker::new(&artifacts)
                 .map(|_| ())
                 .map_err(|e| e.to_string())
         });
@@ -148,7 +160,7 @@ pub(crate) fn compute_probe_exit(result: Result<Result<(), String>, i32>) -> Pro
 /// Execute a probe dispatch: emit ACK, load model, exit with appropriate code.
 ///
 /// Always terminates the process via [`std::process::exit`].
-fn dispatch_probe<P, E: std::fmt::Display>(
+fn dispatch_probe<P, E: fmt::Display>(
     result: Result<P, i32>,
     load: impl FnOnce(P) -> Result<(), E>,
 ) -> ! {
@@ -159,16 +171,14 @@ fn dispatch_probe<P, E: std::fmt::Display>(
     };
     let action = compute_probe_exit(outcome);
     if let Some(ref msg) = action.message {
-        use std::io::Write;
-        let _ = write!(std::io::stderr(), "{msg}");
+        let _ = write!(io::stderr(), "{msg}");
     }
-    std::process::exit(action.code);
+    process::exit(action.code);
 }
 
 fn emit_ack() {
-    use std::io::Write;
-    let _ = writeln!(std::io::stdout(), "{PROBE_ACK}");
-    let _ = std::io::stdout().flush();
+    let _ = writeln!(io::stdout(), "{PROBE_ACK}");
+    let _ = io::stdout().flush();
 }
 
 /// Re-exec the current binary as a probe subprocess with the given env vars.
@@ -180,16 +190,16 @@ fn emit_ack() {
 /// - Exit non-zero → [`ProbeError::ModelLoadFailed`] (reason from stderr)
 /// - Killed by signal / timeout / no exit code → [`ProbeStatus::BackendUnavailable`]
 pub fn probe_via_subprocess(env_pairs: &[(&str, &str)]) -> Result<ProbeStatus, ProbeError> {
-    let exe = std::env::current_exe()
+    let exe = env::current_exe()
         .map_err(|e| ProbeError::SubprocessFailed(format!("cannot locate executable: {e}")))?;
 
-    let mut cmd = std::process::Command::new(exe);
+    let mut cmd = Command::new(exe);
     for &(key, value) in env_pairs {
         cmd.env(key, value);
     }
     let mut child = cmd
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| ProbeError::SubprocessFailed(format!("probe spawn failed: {e}")))?;
 
@@ -197,10 +207,10 @@ pub fn probe_via_subprocess(env_pairs: &[(&str, &str)]) -> Result<ProbeStatus, P
     interpret_probe_output(&output)
 }
 
-fn drain_pipe(pipe: Option<impl std::io::Read>, label: &str) -> Vec<u8> {
+fn drain_pipe(pipe: Option<impl Read>, label: &str) -> Vec<u8> {
     pipe.map_or_else(Vec::new, |mut s| {
         let mut buf = Vec::new();
-        if let Err(e) = std::io::Read::read_to_end(&mut s, &mut buf) {
+        if let Err(e) = s.read_to_end(&mut buf) {
             log::warn!("probe: failed to drain child {label}: {e}");
         }
         buf
@@ -212,7 +222,7 @@ fn drain_pipe(pipe: Option<impl std::io::Read>, label: &str) -> Vec<u8> {
 /// Thin wrapper that converts [`crate::model_io::ModelPaths`] fields to string
 /// env-var pairs and delegates to [`probe_via_subprocess`].
 pub(crate) fn probe_paths_via_subprocess(
-    paths: &crate::model_io::ModelPaths,
+    paths: &ModelPaths,
     model_key: &str,
     config_key: &str,
     tokenizer_key: &str,
@@ -229,25 +239,22 @@ pub(crate) fn probe_paths_via_subprocess(
 
 /// Wait for a child process with a timeout. Kill and return a synthetic
 /// timeout output if the deadline is exceeded.
-fn wait_with_timeout(
-    child: &mut std::process::Child,
-    timeout: std::time::Duration,
-) -> Result<std::process::Output, ProbeError> {
-    let deadline = std::time::Instant::now() + timeout;
+fn wait_with_timeout(child: &mut Child, timeout: Duration) -> Result<Output, ProbeError> {
+    let deadline = Instant::now() + timeout;
 
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
                 let stdout = drain_pipe(child.stdout.take(), "stdout");
                 let stderr = drain_pipe(child.stderr.take(), "stderr");
-                return Ok(std::process::Output {
+                return Ok(Output {
                     status,
                     stdout,
                     stderr,
                 });
             }
             Ok(None) => {
-                if std::time::Instant::now() >= deadline {
+                if Instant::now() >= deadline {
                     log::warn!(
                         "probe subprocess timed out after {}s, killing",
                         timeout.as_secs()
@@ -256,7 +263,7 @@ fn wait_with_timeout(
                     let _ = child.wait();
                     return Ok(build_timeout_output());
                 }
-                std::thread::sleep(std::time::Duration::from_millis(100));
+                thread::sleep(Duration::from_millis(100));
             }
             Err(e) => {
                 return Err(ProbeError::SubprocessFailed(format!(
@@ -271,10 +278,10 @@ fn wait_with_timeout(
 /// `BackendUnavailable` (no exit code, PROBE_ACK present so it doesn't
 /// trigger the "handler not installed" error).
 #[cfg(unix)]
-fn build_timeout_output() -> std::process::Output {
+fn build_timeout_output() -> Output {
     use std::os::unix::process::ExitStatusExt;
-    std::process::Output {
-        status: std::process::ExitStatus::from_raw(9), // SIGKILL
+    Output {
+        status: ExitStatus::from_raw(9), // SIGKILL
         stdout: format!("{PROBE_ACK}\n").into_bytes(),
         stderr: b"probe timed out".to_vec(),
     }
@@ -286,9 +293,7 @@ fn build_timeout_output() -> std::process::Output {
 /// - Exit non-zero with ACK → [`ProbeError::ModelLoadFailed`]
 /// - Killed by signal with ACK → [`ProbeStatus::BackendUnavailable`]
 /// - No ACK in stdout → [`ProbeError::HandlerNotInstalled`]
-pub(crate) fn interpret_probe_output(
-    output: &std::process::Output,
-) -> Result<ProbeStatus, ProbeError> {
+pub(crate) fn interpret_probe_output(output: &Output) -> Result<ProbeStatus, ProbeError> {
     let stdout = String::from_utf8_lossy(&output.stdout);
     if !stdout.starts_with(PROBE_ACK) {
         return Err(ProbeError::HandlerNotInstalled);
@@ -305,7 +310,7 @@ pub(crate) fn interpret_probe_output(
     match output.status.code() {
         Some(0) => Ok(ProbeStatus::Available),
         Some(_) => {
-            let reason = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            let reason = String::from_utf8_lossy(&output.stderr).trim().to_owned();
             Err(ProbeError::ModelLoadFailed {
                 reason: if reason.is_empty() {
                     "model load failed".into()
@@ -346,13 +351,13 @@ mod tests {
             resolve_probe_env(Some("/m".into()), Some("/c".into()), Some("/t".into()))
                 .unwrap()
                 .unwrap();
-        assert_eq!(model, std::path::PathBuf::from("/m"));
-        assert_eq!(config, std::path::PathBuf::from("/c"));
-        assert_eq!(tokenizer, std::path::PathBuf::from("/t"));
+        assert_eq!(model, PathBuf::from("/m"));
+        assert_eq!(config, PathBuf::from("/c"));
+        assert_eq!(tokenizer, PathBuf::from("/t"));
     }
 
-    fn exit_status(code: i32) -> std::process::ExitStatus {
-        std::process::Command::new("sh")
+    fn exit_status(code: i32) -> ExitStatus {
+        Command::new("sh")
             .args(["-c", &format!("exit {code}")])
             .status()
             .unwrap()
@@ -360,7 +365,7 @@ mod tests {
 
     #[test]
     fn interpret_available_on_exit_0() {
-        let output = std::process::Output {
+        let output = Output {
             status: exit_status(0),
             stdout: format!("{PROBE_ACK}\n").into_bytes(),
             stderr: Vec::new(),
@@ -373,7 +378,7 @@ mod tests {
 
     #[test]
     fn interpret_model_load_failed_on_nonzero_exit() {
-        let output = std::process::Output {
+        let output = Output {
             status: exit_status(1),
             stdout: format!("{PROBE_ACK}\n").into_bytes(),
             stderr: b"inference error: bad model".to_vec(),
@@ -387,7 +392,7 @@ mod tests {
 
     #[test]
     fn interpret_model_load_failed_empty_stderr() {
-        let output = std::process::Output {
+        let output = Output {
             status: exit_status(1),
             stdout: format!("{PROBE_ACK}\n").into_bytes(),
             stderr: Vec::new(),
@@ -401,7 +406,7 @@ mod tests {
 
     #[test]
     fn interpret_handler_not_installed_on_missing_ack() {
-        let output = std::process::Output {
+        let output = Output {
             status: exit_status(0),
             stdout: b"unexpected output".to_vec(),
             stderr: Vec::new(),
@@ -443,11 +448,11 @@ mod tests {
 
     #[test]
     fn interpret_backend_unavailable_on_signal() {
-        let status = std::process::Command::new("sh")
+        let status = Command::new("sh")
             .args(["-c", "kill -ABRT $$"])
             .status()
             .unwrap();
-        let output = std::process::Output {
+        let output = Output {
             status,
             stdout: format!("{PROBE_ACK}\n").into_bytes(),
             stderr: Vec::new(),

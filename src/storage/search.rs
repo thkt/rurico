@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::f64::consts::LN_2;
 use std::hash::Hash;
 
 use rusqlite::Connection;
@@ -11,7 +12,7 @@ pub fn recency_decay(age_days: f64, half_life_days: f64) -> f64 {
     if half_life_days <= 0.0 {
         return 0.0;
     }
-    (-std::f64::consts::LN_2 * age_days.max(0.0) / half_life_days).exp()
+    (-LN_2 * age_days.max(0.0) / half_life_days).exp()
 }
 
 /// Filter out `NEAR(...)` and `NEAR/N(...)` groups from whitespace-split tokens.
@@ -119,7 +120,7 @@ pub(crate) fn sanitize_fts_query(query: &str) -> Result<SanitizedFtsQuery, Sanit
                 let unquoted = cleaned.replace('"', "");
                 format!("\"{unquoted}\"")
             } else {
-                cleaned.to_string()
+                cleaned.to_owned()
             }
         })
         .filter(|w| !w.is_empty())
@@ -397,11 +398,11 @@ mod tests {
     }
 
     fn sanitized(s: &str) -> SanitizedFtsQuery {
-        SanitizedFtsQuery(s.to_string())
+        SanitizedFtsQuery(s.to_owned())
     }
 
     fn ok(s: &str) -> Result<SanitizedFtsQuery, SanitizeError> {
-        Ok(SanitizedFtsQuery(s.to_string()))
+        Ok(SanitizedFtsQuery(s.to_owned()))
     }
 
     #[test]

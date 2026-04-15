@@ -1,5 +1,8 @@
 //! Shared test helpers available to all modules within the crate.
 
+use std::fs;
+use std::path::Path;
+
 /// Valid ModernBERT config JSON with all required fields, for use in tests
 /// that need to bypass config parsing errors and reach later verification stages.
 ///
@@ -25,7 +28,7 @@ pub(crate) const VALID_CONFIG_JSON: &str = r#"{
 /// Builds the `models--{repo_slug}/refs/{revision}` → `snapshots/{hash}/`
 /// layout that `hf_hub::Cache` expects, with the given files populated.
 pub(crate) fn setup_fake_hf_cache(
-    hub_dir: &std::path::Path,
+    hub_dir: &Path,
     repo_id: &str,
     revision: &str,
     files: &[(&str, &[u8])],
@@ -33,14 +36,14 @@ pub(crate) fn setup_fake_hf_cache(
     let repo_slug = repo_id.replace('/', "--");
     let repo_dir = hub_dir.join(format!("models--{repo_slug}"));
     let refs_dir = repo_dir.join("refs");
-    std::fs::create_dir_all(&refs_dir).unwrap();
+    fs::create_dir_all(&refs_dir).unwrap();
     let commit_hash = "abc123";
-    std::fs::write(refs_dir.join(revision), commit_hash).unwrap();
+    fs::write(refs_dir.join(revision), commit_hash).unwrap();
 
     let snapshot_dir = repo_dir.join("snapshots").join(commit_hash);
-    std::fs::create_dir_all(&snapshot_dir).unwrap();
+    fs::create_dir_all(&snapshot_dir).unwrap();
     for &(name, content) in files {
-        std::fs::write(snapshot_dir.join(name), content).unwrap();
+        fs::write(snapshot_dir.join(name), content).unwrap();
     }
 }
 
@@ -63,7 +66,7 @@ mod tests {
             .path()
             .join("models--cl-nagoya--ruri-v3-310m/refs/some-revision-hash");
         assert!(refs_path.exists());
-        let commit = std::fs::read_to_string(&refs_path).unwrap();
+        let commit = fs::read_to_string(&refs_path).unwrap();
         assert_eq!(commit, "abc123");
 
         // snapshot files exist with correct content
@@ -71,13 +74,10 @@ mod tests {
             "models--cl-nagoya--ruri-v3-310m/snapshots/{commit}"
         ));
         assert_eq!(
-            std::fs::read(snapshot_dir.join("model.safetensors")).unwrap(),
+            fs::read(snapshot_dir.join("model.safetensors")).unwrap(),
             b"model-data"
         );
-        assert_eq!(
-            std::fs::read(snapshot_dir.join("config.json")).unwrap(),
-            b"{}"
-        );
+        assert_eq!(fs::read(snapshot_dir.join("config.json")).unwrap(), b"{}");
     }
 
     #[test]
@@ -89,9 +89,9 @@ mod tests {
 
         let cache = hf_hub::Cache::new(dir.path().to_path_buf());
         let repo = cache.repo(hf_hub::Repo::with_revision(
-            repo_id.to_string(),
+            repo_id.to_owned(),
             hf_hub::RepoType::Model,
-            revision.to_string(),
+            revision.to_owned(),
         ));
         let path = repo.get("weights.bin");
         assert!(path.is_some(), "hf_hub::Cache should resolve the file");

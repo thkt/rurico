@@ -5,11 +5,13 @@
 //! inference to free GPU memory. A single `Mutex` ensures these calls are
 //! serialized.
 
+use std::sync::Mutex;
+
 /// Process-global lock for [`mlx_sys::mlx_clear_cache`] and [`mlx_sys::mlx_detail_compile_clear_cache`] calls.
 ///
 /// Recover from poison: cache-clear is stateless (guards `()`), safe to
 /// proceed after a panic in another thread.
-pub(crate) static MLX_CACHE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+pub(crate) static MLX_CACHE_LOCK: Mutex<()> = Mutex::new(());
 
 /// Consume an MLX output array and attempt to clear the GPU cache.
 ///
@@ -31,12 +33,11 @@ pub(crate) fn release_inference_output(output: mlx_rs::Array) {
         log::warn!("MLX cache lock was poisoned; recovering");
         e.into_inner()
     });
-    // SAFETY: enforced by the caller invariants documented above.
-    let code = unsafe { mlx_sys::mlx_clear_cache() };
+    let code = rurico_ffi::mlx_clear_cache();
     if code != 0 {
         log::warn!("mlx_clear_cache failed (code: {code})");
     }
-    let code = unsafe { mlx_sys::mlx_detail_compile_clear_cache() };
+    let code = rurico_ffi::mlx_compile_clear_cache();
     if code != 0 {
         log::warn!("mlx_detail_compile_clear_cache failed (code: {code})");
     }

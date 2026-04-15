@@ -21,6 +21,14 @@ pub use embedder::Embedder;
 pub(crate) use pooling::postprocess_embedding;
 pub(crate) use probe::probe_env_to_paths;
 
+use crate::artifacts::verify_as_embed;
+use crate::model_io::{
+    ModelArtifact, ModelPaths, artifacts_if_cached, download_artifacts, truncate_with_eos,
+};
+use crate::model_probe::ProbeError;
+use std::fmt;
+#[cfg(any(test, feature = "test-support"))]
+use std::path::Path;
 use std::path::PathBuf;
 
 // ── Domain alias ─────────────────────────────────────────────────────────────
@@ -41,7 +49,7 @@ pub type Artifacts = VerifiedArtifacts<EmbedKind>;
 /// in test contexts), then call [`verify`](Self::verify) to obtain
 /// [`Artifacts`] that can be passed to [`Embedder::new`].
 pub struct CandidateArtifacts {
-    paths: crate::model_io::ModelPaths,
+    paths: ModelPaths,
 }
 
 impl CandidateArtifacts {
@@ -51,7 +59,7 @@ impl CandidateArtifacts {
     /// Call [`verify`](Self::verify) before passing the result to [`Embedder::new`].
     pub fn from_paths(model: PathBuf, config: PathBuf, tokenizer: PathBuf) -> Self {
         Self {
-            paths: crate::model_io::ModelPaths {
+            paths: ModelPaths {
                 model,
                 config,
                 tokenizer,
@@ -64,9 +72,9 @@ impl CandidateArtifacts {
     ///
     /// Available for development and test use only.
     #[cfg(any(test, feature = "test-support"))]
-    pub fn from_dir(dir: &std::path::Path) -> Self {
+    pub fn from_dir(dir: &Path) -> Self {
         Self {
-            paths: crate::model_io::ModelPaths::from_dir(dir),
+            paths: ModelPaths::from_dir(dir),
         }
     }
 
@@ -80,7 +88,7 @@ impl CandidateArtifacts {
     /// - `tokenizer.json` cannot be loaded ([`ArtifactError::InvalidTokenizer`])
     /// - Weights are for a reranker, not an embed model ([`ArtifactError::WrongModelKind`])
     pub fn verify(self) -> Result<Artifacts, ArtifactError> {
-        crate::artifacts::verify_as_embed(self.paths)
+        verify_as_embed(self.paths)
     }
 }
 
@@ -155,7 +163,7 @@ pub(crate) fn truncate_for_query(
     max_len: usize,
 ) -> (Vec<u32>, Vec<u32>, usize) {
     let orig_len = input_ids.len();
-    if crate::model_io::truncate_with_eos(&mut input_ids, &mut attention_mask, max_len) {
+    if truncate_with_eos(&mut input_ids, &mut attention_mask, max_len) {
         log::warn!("query exceeds max_seq_len ({orig_len} > {max_len}), truncating");
     }
     let len = input_ids.len();
@@ -203,7 +211,7 @@ impl ModelId {
     }
 }
 
-impl crate::model_io::ModelArtifact for ModelId {
+impl ModelArtifact for ModelId {
     fn repo_id(self) -> &'static str {
         ModelId::repo_id(self)
     }
@@ -233,21 +241,17 @@ pub enum EmbedInitError {
 }
 
 impl EmbedInitError {
-    pub(crate) fn backend(e: impl std::fmt::Display) -> Self {
+    pub(crate) fn backend(e: impl fmt::Display) -> Self {
         Self::Backend(e.to_string())
     }
 }
 
-impl From<crate::model_probe::ProbeError> for EmbedInitError {
-    fn from(e: crate::model_probe::ProbeError) -> Self {
+impl From<ProbeError> for EmbedInitError {
+    fn from(e: ProbeError) -> Self {
         match e {
-            crate::model_probe::ProbeError::HandlerNotInstalled => {
-                EmbedInitError::Backend(e.to_string())
-            }
-            crate::model_probe::ProbeError::ModelLoadFailed { reason } => {
-                EmbedInitError::ModelCorrupt { reason }
-            }
-            crate::model_probe::ProbeError::SubprocessFailed(msg) => EmbedInitError::Backend(msg),
+            ProbeError::HandlerNotInstalled => EmbedInitError::Backend(e.to_string()),
+            ProbeError::ModelLoadFailed { reason } => EmbedInitError::ModelCorrupt { reason },
+            ProbeError::SubprocessFailed(msg) => EmbedInitError::Backend(msg),
         }
     }
 }
@@ -283,11 +287,11 @@ pub enum EmbedError {
 }
 
 impl EmbedError {
-    pub(crate) fn inference(e: impl std::fmt::Display) -> Self {
+    pub(crate) fn inference(e: impl fmt::Display) -> Self {
         Self::Inference(e.to_string())
     }
 
-    pub(crate) fn tokenizer(e: impl std::fmt::Display) -> Self {
+    pub(crate) fn tokenizer(e: impl fmt::Display) -> Self {
         Self::Tokenizer(e.to_string())
     }
 }
@@ -361,8 +365,8 @@ pub trait Embed: Send + Sync {
 /// Returns other [`ArtifactError`] variants if verification of the downloaded
 /// files fails.
 pub fn download_model(model: ModelId) -> Result<Artifacts, ArtifactError> {
-    let paths = crate::model_io::download_artifacts(model)?;
-    crate::artifacts::verify_as_embed(paths)
+    let paths = download_artifacts(model)?;
+    verify_as_embed(paths)
 }
 
 /// Check whether embed model files exist in the local HF Hub cache and verify them.
@@ -375,10 +379,10 @@ pub fn download_model(model: ModelId) -> Result<Artifacts, ArtifactError> {
 /// Returns [`ArtifactError`] if cached files fail verification.
 /// Cache misses are reported as `Ok(None)`.
 pub fn cached_artifacts(model: ModelId) -> Result<Option<Artifacts>, ArtifactError> {
-    let Some(paths) = crate::model_io::artifacts_if_cached(model)? else {
+    let Some(paths) = artifacts_if_cached(model)? else {
         return Ok(None);
     };
-    crate::artifacts::verify_as_embed(paths).map(Some)
+    verify_as_embed(paths).map(Some)
 }
 
 // ── TokenizedInput ────────────────────────────────────────────────────────────

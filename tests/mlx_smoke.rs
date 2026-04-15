@@ -7,7 +7,7 @@
 //! - `probe_embed_smoke_binary`: embed subprocess probe contract (via `probe_embed_smoke`)
 //! - `probe_reranker_smoke_binary`: reranker subprocess probe contract (via `probe_reranker_smoke`)
 
-use std::process::Command;
+use std::process::{Command, Output};
 
 /// Run the embed smoke binary and check it succeeds.
 ///
@@ -55,7 +55,7 @@ fn probe_reranker_smoke_binary() {
     assert_smoke_success(&output);
 }
 
-fn assert_smoke_success(output: &std::process::Output) {
+fn assert_smoke_success(output: &Output) {
     if output.status.success() {
         return;
     }

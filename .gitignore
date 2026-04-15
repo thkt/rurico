@@ -1,6 +1,5 @@
-/target
-.claude/
 .yomu/
-adr/
+.claude/
 docs/
+target/
 workspace/

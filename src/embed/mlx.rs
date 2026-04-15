@@ -4,9 +4,12 @@ use super::{
     MAX_SEQ_LEN, extract_prefix_tokens, max_content, postprocess_embedding, tokenize_with_prefix,
     truncate_for_query,
 };
+use crate::mlx_cache::release_inference_output;
+use crate::model_io::pad_sequences;
+use crate::modernbert::ModernBert;
 
 pub(super) struct EmbedderInner {
-    model: crate::modernbert::ModernBert,
+    model: ModernBert,
     tokenizer: tokenizers::Tokenizer,
     doc_prefix_tokens: Vec<u32>,
     embedding_dims: usize,
@@ -17,8 +20,8 @@ impl EmbedderInner {
         let config = &artifacts.config;
         let tokenizer = artifacts.tokenizer.clone();
 
-        let model = crate::modernbert::ModernBert::load(&artifacts.paths.model, config)
-            .map_err(EmbedInitError::backend)?;
+        let model =
+            ModernBert::load(&artifacts.paths.model, config).map_err(EmbedInitError::backend)?;
 
         let doc_prefix_tokens =
             extract_prefix_tokens(&tokenizer, DOCUMENT_PREFIX).map_err(EmbedInitError::backend)?;
@@ -45,9 +48,10 @@ impl EmbedderInner {
         let (input_ids, attention_mask, seq_len) =
             truncate_for_query(tok.input_ids, tok.attention_mask, MAX_SEQ_LEN);
 
+        let seq_len_i32 = i32::try_from(seq_len).expect("seq_len fits in i32");
         let output = self
             .model
-            .forward(&input_ids, &attention_mask, 1, seq_len as i32)
+            .forward(&input_ids, &attention_mask, 1, seq_len_i32)
             .map_err(EmbedError::inference)?;
 
         let result = (|| {
@@ -55,7 +59,7 @@ impl EmbedderInner {
             let flat: &[f32] = output.as_slice();
             postprocess_embedding(flat, seq_len, &attention_mask)
         })();
-        crate::mlx_cache::release_inference_output(output);
+        release_inference_output(output);
         result
     }
 
@@ -93,22 +97,18 @@ impl EmbedderInner {
         // TOKEN_BUDGET = 256K positions ≈ 128 chunks × 2048 tokens, which matches
         // the empirically confirmed safe range for ruri-v3-310m on Apple Silicon.
         const TOKEN_BUDGET: usize = 256_000;
-        let max_len_overall = all_chunk_tokens.iter().map(|c| c.len()).max().unwrap_or(1);
+        let max_len_overall = all_chunk_tokens.iter().map(Vec::len).max().unwrap_or(1);
         let sub_batch_size = (TOKEN_BUDGET / max_len_overall).max(1);
 
         let mut all_embeddings = Vec::with_capacity(all_chunk_tokens.len());
         for sub_batch in all_chunk_tokens.chunks(sub_batch_size) {
-            let (input_ids, attention_mask, batch_size, max_len) =
-                crate::model_io::pad_sequences(sub_batch, None);
+            let (input_ids, attention_mask, batch_size, max_len) = pad_sequences(sub_batch, None);
 
+            let batch_size_i32 = i32::try_from(batch_size).expect("batch_size fits in i32");
+            let max_len_i32 = i32::try_from(max_len).expect("max_len fits in i32");
             let output = self
                 .model
-                .forward(
-                    &input_ids,
-                    &attention_mask,
-                    batch_size as i32,
-                    max_len as i32,
-                )
+                .forward(&input_ids, &attention_mask, batch_size_i32, max_len_i32)
                 .map_err(EmbedError::inference)?;
 
             let sub_result = (|| {
@@ -116,7 +116,7 @@ impl EmbedderInner {
                 let flat: &[f32] = output.as_slice();
                 unpack_batch_output(flat, batch_size, max_len, &attention_mask)
             })();
-            crate::mlx_cache::release_inference_output(output);
+            release_inference_output(output);
             all_embeddings.extend(sub_result?);
         }
 
@@ -270,16 +270,19 @@ pub(super) fn unpack_batch_output(
 /// Tests without spec references omit the prefix.
 #[cfg(test)]
 mod tests {
+    use std::panic::catch_unwind;
+    use std::sync::{Mutex, PoisonError};
+
     #[test]
     fn poison_recovery_pattern_works() {
-        let lock = std::sync::Mutex::new(());
-        let _ = std::panic::catch_unwind(|| {
+        let lock = Mutex::new(());
+        let _ = catch_unwind(|| {
             let _guard = lock.lock().unwrap();
             panic!("intentional panic to poison lock");
         });
         assert!(lock.is_poisoned());
         // Same pattern as mlx_cache::release_inference_output — unwrap_or_else recovers the guard
-        let guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+        let guard = lock.lock().unwrap_or_else(PoisonError::into_inner);
         drop(guard);
     }
 }
