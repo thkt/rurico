@@ -1,6 +1,10 @@
 [advisories]
 version = 2
-ignore = []
+ignore = [
+    # paste is archived (no safe upgrade); used transitively by tokenizers and mlx-rs.
+    # Suppress until upstream crates migrate away from it.
+    "RUSTSEC-2024-0436",
+]
 
 [licenses]
 version = 2
