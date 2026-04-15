@@ -2,7 +2,9 @@ use super::mlx::{shrink_chunk_to_fit, unpack_batch_output};
 use super::pooling::{l2_normalize, mean_pooling};
 use super::probe::probe_env_to_paths;
 use super::*;
-use crate::model_io::{EOS_TOKEN_ID, load_tokenizer};
+use crate::model_io::{EOS_TOKEN_ID, artifacts_from_cache, load_tokenizer};
+use crate::test_support::setup_fake_hf_cache;
+use std::fs;
 
 #[test]
 fn mean_pooling_excludes_masked_tokens() {
@@ -91,7 +93,7 @@ fn postprocess_embedding_accepts_any_dims() {
 #[test]
 fn validate_partial_download_reports_missing_file() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("model.safetensors"), b"fake").unwrap();
+    fs::write(dir.path().join("model.safetensors"), b"fake").unwrap();
     let candidate = CandidateArtifacts::from_dir(dir.path());
     let err = candidate.verify().unwrap_err();
     let ArtifactError::MissingFile { path } = &err else {
@@ -200,8 +202,8 @@ fn unpack_batch_output_rejects_nan_embedding() {
     );
 }
 
-fn setup_fake_cache_for(hub_dir: &std::path::Path, model: ModelId) {
-    crate::test_support::setup_fake_hf_cache(
+fn setup_fake_cache_for(hub_dir: &Path, model: ModelId) {
+    setup_fake_hf_cache(
         hub_dir,
         model.repo_id(),
         model.revision(),
@@ -217,7 +219,7 @@ fn setup_fake_cache_for(hub_dir: &std::path::Path, model: ModelId) {
 fn cache_lookup_returns_none_when_empty() {
     let dir = tempfile::tempdir().unwrap();
     let cache = hf_hub::Cache::new(dir.path().to_path_buf());
-    let result = crate::model_io::artifacts_from_cache(&cache, ModelId::default()).unwrap();
+    let result = artifacts_from_cache(&cache, ModelId::default()).unwrap();
     assert!(result.is_none());
 }
 
@@ -226,7 +228,7 @@ fn cache_lookup_returns_some_when_all_files_present() {
     let dir = tempfile::tempdir().unwrap();
     setup_fake_cache_for(dir.path(), ModelId::default());
     let cache = hf_hub::Cache::new(dir.path().to_path_buf());
-    let result = crate::model_io::artifacts_from_cache(&cache, ModelId::default()).unwrap();
+    let result = artifacts_from_cache(&cache, ModelId::default()).unwrap();
     let paths = result.expect("should return Some when all files cached");
     assert!(paths.model.ends_with("model.safetensors"));
     assert!(paths.config.ends_with("config.json"));
@@ -241,11 +243,11 @@ fn cache_lookup_returns_none_when_partial() {
     let snapshot_dir = dir
         .path()
         .join(format!("models--{repo_slug}/snapshots/abc123"));
-    std::fs::remove_file(snapshot_dir.join("config.json")).unwrap();
-    std::fs::remove_file(snapshot_dir.join("tokenizer.json")).unwrap();
+    fs::remove_file(snapshot_dir.join("config.json")).unwrap();
+    fs::remove_file(snapshot_dir.join("tokenizer.json")).unwrap();
 
     let cache = hf_hub::Cache::new(dir.path().to_path_buf());
-    let result = crate::model_io::artifacts_from_cache(&cache, ModelId::default()).unwrap();
+    let result = artifacts_from_cache(&cache, ModelId::default()).unwrap();
     assert!(result.is_none());
 }
 
@@ -265,9 +267,7 @@ fn cache_lookup_each_model_has_separate_cache_dir() {
 
         // The populated model should be found
         assert!(
-            crate::model_io::artifacts_from_cache(&cache, target)
-                .unwrap()
-                .is_some(),
+            artifacts_from_cache(&cache, target).unwrap().is_some(),
             "{:?} should be cached",
             target
         );
@@ -277,9 +277,7 @@ fn cache_lookup_each_model_has_separate_cache_dir() {
                 continue;
             }
             assert!(
-                crate::model_io::artifacts_from_cache(&cache, other)
-                    .unwrap()
-                    .is_none(),
+                artifacts_from_cache(&cache, other).unwrap().is_none(),
                 "{:?} should not be cached when only {:?} is populated",
                 other,
                 target
@@ -291,9 +289,9 @@ fn cache_lookup_each_model_has_separate_cache_dir() {
 #[test]
 fn candidate_verify_returns_invalid_config_for_malformed_config() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("model.safetensors"), b"fake").unwrap();
-    std::fs::write(dir.path().join("config.json"), b"not json").unwrap();
-    std::fs::write(dir.path().join("tokenizer.json"), b"{}").unwrap();
+    fs::write(dir.path().join("model.safetensors"), b"fake").unwrap();
+    fs::write(dir.path().join("config.json"), b"not json").unwrap();
+    fs::write(dir.path().join("tokenizer.json"), b"{}").unwrap();
     let candidate = CandidateArtifacts::from_dir(dir.path());
     let err = candidate.verify().unwrap_err();
     assert!(
@@ -390,7 +388,7 @@ fn shrink_chunk_to_fit_rejects_empty_range() {
     // end <= start → Inference error without calling tokenizer
     let dir = tempfile::TempDir::new().unwrap();
     let tok_path = dir.path().join("tokenizer.json");
-    std::fs::write(
+    fs::write(
         &tok_path,
         r#"{"model":{"type":"BPE","vocab":{},"merges":[]}}"#,
     )
@@ -411,7 +409,7 @@ fn shrink_chunk_to_fit_short_text_returns_immediately() {
     // first iteration without decrementing end.
     let dir = tempfile::TempDir::new().unwrap();
     let tok_path = dir.path().join("tokenizer.json");
-    std::fs::write(
+    fs::write(
         &tok_path,
         r#"{"model":{"type":"BPE","vocab":{},"merges":[]}}"#,
     )
@@ -490,6 +488,7 @@ fn t_008b_truncate_for_query_noop_when_short() {
 fn t_008c_truncate_for_query_noop_at_exact_boundary() {
     // [TC-003] Boundary: len == max_len → no truncation
     let max_len = 50;
+    #[allow(clippy::cast_possible_truncation)]
     let input_ids: Vec<u32> = (0..max_len as u32).collect();
     let attention_mask = vec![1u32; max_len];
     let expected_ids = input_ids.clone();

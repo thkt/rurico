@@ -1826,15 +1826,23 @@ dependencies = [
  "hf-hub",
  "log",
  "mlx-rs",
- "mlx-sys",
+ "rurico-ffi",
  "rusqlite",
  "serde",
  "serde_json",
  "serial_test",
- "sqlite-vec",
  "tempfile",
  "thiserror",
  "tokenizers",
+]
+
+[[package]]
+name = "rurico-ffi"
+version = "0.1.0"
+dependencies = [
+ "mlx-sys",
+ "rusqlite",
+ "sqlite-vec",
 ]
 
 [[package]]

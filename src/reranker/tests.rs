@@ -1,5 +1,8 @@
 use super::mlx::truncate_pair;
 use super::*;
+use crate::model_io::artifacts_from_cache;
+use crate::test_support::{VALID_CONFIG_JSON, setup_fake_hf_cache};
+use std::fs;
 
 #[test]
 fn t_003_candidate_verify_returns_missing_file_for_nonexistent_paths() {
@@ -53,7 +56,7 @@ fn t_007_sort_results_descending_by_score() {
 fn t_013_cache_lookup_returns_some_when_all_files_present() {
     let dir = tempfile::tempdir().unwrap();
     let model = RerankerModelId::RuriV3Reranker310m;
-    crate::test_support::setup_fake_hf_cache(
+    setup_fake_hf_cache(
         dir.path(),
         model.repo_id(),
         model.revision(),
@@ -64,7 +67,7 @@ fn t_013_cache_lookup_returns_some_when_all_files_present() {
         ],
     );
     let cache = hf_hub::Cache::new(dir.path().to_path_buf());
-    let result = crate::model_io::artifacts_from_cache(&cache, model).unwrap();
+    let result = artifacts_from_cache(&cache, model).unwrap();
     let paths = result.expect("should be Some");
     assert!(paths.model.ends_with("model.safetensors"));
     assert!(paths.config.ends_with("config.json"));
@@ -75,18 +78,16 @@ fn t_013_cache_lookup_returns_some_when_all_files_present() {
 fn t_021_cache_lookup_returns_none_when_cache_empty() {
     let dir = tempfile::tempdir().unwrap();
     let cache = hf_hub::Cache::new(dir.path().to_path_buf());
-    let result = crate::model_io::artifacts_from_cache(&cache, RerankerModelId::default()).unwrap();
+    let result = artifacts_from_cache(&cache, RerankerModelId::default()).unwrap();
     assert!(result.is_none());
 }
-
-use crate::test_support::VALID_CONFIG_JSON;
 
 #[test]
 fn t_014_candidate_verify_returns_invalid_config_for_empty_config() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("model.safetensors"), b"fake").unwrap();
-    std::fs::write(dir.path().join("config.json"), b"{}").unwrap();
-    std::fs::write(dir.path().join("tokenizer.json"), b"{}").unwrap();
+    fs::write(dir.path().join("model.safetensors"), b"fake").unwrap();
+    fs::write(dir.path().join("config.json"), b"{}").unwrap();
+    fs::write(dir.path().join("tokenizer.json"), b"{}").unwrap();
     let candidate = CandidateArtifacts::from_dir(dir.path());
     let err = candidate.verify().unwrap_err();
     assert!(
@@ -98,9 +99,9 @@ fn t_014_candidate_verify_returns_invalid_config_for_empty_config() {
 #[test]
 fn t_015_candidate_verify_returns_invalid_tokenizer_for_bad_tokenizer() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("model.safetensors"), b"fake").unwrap();
-    std::fs::write(dir.path().join("config.json"), VALID_CONFIG_JSON.as_bytes()).unwrap();
-    std::fs::write(dir.path().join("tokenizer.json"), b"not json").unwrap();
+    fs::write(dir.path().join("model.safetensors"), b"fake").unwrap();
+    fs::write(dir.path().join("config.json"), VALID_CONFIG_JSON.as_bytes()).unwrap();
+    fs::write(dir.path().join("tokenizer.json"), b"not json").unwrap();
     let candidate = CandidateArtifacts::from_dir(dir.path());
     let err = candidate.verify().unwrap_err();
     assert!(
@@ -114,9 +115,9 @@ fn probe_env_to_paths_returns_ok_when_all_present() {
     let result = super::probe_env_to_paths(Some("/m".into()), Some("/c".into()), Some("/t".into()));
     // CandidateArtifacts is returned — verify it was constructed (path accessible in submodule)
     let candidate = result.unwrap().unwrap();
-    assert_eq!(candidate.paths.model, std::path::PathBuf::from("/m"));
-    assert_eq!(candidate.paths.config, std::path::PathBuf::from("/c"));
-    assert_eq!(candidate.paths.tokenizer, std::path::PathBuf::from("/t"));
+    assert_eq!(candidate.paths.model, PathBuf::from("/m"));
+    assert_eq!(candidate.paths.config, PathBuf::from("/c"));
+    assert_eq!(candidate.paths.tokenizer, PathBuf::from("/t"));
 }
 
 #[test]

@@ -34,8 +34,9 @@ impl Attention {
         rope_theta: f32,
         uses_local_attention: bool,
     ) -> Result<Self, Exception> {
-        let h = config.hidden_size as i32;
-        let head_dim = h / config.num_attention_heads as i32;
+        let h = i32::try_from(config.hidden_size).expect("bounded by model config");
+        let num_heads = i32::try_from(config.num_attention_heads).expect("bounded by model config");
+        let head_dim = h / num_heads;
 
         #[allow(non_snake_case)]
         let Wqkv = nn::LinearBuilder::new(h, h * 3).bias(false).build()?;
@@ -50,7 +51,7 @@ impl Attention {
             Wqkv,
             Wo,
             rope,
-            num_heads: config.num_attention_heads as i32,
+            num_heads,
             head_dim,
             scale: (head_dim as f32).powf(-0.5),
             uses_local_attention,
@@ -108,8 +109,8 @@ struct Mlp {
 
 impl Mlp {
     fn new(config: &Config) -> Result<Self, Exception> {
-        let h = config.hidden_size as i32;
-        let inter = config.intermediate_size as i32;
+        let h = i32::try_from(config.hidden_size).expect("bounded by model config");
+        let inter = i32::try_from(config.intermediate_size).expect("bounded by model config");
         #[allow(non_snake_case)]
         let Wi = nn::LinearBuilder::new(h, inter * 2).bias(false).build()?;
         #[allow(non_snake_case)]
@@ -142,13 +143,9 @@ struct TransformerLayer {
 impl TransformerLayer {
     fn new(config: &Config, layer_id: usize) -> Result<Self, Exception> {
         let uses_local = !layer_id.is_multiple_of(config.global_attn_every_n_layers);
-        let rope_theta = if uses_local {
-            config.local_rope_theta as f32
-        } else {
-            config.global_rope_theta as f32
-        };
-        let h = config.hidden_size as i32;
-        let eps = config.layer_norm_eps as f32;
+        let rope_theta = rope_theta_f32(config, uses_local);
+        let h = i32::try_from(config.hidden_size).expect("bounded by model config");
+        let eps = layer_norm_eps_f32(config);
 
         let attn_norm = nn::LayerNormBuilder::new(h).eps(eps).build()?;
         let attn = Attention::new(config, rope_theta, uses_local)?;
@@ -223,10 +220,11 @@ impl ModernBert {
         config
             .validate()
             .map_err(|e| Exception::custom(format!("invalid config: {e}")))?;
-        let h = config.hidden_size as i32;
-        let eps = config.layer_norm_eps as f32;
+        let h = i32::try_from(config.hidden_size).expect("bounded by model config");
+        let eps = layer_norm_eps_f32(config);
+        let vocab_size = i32::try_from(config.vocab_size).expect("bounded by model config");
 
-        let tok_embeddings = nn::Embedding::new(config.vocab_size as i32, h)?;
+        let tok_embeddings = nn::Embedding::new(vocab_size, h)?;
         let emb_norm = nn::LayerNormBuilder::new(h).eps(eps).build()?;
 
         let layers = (0..config.num_hidden_layers)
@@ -316,7 +314,7 @@ impl ModernBert {
         assert_len("input_ids", input_ids)?;
         assert_len("attention_mask", attention_mask)?;
 
-        let max_seq = self.max_seq_len as i32;
+        let max_seq = i32::try_from(self.max_seq_len).expect("bounded by model config");
         if seq_len > max_seq {
             // Defense-in-depth: truncate oversize inputs, validating only the effective prefix.
             log::warn!(
@@ -359,7 +357,9 @@ impl ModernBert {
         let local_mask = match &self.local_mask_cache {
             Some((cached_len, cached)) if *cached_len == seq_len => cached.clone(),
             _ => {
-                let m = get_local_attention_mask(seq_len, self.local_attention_half as i32)?;
+                let half =
+                    i32::try_from(self.local_attention_half).expect("bounded by model config");
+                let m = get_local_attention_mask(seq_len, half)?;
                 self.local_mask_cache = Some((seq_len, m.clone()));
                 m
             }
@@ -376,6 +376,22 @@ impl ModernBert {
 // Use a large negative instead of -inf to avoid 0.0 * (-inf) = NaN on Metal kernels
 // for certain sequence lengths (threshold ~9 tokens on Apple Silicon).
 const MASK_FILL: f32 = -1e9;
+
+// Model config constant; layer norm epsilon fits in f32.
+#[allow(clippy::cast_possible_truncation)]
+pub(crate) fn layer_norm_eps_f32(config: &Config) -> f32 {
+    config.layer_norm_eps as f32
+}
+
+// Model config constants from config.json; RoPE base values fit in f32.
+#[allow(clippy::cast_possible_truncation)]
+fn rope_theta_f32(config: &Config, uses_local: bool) -> f32 {
+    if uses_local {
+        config.local_rope_theta as f32
+    } else {
+        config.global_rope_theta as f32
+    }
+}
 
 fn prepare_4d_attention_mask(
     mask: &Array,

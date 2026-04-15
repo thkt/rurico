@@ -1,5 +1,7 @@
 use super::{Artifacts, RerankerError, RerankerInitError};
-use crate::model_io::MAX_SEQ_LEN;
+use crate::mlx_cache::release_inference_output;
+use crate::model_io::{MAX_SEQ_LEN, pad_sequences, truncate_with_eos};
+use crate::modernbert::{Config, ModernBert, layer_norm_eps_f32};
 
 use mlx_rs::{
     builder::Builder,
@@ -9,6 +11,8 @@ use mlx_rs::{
     nn,
     ops::indexing::IndexOp,
 };
+
+use std::path::Path;
 
 pub(super) struct RerankerInner {
     model: RerankerModel,
@@ -45,12 +49,13 @@ impl RerankerInner {
             all_masks.push(mask);
         }
 
-        let (flat_ids, flat_mask, batch_size, max_len) =
-            crate::model_io::pad_sequences(&all_ids, Some(&all_masks));
+        let (flat_ids, flat_mask, batch_size, max_len) = pad_sequences(&all_ids, Some(&all_masks));
 
+        let batch_size_i32 = i32::try_from(batch_size).expect("batch_size fits in i32");
+        let max_len_i32 = i32::try_from(max_len).expect("max_len fits in i32");
         let output = self
             .model
-            .forward(&flat_ids, &flat_mask, batch_size as i32, max_len as i32)
+            .forward(&flat_ids, &flat_mask, batch_size_i32, max_len_i32)
             .map_err(RerankerError::inference)?;
 
         let result = (|| -> Result<Vec<f32>, RerankerError> {
@@ -68,7 +73,7 @@ impl RerankerInner {
             }
             Ok(scores)
         })();
-        crate::mlx_cache::release_inference_output(output);
+        release_inference_output(output);
         result
     }
 }
@@ -84,7 +89,7 @@ struct PredictionHead {
 #[derive(Debug, Clone, ModuleParameters)]
 struct RerankerModel {
     #[param]
-    model: crate::modernbert::ModernBert,
+    model: ModernBert,
     #[param]
     head: PredictionHead,
     #[param]
@@ -92,11 +97,11 @@ struct RerankerModel {
 }
 
 impl RerankerModel {
-    fn new(config: &crate::modernbert::Config) -> Result<Self, Exception> {
-        let h = config.hidden_size as i32;
-        let eps = config.layer_norm_eps as f32;
+    fn new(config: &Config) -> Result<Self, Exception> {
+        let h = i32::try_from(config.hidden_size).expect("hidden_size fits in i32");
+        let eps = layer_norm_eps_f32(config);
 
-        let model = crate::modernbert::ModernBert::new(config)?;
+        let model = ModernBert::new(config)?;
         let dense = nn::LinearBuilder::new(h, h).build()?;
         let norm = nn::LayerNormBuilder::new(h).eps(eps).build()?;
         let classifier = nn::LinearBuilder::new(h, 1).build()?;
@@ -108,7 +113,7 @@ impl RerankerModel {
         })
     }
 
-    fn load(path: &std::path::Path, config: &crate::modernbert::Config) -> Result<Self, Exception> {
+    fn load(path: &Path, config: &Config) -> Result<Self, Exception> {
         let mut model = Self::new(config)?;
         model
             .load_safetensors(path)
@@ -150,7 +155,7 @@ pub(super) fn truncate_pair(
     pair_idx: usize,
 ) {
     let orig_len = ids.len();
-    if crate::model_io::truncate_with_eos(ids, mask, max_len) {
+    if truncate_with_eos(ids, mask, max_len) {
         log::warn!("pair {pair_idx} exceeds max_seq_len ({orig_len} > {max_len}), truncating");
     }
 }

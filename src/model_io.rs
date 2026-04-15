@@ -3,7 +3,11 @@
 //! Provides config/tokenizer loading, model paths, and model constants shared by
 //! both [`embed`](crate::embed) and [`reranker`](crate::reranker) modules.
 
+use std::fs;
 use std::path::{Path, PathBuf};
+
+use hf_hub::api::sync::Api;
+use serde::de::DeserializeOwned;
 
 /// EOS (end of sequence) token ID for ruri-v3 models.
 pub(crate) const EOS_TOKEN_ID: u32 = 2;
@@ -79,8 +83,8 @@ impl ModelPaths {
 /// # Errors
 ///
 /// Returns [`ModelIoError::Config`] on IO failure or JSON parse error.
-pub fn read_config<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, ModelIoError> {
-    let text = std::fs::read_to_string(path).map_err(|e| ModelIoError::Config {
+pub fn read_config<T: DeserializeOwned>(path: &Path) -> Result<T, ModelIoError> {
+    let text = fs::read_to_string(path).map_err(|e| ModelIoError::Config {
         path: path.to_path_buf(),
         reason: e.to_string(),
     })?;
@@ -102,9 +106,9 @@ pub fn load_tokenizer(path: &Path) -> Result<tokenizers::Tokenizer, ModelIoError
 
 fn model_repo_for<Id: ModelArtifact>(model: Id) -> hf_hub::Repo {
     hf_hub::Repo::with_revision(
-        model.repo_id().to_string(),
+        model.repo_id().to_owned(),
         hf_hub::RepoType::Model,
-        model.revision().to_string(),
+        model.revision().to_owned(),
     )
 }
 
@@ -125,8 +129,7 @@ fn model_repo_for<Id: ModelArtifact>(model: Id) -> hf_hub::Repo {
 /// On the next invocation, [`artifacts_if_cached`] finds no valid pointer and
 /// returns `None`, so the download retries cleanly — no manual cache cleanup needed.
 pub fn download_artifacts<Id: ModelArtifact>(model: Id) -> Result<ModelPaths, ModelIoError> {
-    let api = hf_hub::api::sync::Api::new()
-        .map_err(|e| ModelIoError::Download(format!("HF Hub init failed: {e}")))?;
+    let api = Api::new().map_err(|e| ModelIoError::Download(format!("HF Hub init failed: {e}")))?;
     let repo = api.repo(model_repo_for(model));
 
     let get = |name: &str| {
@@ -189,12 +192,12 @@ pub(crate) fn pad_sequences(
     debug_assert!(
         masks.is_none_or(|m| m.len() == ids.len()),
         "masks length {} != ids length {}",
-        masks.map_or(0, |m| m.len()),
+        masks.map_or(0, <[Vec<u32>]>::len),
         ids.len(),
     );
 
     let batch_size = ids.len();
-    let max_len = ids.iter().map(|s| s.len()).max().unwrap_or(0);
+    let max_len = ids.iter().map(Vec::len).max().unwrap_or(0);
 
     let mut flat_ids = vec![0u32; batch_size * max_len];
     let mut flat_mask = vec![0u32; batch_size * max_len];
@@ -226,7 +229,7 @@ mod tests {
     fn read_config_returns_error_for_invalid_json() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.json");
-        std::fs::write(&path, b"not json").unwrap();
+        fs::write(&path, b"not json").unwrap();
         let err = read_config::<serde_json::Value>(&path).unwrap_err();
         assert!(
             matches!(err, ModelIoError::Config { ref reason, .. } if reason.contains("parse error")),
@@ -242,10 +245,12 @@ mod tests {
 
     #[test]
     fn read_config_returns_error_for_missing_fields() {
+        use crate::modernbert::Config;
+
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.json");
-        std::fs::write(&path, b"{ \"vocab_size\": 1000 }").unwrap();
-        let err = read_config::<crate::modernbert::Config>(&path).unwrap_err();
+        fs::write(&path, b"{ \"vocab_size\": 1000 }").unwrap();
+        let err = read_config::<Config>(&path).unwrap_err();
         assert!(
             matches!(err, ModelIoError::Config { ref reason, .. } if reason.contains("parse error")),
             "{err}"

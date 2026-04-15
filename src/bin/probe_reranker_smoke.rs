@@ -8,20 +8,21 @@
 //! `Reranker::probe()` re-execs `current_exe()`, it re-execs this binary —
 //! so the full probe cycle is exercised end-to-end.
 
+use rurico::model_probe;
+use rurico::reranker::{ProbeStatus, Reranker, RerankerModelId, cached_artifacts};
+
 fn main() {
     // Must be first: handles re-exec when called as a probe subprocess.
-    rurico::model_probe::handle_probe_if_needed();
+    model_probe::handle_probe_if_needed();
 
-    let artifacts =
-        rurico::reranker::cached_artifacts(rurico::reranker::RerankerModelId::default())
-            .expect("reranker cache lookup failed")
-            .expect("reranker model not cached — download ruri-v3-reranker-310m before running");
+    let artifacts = cached_artifacts(RerankerModelId::default())
+        .expect("reranker cache lookup failed")
+        .expect("reranker model not cached — download ruri-v3-reranker-310m before running");
 
-    let status = rurico::reranker::Reranker::probe(&artifacts)
-        .expect("reranker probe subprocess should not error");
+    let status = Reranker::probe(&artifacts).expect("reranker probe subprocess should not error");
     assert_eq!(
         status,
-        rurico::reranker::ProbeStatus::Available,
+        ProbeStatus::Available,
         "reranker model should be available"
     );
     eprintln!("probe_reranker_smoke: reranker OK");

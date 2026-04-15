@@ -7,10 +7,11 @@
 //! must be downloaded before running smoke tests.
 
 use rurico::embed::{self, Embed};
+use rurico::model_probe;
 
 fn main() {
     // Also acts as a probe subprocess when probe env vars are set.
-    rurico::model_probe::handle_probe_if_needed();
+    model_probe::handle_probe_if_needed();
 
     let artifacts = embed::cached_artifacts(embed::ModelId::default())
         .expect("cache lookup failed")
