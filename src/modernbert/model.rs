@@ -632,7 +632,12 @@ mod tests {
             let input_ids = vec![1u32; oversize];
             let mask = vec![1u32; oversize];
 
-            let result = model.forward(&input_ids, &mask, 1, oversize as i32);
+            let result = model.forward(
+                &input_ids,
+                &mask,
+                1,
+                i32::try_from(oversize).expect("bounded by model config"),
+            );
             assert!(
                 result.is_ok(),
                 "forward should truncate oversize input, not error: {result:?}"
@@ -642,8 +647,8 @@ mod tests {
                 output.shape(),
                 &[
                     1,
-                    config.max_position_embeddings as i32,
-                    config.hidden_size as i32
+                    i32::try_from(config.max_position_embeddings).expect("bounded by model config"),
+                    i32::try_from(config.hidden_size).expect("bounded by model config"),
                 ]
             );
         }
@@ -654,7 +659,8 @@ mod tests {
             let config = test_config(); // max_position_embeddings = 512
             let mut model = ModernBert::new(&config).expect("create model");
 
-            let oversize_seq = (config.max_position_embeddings + 100) as i32;
+            let oversize_seq = i32::try_from(config.max_position_embeddings + 100)
+                .expect("bounded by model config");
             let short_buf = vec![1u32; 5]; // much shorter than batch_size * seq_len
             let short_mask = vec![1u32; 5];
 
