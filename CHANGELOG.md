@@ -17,6 +17,8 @@
   variants.** Neither variant was constructed within the crate.
   `ProbeStatus::BackendUnavailable` remains available for probe-based backend
   detection.
+- **MSRV bump to 1.95.** `rust-version` in `Cargo.toml` is now `1.95`.
+  Downstream crates pinning an older toolchain must upgrade.
 
 ### Added
 
