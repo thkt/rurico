@@ -2,7 +2,7 @@
 name = "rurico-ffi"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.94"
+rust-version = "1.95"
 description = "Safe FFI wrappers for rurico (mlx-sys, sqlite-vec)"
 license = "MIT"
 publish = false
