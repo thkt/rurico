@@ -168,17 +168,33 @@ pub fn fts_quote(s: &str) -> String {
 ///
 /// Combines `sanitize_fts_query` and `fts_expand_short_terms` into a single call.
 ///
+/// `vocab_table` names the `fts5vocab` virtual table to consult for short-term
+/// expansion (e.g. `"fts_chunks_vocab"` or `"messages_vocab"`). Must be created
+/// with the `row` or `col` vocabulary type — the `instance` type lacks the
+/// `cnt` column this query relies on. The value is interpolated into the SQL
+/// unescaped.
+///
 /// # Errors
 ///
 /// Returns:
 /// - [`SanitizeError::EmptyInput`] if `query` is empty or whitespace-only
 /// - [`SanitizeError::NoSearchableTerms`] if sanitization strips all searchable terms
 ///
-/// SQLite failures while consulting `fts_chunks_vocab` do not surface as
+/// SQLite failures while consulting the vocab table do not surface as
 /// `Err`; they are logged and treated as "no expansion".
-pub fn prepare_match_query(conn: &Connection, query: &str) -> Result<MatchFtsQuery, SanitizeError> {
+///
+/// # Panics
+///
+/// Panics if `vocab_table` is not a valid SQL identifier (ASCII alphanumerics
+/// and `_`, non-empty). The check runs in release builds to protect against
+/// SQL injection via untrusted identifiers.
+pub fn prepare_match_query(
+    conn: &Connection,
+    query: &str,
+    vocab_table: &str,
+) -> Result<MatchFtsQuery, SanitizeError> {
     let sanitized = sanitize_fts_query(query)?;
-    Ok(fts_expand_short_terms(conn, &sanitized))
+    Ok(fts_expand_short_terms(conn, &sanitized, vocab_table))
 }
 
 /// Expand a single short token via vocab prefix matching.
@@ -207,17 +223,38 @@ fn expand_token_via_vocab(stmt: &mut rusqlite::CachedStatement<'_>, token: &str)
     }
 }
 
-/// Expand short terms (1-2 chars) via `fts_chunks_vocab` prefix matching.
+/// Expand short terms (1-2 chars) via `fts5vocab` prefix matching.
 /// Falls back to quoting as-is when the vocab table is unavailable.
+///
+/// `vocab_table` must be an `fts5vocab` of type `row` or `col` (the SQL
+/// references the `term` and `cnt` columns). The name is interpolated into
+/// the SQL unescaped.
+///
+/// # Panics
+///
+/// Panics if `vocab_table` is not a valid SQL identifier: non-empty,
+/// leading character ASCII alphabetic or `_`, remaining characters ASCII
+/// alphanumeric or `_`.
 pub(crate) fn fts_expand_short_terms(
     conn: &Connection,
     query: &SanitizedFtsQuery,
+    vocab_table: &str,
 ) -> MatchFtsQuery {
-    let mut stmt = match conn.prepare_cached(
-        "SELECT term FROM fts_chunks_vocab \
+    let mut chars = vocab_table.chars();
+    let head_ok = chars
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_');
+    let tail_ok = chars.all(|c| c.is_ascii_alphanumeric() || c == '_');
+    assert!(
+        head_ok && tail_ok,
+        "vocab_table must be a valid SQL identifier: {vocab_table:?}"
+    );
+    let sql = format!(
+        "SELECT term FROM {vocab_table} \
          WHERE term LIKE ?1 ESCAPE '\\' \
-         ORDER BY cnt DESC LIMIT 25",
-    ) {
+         ORDER BY cnt DESC LIMIT 25"
+    );
+    let mut stmt = match conn.prepare_cached(&sql) {
         Ok(s) => Some(s),
         Err(rusqlite::Error::SqliteFailure(_, Some(ref msg))) if msg.contains("no such table") => {
             None
@@ -301,14 +338,15 @@ mod tests {
     #[test]
     fn expand_long_term_quoted_as_is() {
         let conn = setup_fts_db();
-        let result = fts_expand_short_terms(&conn, &sanitized("authentication"));
+        let result =
+            fts_expand_short_terms(&conn, &sanitized("authentication"), "fts_chunks_vocab");
         assert_eq!(result.as_str(), "\"authentication\"");
     }
 
     #[test]
     fn expand_short_term_with_vocab_matches() {
         let conn = setup_fts_db();
-        let result = fts_expand_short_terms(&conn, &sanitized("au"));
+        let result = fts_expand_short_terms(&conn, &sanitized("au"), "fts_chunks_vocab");
         assert!(result.as_str().contains("\"audit\""), "{}", result.as_str());
         assert!(
             result.as_str().contains("\"authentication\""),
@@ -321,14 +359,14 @@ mod tests {
     #[test]
     fn expand_short_term_no_matches() {
         let conn = setup_fts_db();
-        let result = fts_expand_short_terms(&conn, &sanitized("zz"));
+        let result = fts_expand_short_terms(&conn, &sanitized("zz"), "fts_chunks_vocab");
         assert_eq!(result.as_str(), "\"zz\"");
     }
 
     #[test]
     fn expand_mixed_short_and_long() {
         let conn = setup_fts_db();
-        let result = fts_expand_short_terms(&conn, &sanitized("au login"));
+        let result = fts_expand_short_terms(&conn, &sanitized("au login"), "fts_chunks_vocab");
         assert!(result.as_str().contains("\"login\""), "{}", result.as_str());
         assert!(result.as_str().contains(" OR "), "{}", result.as_str());
     }
@@ -338,20 +376,20 @@ mod tests {
         let conn = setup_fts_db();
         // NOT (3 chars) and OR (2 chars) must both be quoted as-is,
         // not expanded via vocab (e.g. OR must not become "order" OR ...).
-        let result = fts_expand_short_terms(&conn, &sanitized("NOT secret"));
+        let result = fts_expand_short_terms(&conn, &sanitized("NOT secret"), "fts_chunks_vocab");
         assert_eq!(result.as_str(), "\"NOT\" \"secret\"");
 
-        let result = fts_expand_short_terms(&conn, &sanitized("OR"));
+        let result = fts_expand_short_terms(&conn, &sanitized("OR"), "fts_chunks_vocab");
         assert_eq!(result.as_str(), "\"OR\"");
 
-        let result = fts_expand_short_terms(&conn, &sanitized("foo or bar"));
+        let result = fts_expand_short_terms(&conn, &sanitized("foo or bar"), "fts_chunks_vocab");
         assert_eq!(result.as_str(), "\"foo\" \"or\" \"bar\"");
     }
 
     #[test]
     fn expand_special_chars_escaped() {
         let conn = setup_fts_db();
-        let result = fts_expand_short_terms(&conn, &sanitized("a%"));
+        let result = fts_expand_short_terms(&conn, &sanitized("a%"), "fts_chunks_vocab");
         assert!(
             result.as_str().contains("\"audit\"") || result.as_str() == "\"a%\"",
             "{}",
@@ -362,21 +400,21 @@ mod tests {
     #[test]
     fn expand_without_vocab_table_degrades() {
         let conn = Connection::open_in_memory().unwrap();
-        let result = fts_expand_short_terms(&conn, &sanitized("au login"));
+        let result = fts_expand_short_terms(&conn, &sanitized("au login"), "fts_chunks_vocab");
         assert_eq!(result.as_str(), "\"au\" \"login\"");
     }
 
     #[test]
     fn expand_single_char_term() {
         let conn = setup_fts_db();
-        let result = fts_expand_short_terms(&conn, &sanitized("a"));
+        let result = fts_expand_short_terms(&conn, &sanitized("a"), "fts_chunks_vocab");
         assert!(result.as_str().contains("\"audit\"") || result.as_str() == "\"a\"");
     }
 
     #[test]
     fn prepare_match_query_end_to_end() {
         let conn = setup_fts_db();
-        let result = prepare_match_query(&conn, "au login").unwrap();
+        let result = prepare_match_query(&conn, "au login", "fts_chunks_vocab").unwrap();
         assert!(result.as_str().contains("\"login\""), "{}", result.as_str());
         assert!(result.as_str().contains(" OR "), "{}", result.as_str());
     }
@@ -385,7 +423,7 @@ mod tests {
     fn prepare_match_query_empty_input() {
         let conn = setup_fts_db();
         assert_eq!(
-            prepare_match_query(&conn, ""),
+            prepare_match_query(&conn, "", "fts_chunks_vocab"),
             Err(SanitizeError::EmptyInput)
         );
     }
@@ -393,8 +431,22 @@ mod tests {
     #[test]
     fn prepare_match_query_operators_are_quoted() {
         let conn = setup_fts_db();
-        let result = prepare_match_query(&conn, "foo OR bar").unwrap();
+        let result = prepare_match_query(&conn, "foo OR bar", "fts_chunks_vocab").unwrap();
         assert_eq!(result.as_str(), "\"foo\" \"OR\" \"bar\"");
+    }
+
+    #[test]
+    #[should_panic(expected = "vocab_table must be a valid SQL identifier")]
+    fn expand_rejects_leading_digit_vocab_name() {
+        let conn = setup_fts_db();
+        let _ = fts_expand_short_terms(&conn, &sanitized("au"), "1vocab");
+    }
+
+    #[test]
+    #[should_panic(expected = "vocab_table must be a valid SQL identifier")]
+    fn expand_rejects_empty_vocab_name() {
+        let conn = setup_fts_db();
+        let _ = fts_expand_short_terms(&conn, &sanitized("au"), "");
     }
 
     fn sanitized(s: &str) -> SanitizedFtsQuery {
