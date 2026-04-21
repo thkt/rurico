@@ -140,7 +140,7 @@ let conn = Connection::open("my.db")?;
 ```rust
 use rurico::storage::{prepare_match_query, SanitizeError};
 
-match prepare_match_query(&conn, user_input) {
+match prepare_match_query(&conn, user_input, "fts_chunks_vocab") {
     Ok(matched) => {
         // matched.as_str() を MATCH に渡す
         stmt.query_map([matched.as_str()], |row| { /* ... */ })?;
@@ -154,7 +154,9 @@ match prepare_match_query(&conn, user_input) {
 }
 ```
 
-`NEAR()` グループ、`^`/`+`/`-` プレフィックス、コロン、不均衡な引用符は内部で無害化される。`AND`/`OR`/`NOT` のようなoperator-like keywordは、前後に非operatorの語がある場合のみliteral termとして引用符で囲まれる。前後が欠けたdangling operator（例: 先頭の `NOT`、NEAR除去後に孤立した `OR`）は除去される。短い語（1-2文字）は `fts_chunks_vocab` テーブルがあればprefix展開される（なければそのまま引用）。
+第3引数の `vocab_table` は `fts5vocab` 仮想テーブル名を受け取る。呼び出し側のスキーマ規約に応じて `"fts_chunks_vocab"` や `"messages_vocab"` などを指定する。`row` または `col` 型の vocabulary のみ対応する（`instance` 型には `cnt` カラムが無いため）。値はSQLにエスケープなしで埋め込まれるため、SQL identifier として妥当な文字列（先頭が ASCII 英字または `_`、以降 ASCII 英数字または `_`）のみ許容され、違反すると panic する。
+
+`NEAR()` グループ、`^`/`+`/`-` プレフィックス、コロン、不均衡な引用符は内部で無害化される。`AND`/`OR`/`NOT` のようなoperator-like keywordは、前後に非operatorの語がある場合のみliteral termとして引用符で囲まれる。前後が欠けたdangling operator（例: 先頭の `NOT`、NEAR除去後に孤立した `OR`）は除去される。短い語（1-2文字）は指定した vocab テーブルがあればprefix展開される（なければそのまま引用）。
 
 ### ハイブリッド検索ユーティリティ
 
