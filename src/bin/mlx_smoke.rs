@@ -7,9 +7,12 @@
 //! must be downloaded before running smoke tests.
 
 use std::env;
+use std::process;
 
 use rurico::embed::{self, Embed};
 use rurico::model_probe;
+
+const SEATBELT_SKIP_EXIT: i32 = 78;
 
 fn codex_seatbelt_sandbox_active() -> bool {
     env::var("CODEX_SANDBOX").is_ok_and(|v| v == "seatbelt")
@@ -21,7 +24,7 @@ fn main() {
 
     if codex_seatbelt_sandbox_active() {
         eprintln!("smoke: skipped in Codex seatbelt sandbox; run outside sandbox for MLX verification");
-        return;
+        process::exit(SEATBELT_SKIP_EXIT);
     }
 
     let artifacts = embed::cached_artifacts(embed::ModelId::default())

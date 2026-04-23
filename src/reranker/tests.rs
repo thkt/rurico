@@ -223,7 +223,8 @@ fn mock_reranker_score_returns_configured_value() {
     assert!((s - 0.7).abs() < 1e-6, "expected 0.7, got {s}");
 }
 
-/// MLX runtime tests — require `cargo test --features test-mlx`.
+/// MLX runtime tests — run with `cargo test --features test-mlx -- --ignored`
+/// outside Codex seatbelt.
 #[cfg(feature = "test-mlx")]
 mod mlx_runtime_tests {
     use std::env;
@@ -232,16 +233,11 @@ mod mlx_runtime_tests {
 
     use super::*;
 
-    fn skip_in_codex_seatbelt_sandbox() -> bool {
-        if env::var("CODEX_SANDBOX").is_ok_and(|v| v == "seatbelt") {
-            eprintln!(
-                "skipping MLX runtime test in Codex seatbelt sandbox; \
-                 run outside sandbox for MLX verification"
-            );
-            true
-        } else {
-            false
-        }
+    fn require_unsandboxed_mlx_runtime() {
+        assert!(
+            !env::var("CODEX_SANDBOX").is_ok_and(|v| v == "seatbelt"),
+            "MLX runtime tests must run outside Codex seatbelt sandbox"
+        );
     }
 
     fn load_cached_artifacts() -> Artifacts {
@@ -251,33 +247,30 @@ mod mlx_runtime_tests {
     }
 
     #[test]
+    #[ignore = "requires unsandboxed MLX runtime"]
     #[serial]
     fn t_006_score_batch_empty_returns_ok_empty() {
-        if skip_in_codex_seatbelt_sandbox() {
-            return;
-        }
+        require_unsandboxed_mlx_runtime();
         let reranker = Reranker::new(&load_cached_artifacts()).unwrap();
         let scores = reranker.score_batch(&[]).unwrap();
         assert!(scores.is_empty());
     }
 
     #[test]
+    #[ignore = "requires unsandboxed MLX runtime"]
     #[serial]
     fn t_008_rerank_empty_returns_ok_empty() {
-        if skip_in_codex_seatbelt_sandbox() {
-            return;
-        }
+        require_unsandboxed_mlx_runtime();
         let reranker = Reranker::new(&load_cached_artifacts()).unwrap();
         let results = reranker.rerank("query", &[]).unwrap();
         assert!(results.is_empty());
     }
 
     #[test]
+    #[ignore = "requires unsandboxed MLX runtime"]
     #[serial]
     fn t_011_score_returns_value_in_unit_interval() {
-        if skip_in_codex_seatbelt_sandbox() {
-            return;
-        }
+        require_unsandboxed_mlx_runtime();
         let reranker = Reranker::new(&load_cached_artifacts()).unwrap();
         let score = reranker.score("test", "テスト文").unwrap();
         assert!(
@@ -287,11 +280,10 @@ mod mlx_runtime_tests {
     }
 
     #[test]
+    #[ignore = "requires unsandboxed MLX runtime"]
     #[serial]
     fn t_012_rerank_returns_descending_scores_with_valid_indices() {
-        if skip_in_codex_seatbelt_sandbox() {
-            return;
-        }
+        require_unsandboxed_mlx_runtime();
         let reranker = Reranker::new(&load_cached_artifacts()).unwrap();
         let docs = ["related document", "unrelated text", "somewhat relevant"];
         let results = reranker.rerank("test query", &docs).unwrap();
@@ -305,11 +297,10 @@ mod mlx_runtime_tests {
     }
 
     #[test]
+    #[ignore = "requires unsandboxed MLX runtime"]
     #[serial]
     fn t_016_score_batch_preserves_input_order_and_ranking() {
-        if skip_in_codex_seatbelt_sandbox() {
-            return;
-        }
+        require_unsandboxed_mlx_runtime();
         let reranker = Reranker::new(&load_cached_artifacts()).unwrap();
         let pair_a = ("東京の人口", "東京は日本最大の都市");
         let pair_b = ("東京の人口", "りんごは果物");
@@ -330,11 +321,10 @@ mod mlx_runtime_tests {
     }
 
     #[test]
+    #[ignore = "requires unsandboxed MLX runtime"]
     #[serial]
     fn t_018_new_succeeds_with_cached_model() {
-        if skip_in_codex_seatbelt_sandbox() {
-            return;
-        }
+        require_unsandboxed_mlx_runtime();
         let result = Reranker::new(&load_cached_artifacts());
         assert!(
             result.is_ok(),

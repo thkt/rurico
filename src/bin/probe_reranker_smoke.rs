@@ -9,9 +9,12 @@
 //! so the full probe cycle is exercised end-to-end.
 
 use std::env;
+use std::process;
 
 use rurico::model_probe;
 use rurico::reranker::{ProbeStatus, Reranker, RerankerModelId, cached_artifacts};
+
+const SEATBELT_SKIP_EXIT: i32 = 78;
 
 fn codex_seatbelt_sandbox_active() -> bool {
     env::var("CODEX_SANDBOX").is_ok_and(|v| v == "seatbelt")
@@ -26,7 +29,7 @@ fn main() {
             "probe_reranker_smoke: skipped in Codex seatbelt sandbox; \
              run outside sandbox for MLX probe verification"
         );
-        return;
+        process::exit(SEATBELT_SKIP_EXIT);
     }
 
     let artifacts = cached_artifacts(RerankerModelId::default())
