@@ -329,7 +329,11 @@ fn sort_results(scores: &[f32]) -> Vec<RankedResult> {
         .enumerate()
         .map(|(index, &score)| RankedResult { index, score })
         .collect();
-    results.sort_unstable_by(|a, b| b.score.total_cmp(&a.score));
+    results.sort_unstable_by(|a, b| {
+        b.score
+            .total_cmp(&a.score)
+            .then_with(|| a.index.cmp(&b.index))
+    });
     results
 }
 
