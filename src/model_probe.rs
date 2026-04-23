@@ -8,9 +8,12 @@ use std::env;
 use std::fmt;
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
-use std::process::{self, Child, Command, ExitStatus, Output, Stdio};
-use std::thread;
+use std::process::{self, Child, Command, Output, Stdio};
+use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
+
+#[cfg(test)]
+use std::process::ExitStatus;
 
 use crate::embed;
 use crate::model_io::ModelPaths;
@@ -207,14 +210,32 @@ pub fn probe_via_subprocess(env_pairs: &[(&str, &str)]) -> Result<ProbeStatus, P
     interpret_probe_output(&output)
 }
 
-fn drain_pipe(pipe: Option<impl Read>, label: &str) -> Vec<u8> {
-    pipe.map_or_else(Vec::new, |mut s| {
-        let mut buf = Vec::new();
-        if let Err(e) = s.read_to_end(&mut buf) {
-            log::warn!("probe: failed to drain child {label}: {e}");
-        }
-        buf
+fn drain_pipe_async<R>(pipe: Option<R>, label: &'static str) -> Option<JoinHandle<Vec<u8>>>
+where
+    R: Read + Send + 'static,
+{
+    pipe.map(|mut stream| {
+        thread::spawn(move || {
+            let mut buf = Vec::new();
+            if let Err(e) = stream.read_to_end(&mut buf) {
+                log::warn!("probe: failed to drain child {label}: {e}");
+            }
+            buf
+        })
     })
+}
+
+fn collect_pipe(handle: Option<JoinHandle<Vec<u8>>>, label: &str) -> Vec<u8> {
+    match handle {
+        Some(reader) => match reader.join() {
+            Ok(buf) => buf,
+            Err(_) => {
+                log::warn!("probe: child {label} reader thread panicked");
+                Vec::new()
+            }
+        },
+        None => Vec::new(),
+    }
 }
 
 /// Re-exec the current binary as a probe subprocess, passing `paths` as env vars.
@@ -241,16 +262,16 @@ pub(crate) fn probe_paths_via_subprocess(
 /// timeout output if the deadline is exceeded.
 fn wait_with_timeout(child: &mut Child, timeout: Duration) -> Result<Output, ProbeError> {
     let deadline = Instant::now() + timeout;
+    let stdout = drain_pipe_async(child.stdout.take(), "stdout");
+    let stderr = drain_pipe_async(child.stderr.take(), "stderr");
 
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
-                let stdout = drain_pipe(child.stdout.take(), "stdout");
-                let stderr = drain_pipe(child.stderr.take(), "stderr");
                 return Ok(Output {
                     status,
-                    stdout,
-                    stderr,
+                    stdout: collect_pipe(stdout, "stdout"),
+                    stderr: collect_pipe(stderr, "stderr"),
                 });
             }
             Ok(None) => {
@@ -260,8 +281,14 @@ fn wait_with_timeout(child: &mut Child, timeout: Duration) -> Result<Output, Pro
                         timeout.as_secs()
                     );
                     let _ = child.kill();
-                    let _ = child.wait();
-                    return Ok(build_timeout_output());
+                    let status = child.wait().map_err(|e| {
+                        ProbeError::SubprocessFailed(format!("probe wait after kill failed: {e}"))
+                    })?;
+                    return Ok(Output {
+                        status,
+                        stdout: collect_pipe(stdout, "stdout"),
+                        stderr: collect_pipe(stderr, "stderr"),
+                    });
                 }
                 thread::sleep(Duration::from_millis(100));
             }
@@ -277,7 +304,7 @@ fn wait_with_timeout(child: &mut Child, timeout: Duration) -> Result<Output, Pro
 /// Build a synthetic Output that `interpret_probe_output` maps to
 /// `BackendUnavailable` (no exit code, PROBE_ACK present so it doesn't
 /// trigger the "handler not installed" error).
-#[cfg(unix)]
+#[cfg(all(test, unix))]
 fn build_timeout_output() -> Output {
     use std::os::unix::process::ExitStatusExt;
     Output {
@@ -460,6 +487,40 @@ mod tests {
         assert_eq!(
             interpret_probe_output(&output).unwrap(),
             ProbeStatus::BackendUnavailable
+        );
+    }
+
+    #[test]
+    fn wait_with_timeout_drains_verbose_failure_before_timeout() {
+        let mut child = Command::new("sh")
+            .args([
+                "-c",
+                "printf '%s\\n' \"$0\"; \
+                 i=0; \
+                 while [ \"$i\" -lt 5000 ]; do \
+                   printf 'verbose probe failure line %04d\\n' \"$i\" 1>&2; \
+                   i=$((i + 1)); \
+                 done; \
+                 exit 1",
+                PROBE_ACK,
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+
+        let output = wait_with_timeout(&mut child, Duration::from_secs(2)).unwrap();
+        assert_eq!(output.status.code(), Some(1), "child should exit normally");
+        assert!(
+            output.stderr.len() > 100_000,
+            "stderr should be fully drained, got {} bytes",
+            output.stderr.len()
+        );
+
+        let err = interpret_probe_output(&output).unwrap_err();
+        assert!(
+            matches!(err, ProbeError::ModelLoadFailed { .. }),
+            "expected verbose failure to remain ModelLoadFailed, got {err}"
         );
     }
 }
