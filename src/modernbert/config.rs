@@ -1,5 +1,12 @@
 use serde::Deserialize;
 
+fn validate_i32_bound(field: &str, value: usize) -> Result<(), String> {
+    if value > i32::MAX as usize {
+        return Err(format!("{field} must be <= {}", i32::MAX));
+    }
+    Ok(())
+}
+
 /// ModernBERT config (config.json).
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
@@ -39,9 +46,11 @@ impl Config {
     /// `hidden_size` is not divisible by `num_attention_heads`. The exact
     /// message text is not part of the stable API contract.
     pub fn validate(&self) -> Result<(), String> {
+        validate_i32_bound("hidden_size", self.hidden_size)?;
         if self.hidden_size == 0 {
             return Err("hidden_size must be > 0".into());
         }
+        validate_i32_bound("num_attention_heads", self.num_attention_heads)?;
         if self.num_attention_heads == 0 {
             return Err("num_attention_heads must be > 0".into());
         }
@@ -54,11 +63,20 @@ impl Config {
         if self.global_attn_every_n_layers == 0 {
             return Err("global_attn_every_n_layers must be > 0".into());
         }
+        validate_i32_bound("vocab_size", self.vocab_size)?;
         if self.vocab_size == 0 {
             return Err("vocab_size must be > 0".into());
         }
+        validate_i32_bound("intermediate_size", self.intermediate_size)?;
+        validate_i32_bound("max_position_embeddings", self.max_position_embeddings)?;
         if self.max_position_embeddings == 0 {
             return Err("max_position_embeddings must be > 0".into());
+        }
+        if self.local_attention / 2 > i32::MAX as usize {
+            return Err(format!(
+                "local_attention / 2 must be <= {}",
+                i32::MAX
+            ));
         }
         Ok(())
     }
@@ -139,5 +157,47 @@ pub mod tests {
                 .unwrap_err()
                 .contains("max_position_embeddings")
         );
+    }
+
+    #[test]
+    fn config_validate_rejects_hidden_size_above_i32_max() {
+        let mut c = test_config();
+        c.hidden_size = i32::MAX as usize + 1;
+        assert!(c.validate().unwrap_err().contains("hidden_size"));
+    }
+
+    #[test]
+    fn config_validate_rejects_attention_heads_above_i32_max() {
+        let mut c = test_config();
+        c.num_attention_heads = i32::MAX as usize + 1;
+        assert!(c.validate().unwrap_err().contains("num_attention_heads"));
+    }
+
+    #[test]
+    fn config_validate_rejects_vocab_size_above_i32_max() {
+        let mut c = test_config();
+        c.vocab_size = i32::MAX as usize + 1;
+        assert!(c.validate().unwrap_err().contains("vocab_size"));
+    }
+
+    #[test]
+    fn config_validate_rejects_intermediate_size_above_i32_max() {
+        let mut c = test_config();
+        c.intermediate_size = i32::MAX as usize + 1;
+        assert!(c.validate().unwrap_err().contains("intermediate_size"));
+    }
+
+    #[test]
+    fn config_validate_rejects_max_position_embeddings_above_i32_max() {
+        let mut c = test_config();
+        c.max_position_embeddings = i32::MAX as usize + 1;
+        assert!(c.validate().unwrap_err().contains("max_position_embeddings"));
+    }
+
+    #[test]
+    fn config_validate_rejects_local_attention_half_above_i32_max() {
+        let mut c = test_config();
+        c.local_attention = (i32::MAX as usize) * 2 + 2;
+        assert!(c.validate().unwrap_err().contains("local_attention / 2"));
     }
 }
