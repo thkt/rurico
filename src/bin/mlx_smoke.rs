@@ -6,12 +6,23 @@
 //! Loads the default embed model from the local HF Hub cache. The model
 //! must be downloaded before running smoke tests.
 
+use std::env;
+
 use rurico::embed::{self, Embed};
 use rurico::model_probe;
+
+fn codex_seatbelt_sandbox_active() -> bool {
+    env::var("CODEX_SANDBOX").is_ok_and(|v| v == "seatbelt")
+}
 
 fn main() {
     // Also acts as a probe subprocess when probe env vars are set.
     model_probe::handle_probe_if_needed();
+
+    if codex_seatbelt_sandbox_active() {
+        eprintln!("smoke: skipped in Codex seatbelt sandbox; run outside sandbox for MLX verification");
+        return;
+    }
 
     let artifacts = embed::cached_artifacts(embed::ModelId::default())
         .expect("cache lookup failed")

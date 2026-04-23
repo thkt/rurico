@@ -262,6 +262,10 @@ cargo test                    # MLX ランタイム不要のテスト
 cargo test --features test-mlx  # MLX ランタイムテスト（SIGABRT の可能性あり）
 ```
 
+Codex Desktop の `CODEX_SANDBOX=seatbelt` 環境では、MLX / Metal 初期化が abort することがあるため、
+これらのランタイムテストと smoke binary は明示的に skip される。実検証は通常の Terminal か、
+sandbox 外の実行環境で行う。
+
 ## ライセンス
 
 MIT
