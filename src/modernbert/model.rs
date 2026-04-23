@@ -461,6 +461,24 @@ mod tests {
     }
 
     #[test]
+    fn new_rejects_oversized_config_without_panicking() {
+        let mut config = test_config();
+        config.hidden_size = i32::MAX as usize + 1;
+
+        let outcome = std::panic::catch_unwind(|| ModernBert::new(&config));
+        assert!(outcome.is_ok(), "oversized config should return Err, not panic");
+
+        let err = outcome
+            .unwrap()
+            .expect_err("oversized config should be rejected");
+        assert!(
+            err.what().contains("invalid config: hidden_size"),
+            "unexpected error: {}",
+            err.what()
+        );
+    }
+
+    #[test]
     fn validate_mask_rejects_fully_masked_row() {
         let result = validate_attention_mask(&[0, 0, 0], 3);
         assert!(result.is_err(), "fully masked row should return Err");
