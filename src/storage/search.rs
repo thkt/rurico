@@ -100,6 +100,12 @@ pub enum SanitizeError {
     /// (e.g. only `NEAR()` groups or prefix characters).
     #[error("search query contains no searchable terms")]
     NoSearchableTerms,
+    /// The supplied vocab table name is not a safe SQL identifier.
+    #[error("invalid vocab table name: {0:?}")]
+    InvalidVocabTable(String),
+    /// SQLite failed while consulting the vocab table for short-term expansion.
+    #[error("fts vocab lookup failed: {0}")]
+    VocabLookupFailed(String),
 }
 
 /// Neutralize FTS5 special syntax in user queries: `NEAR()` grouping,
@@ -180,28 +186,25 @@ pub fn fts_quote(s: &str) -> String {
 /// - [`SanitizeError::EmptyInput`] if `query` is empty or whitespace-only
 /// - [`SanitizeError::NoSearchableTerms`] if sanitization strips all searchable terms
 ///
-/// SQLite failures while consulting the vocab table do not surface as
-/// `Err`; they are logged and treated as "no expansion".
-///
-/// # Panics
-///
-/// Panics if `vocab_table` is not a valid SQL identifier (ASCII alphanumerics
-/// and `_`, non-empty). The check runs in release builds to protect against
-/// SQL injection via untrusted identifiers.
+/// SQLite failures while consulting the vocab table surface as `Err`, except
+/// for the specific "no such table" case which degrades to "no expansion".
 pub fn prepare_match_query(
     conn: &Connection,
     query: &str,
     vocab_table: &str,
 ) -> Result<MatchFtsQuery, SanitizeError> {
     let sanitized = sanitize_fts_query(query)?;
-    Ok(fts_expand_short_terms(conn, &sanitized, vocab_table))
+    fts_expand_short_terms(conn, &sanitized, vocab_table)
 }
 
 /// Expand a single short token via vocab prefix matching.
 ///
 /// Returns `Some(expanded_group)` when matches are found, `None` when the
-/// vocab lookup fails or returns no results (caller falls back to quoting as-is).
-fn expand_token_via_vocab(stmt: &mut rusqlite::CachedStatement<'_>, token: &str) -> Option<String> {
+/// vocab lookup returns no results or the vocab table disappeared.
+fn expand_token_via_vocab(
+    stmt: &mut rusqlite::CachedStatement<'_>,
+    token: &str,
+) -> Result<Option<String>, SanitizeError> {
     let escaped = token
         .replace('\\', "\\\\")
         .replace('%', "\\%")
@@ -213,14 +216,25 @@ fn expand_token_via_vocab(stmt: &mut rusqlite::CachedStatement<'_>, token: &str)
     {
         Ok(terms) if !terms.is_empty() => {
             let quoted: Vec<String> = terms.iter().map(|t| fts_quote(t)).collect();
-            Some(format!("({})", quoted.join(" OR ")))
+            Ok(Some(format!("({})", quoted.join(" OR "))))
         }
-        Ok(_) => None,
+        Ok(_) => Ok(None),
+        Err(rusqlite::Error::SqliteFailure(_, Some(ref msg))) if msg.contains("no such table") => {
+            Ok(None)
+        }
         Err(e) => {
-            log::warn!("fts vocab query failed: {e}");
-            None
+            Err(SanitizeError::VocabLookupFailed(e.to_string()))
         }
     }
+}
+
+fn is_valid_sql_identifier(value: &str) -> bool {
+    let mut chars = value.chars();
+    let head_ok = chars
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_');
+    let tail_ok = chars.all(|c| c.is_ascii_alphanumeric() || c == '_');
+    head_ok && tail_ok
 }
 
 /// Expand short terms (1-2 chars) via `fts5vocab` prefix matching.
@@ -230,25 +244,14 @@ fn expand_token_via_vocab(stmt: &mut rusqlite::CachedStatement<'_>, token: &str)
 /// references the `term` and `cnt` columns). The name is interpolated into
 /// the SQL unescaped.
 ///
-/// # Panics
-///
-/// Panics if `vocab_table` is not a valid SQL identifier: non-empty,
-/// leading character ASCII alphabetic or `_`, remaining characters ASCII
-/// alphanumeric or `_`.
 pub(crate) fn fts_expand_short_terms(
     conn: &Connection,
     query: &SanitizedFtsQuery,
     vocab_table: &str,
-) -> MatchFtsQuery {
-    let mut chars = vocab_table.chars();
-    let head_ok = chars
-        .next()
-        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_');
-    let tail_ok = chars.all(|c| c.is_ascii_alphanumeric() || c == '_');
-    assert!(
-        head_ok && tail_ok,
-        "vocab_table must be a valid SQL identifier: {vocab_table:?}"
-    );
+) -> Result<MatchFtsQuery, SanitizeError> {
+    if !is_valid_sql_identifier(vocab_table) {
+        return Err(SanitizeError::InvalidVocabTable(vocab_table.to_owned()));
+    }
     let sql = format!(
         "SELECT term FROM {vocab_table} \
          WHERE term LIKE ?1 ESCAPE '\\' \
@@ -260,8 +263,7 @@ pub(crate) fn fts_expand_short_terms(
             None
         }
         Err(e) => {
-            log::warn!("fts vocab prepare failed: {e}");
-            None
+            return Err(SanitizeError::VocabLookupFailed(e.to_string()));
         }
     };
 
@@ -272,10 +274,13 @@ pub(crate) fn fts_expand_short_terms(
             parts.push(fts_quote(token));
             continue;
         }
-        let expanded = stmt.as_mut().and_then(|s| expand_token_via_vocab(s, token));
+        let expanded = match stmt.as_mut() {
+            Some(s) => expand_token_via_vocab(s, token)?,
+            None => None,
+        };
         parts.push(expanded.unwrap_or_else(|| fts_quote(token)));
     }
-    MatchFtsQuery(parts.join(" "))
+    Ok(MatchFtsQuery(parts.join(" ")))
 }
 
 #[cfg(test)]
@@ -339,14 +344,15 @@ mod tests {
     fn expand_long_term_quoted_as_is() {
         let conn = setup_fts_db();
         let result =
-            fts_expand_short_terms(&conn, &sanitized("authentication"), "fts_chunks_vocab");
+            fts_expand_short_terms(&conn, &sanitized("authentication"), "fts_chunks_vocab")
+                .unwrap();
         assert_eq!(result.as_str(), "\"authentication\"");
     }
 
     #[test]
     fn expand_short_term_with_vocab_matches() {
         let conn = setup_fts_db();
-        let result = fts_expand_short_terms(&conn, &sanitized("au"), "fts_chunks_vocab");
+        let result = fts_expand_short_terms(&conn, &sanitized("au"), "fts_chunks_vocab").unwrap();
         assert!(result.as_str().contains("\"audit\""), "{}", result.as_str());
         assert!(
             result.as_str().contains("\"authentication\""),
@@ -359,14 +365,15 @@ mod tests {
     #[test]
     fn expand_short_term_no_matches() {
         let conn = setup_fts_db();
-        let result = fts_expand_short_terms(&conn, &sanitized("zz"), "fts_chunks_vocab");
+        let result = fts_expand_short_terms(&conn, &sanitized("zz"), "fts_chunks_vocab").unwrap();
         assert_eq!(result.as_str(), "\"zz\"");
     }
 
     #[test]
     fn expand_mixed_short_and_long() {
         let conn = setup_fts_db();
-        let result = fts_expand_short_terms(&conn, &sanitized("au login"), "fts_chunks_vocab");
+        let result =
+            fts_expand_short_terms(&conn, &sanitized("au login"), "fts_chunks_vocab").unwrap();
         assert!(result.as_str().contains("\"login\""), "{}", result.as_str());
         assert!(result.as_str().contains(" OR "), "{}", result.as_str());
     }
@@ -376,20 +383,22 @@ mod tests {
         let conn = setup_fts_db();
         // NOT (3 chars) and OR (2 chars) must both be quoted as-is,
         // not expanded via vocab (e.g. OR must not become "order" OR ...).
-        let result = fts_expand_short_terms(&conn, &sanitized("NOT secret"), "fts_chunks_vocab");
+        let result =
+            fts_expand_short_terms(&conn, &sanitized("NOT secret"), "fts_chunks_vocab").unwrap();
         assert_eq!(result.as_str(), "\"NOT\" \"secret\"");
 
-        let result = fts_expand_short_terms(&conn, &sanitized("OR"), "fts_chunks_vocab");
+        let result = fts_expand_short_terms(&conn, &sanitized("OR"), "fts_chunks_vocab").unwrap();
         assert_eq!(result.as_str(), "\"OR\"");
 
-        let result = fts_expand_short_terms(&conn, &sanitized("foo or bar"), "fts_chunks_vocab");
+        let result =
+            fts_expand_short_terms(&conn, &sanitized("foo or bar"), "fts_chunks_vocab").unwrap();
         assert_eq!(result.as_str(), "\"foo\" \"or\" \"bar\"");
     }
 
     #[test]
     fn expand_special_chars_escaped() {
         let conn = setup_fts_db();
-        let result = fts_expand_short_terms(&conn, &sanitized("a%"), "fts_chunks_vocab");
+        let result = fts_expand_short_terms(&conn, &sanitized("a%"), "fts_chunks_vocab").unwrap();
         assert!(
             result.as_str().contains("\"audit\"") || result.as_str() == "\"a%\"",
             "{}",
@@ -400,14 +409,15 @@ mod tests {
     #[test]
     fn expand_without_vocab_table_degrades() {
         let conn = Connection::open_in_memory().unwrap();
-        let result = fts_expand_short_terms(&conn, &sanitized("au login"), "fts_chunks_vocab");
+        let result =
+            fts_expand_short_terms(&conn, &sanitized("au login"), "fts_chunks_vocab").unwrap();
         assert_eq!(result.as_str(), "\"au\" \"login\"");
     }
 
     #[test]
     fn expand_single_char_term() {
         let conn = setup_fts_db();
-        let result = fts_expand_short_terms(&conn, &sanitized("a"), "fts_chunks_vocab");
+        let result = fts_expand_short_terms(&conn, &sanitized("a"), "fts_chunks_vocab").unwrap();
         assert!(result.as_str().contains("\"audit\"") || result.as_str() == "\"a\"");
     }
 
@@ -436,17 +446,56 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "vocab_table must be a valid SQL identifier")]
-    fn expand_rejects_leading_digit_vocab_name() {
+    fn prepare_match_query_rejects_invalid_vocab_table_name() {
         let conn = setup_fts_db();
-        let _ = fts_expand_short_terms(&conn, &sanitized("au"), "1vocab");
+        assert_eq!(
+            prepare_match_query(&conn, "au", "1vocab"),
+            Err(SanitizeError::InvalidVocabTable("1vocab".into()))
+        );
     }
 
     #[test]
-    #[should_panic(expected = "vocab_table must be a valid SQL identifier")]
+    fn prepare_match_query_surfaces_non_missing_vocab_errors() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute("CREATE TABLE bad_vocab(term TEXT)", [])
+            .unwrap();
+
+        let result = prepare_match_query(&conn, "au", "bad_vocab");
+        assert!(
+            matches!(result, Err(SanitizeError::VocabLookupFailed(_))),
+            "expected vocab lookup failure, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn expand_rejects_leading_digit_vocab_name() {
+        let conn = setup_fts_db();
+        assert_eq!(
+            fts_expand_short_terms(&conn, &sanitized("au"), "1vocab"),
+            Err(SanitizeError::InvalidVocabTable("1vocab".into()))
+        );
+    }
+
+    #[test]
     fn expand_rejects_empty_vocab_name() {
         let conn = setup_fts_db();
-        let _ = fts_expand_short_terms(&conn, &sanitized("au"), "");
+        assert_eq!(
+            fts_expand_short_terms(&conn, &sanitized("au"), ""),
+            Err(SanitizeError::InvalidVocabTable("".into()))
+        );
+    }
+
+    #[test]
+    fn expand_surfaces_non_missing_vocab_errors() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute("CREATE TABLE bad_vocab(term TEXT)", [])
+            .unwrap();
+
+        let result = fts_expand_short_terms(&conn, &sanitized("au"), "bad_vocab");
+        assert!(
+            matches!(result, Err(SanitizeError::VocabLookupFailed(_))),
+            "expected vocab lookup failure, got {result:?}"
+        );
     }
 
     fn sanitized(s: &str) -> SanitizedFtsQuery {
