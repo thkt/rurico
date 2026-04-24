@@ -151,12 +151,20 @@ match prepare_match_query(&conn, user_input, "fts_chunks_vocab") {
     Err(SanitizeError::NoSearchableTerms) => {
         // NEAR() グループのみ等、検索可能な語がない
     }
+    Err(SanitizeError::InvalidVocabTable(name)) => {
+        // 呼び出し側のスキーマ設定ミス
+        eprintln!("invalid vocab table: {name}");
+    }
+    Err(SanitizeError::VocabLookupFailed(reason)) => {
+        // vocab テーブル参照中の想定外 SQLite 障害
+        eprintln!("fts vocab lookup failed: {reason}");
+    }
 }
 ```
 
-第3引数の `vocab_table` は `fts5vocab` 仮想テーブル名を受け取る。呼び出し側のスキーマ規約に応じて `"fts_chunks_vocab"` や `"messages_vocab"` などを指定する。`row` または `col` 型の vocabulary のみ対応する（`instance` 型には `cnt` カラムが無いため）。値はSQLにエスケープなしで埋め込まれるため、SQL identifier として妥当な文字列（先頭が ASCII 英字または `_`、以降 ASCII 英数字または `_`）のみ許容され、違反すると panic する。
+第3引数の `vocab_table` は `fts5vocab` 仮想テーブル名を受け取る。呼び出し側のスキーマ規約に応じて `"fts_chunks_vocab"` や `"messages_vocab"` などを指定する。`row` または `col` 型の vocabulary のみ対応する（`instance` 型には `cnt` カラムが無いため）。値はSQLにエスケープなしで埋め込まれるため、SQL identifier として妥当な文字列（先頭が ASCII 英字または `_`、以降 ASCII 英数字または `_`）のみ許容され、違反した場合は `SanitizeError::InvalidVocabTable` を返す。
 
-`NEAR()` グループ、`^`/`+`/`-` プレフィックス、コロン、不均衡な引用符は内部で無害化される。`AND`/`OR`/`NOT` のようなoperator-like keywordは、前後に非operatorの語がある場合のみliteral termとして引用符で囲まれる。前後が欠けたdangling operator（例: 先頭の `NOT`、NEAR除去後に孤立した `OR`）は除去される。短い語（1-2文字）は指定した vocab テーブルがあればprefix展開される（なければそのまま引用）。
+`NEAR()` グループ、`^`/`+`/`-` プレフィックス、コロン、不均衡な引用符は内部で無害化される。`AND`/`OR`/`NOT` のようなoperator-like keywordは、前後に非operatorの語がある場合のみliteral termとして引用符で囲まれる。前後が欠けたdangling operator（例: 先頭の `NOT`、NEAR除去後に孤立した `OR`）は除去される。短い語（1-2文字）は指定した vocab テーブルがあればprefix展開される。vocab テーブルが存在しない場合だけはそのまま引用に劣化し、それ以外の SQLite 障害は `SanitizeError::VocabLookupFailed` を返す。
 
 ### ハイブリッド検索ユーティリティ
 
