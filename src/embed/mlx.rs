@@ -26,8 +26,21 @@ pub(super) const BUCKET_BOUNDS: [usize; 4] = [128, 512, 2048, MAX_SEQ_LEN];
 pub(super) struct IndexedChunk {
     /// Position in the flat `all_chunk_tokens` ordering emitted by planning.
     global_idx: usize,
+    /// Index of the originating document in the input `texts` slice.
+    doc_idx: usize,
+    /// 0-based chunk position inside the originating document.
+    chunk_in_doc: usize,
     /// Tokenized chunk payload (includes prefix + BOS/EOS).
     tokens: Vec<u32>,
+}
+
+impl IndexedChunk {
+    /// Sort key that clusters same-doc chunks together inside a bucket and
+    /// keeps the chunk-in-doc reading order (R-M02). Shared so production and
+    /// T-BKT-008 test against the same contract.
+    fn doc_order_key(&self) -> (usize, usize) {
+        (self.doc_idx, self.chunk_in_doc)
+    }
 }
 
 /// Assign `len` to a bucket via the first `BUCKET_BOUNDS[i] >= len`.
@@ -56,15 +69,41 @@ pub(super) fn distribute_into_buckets(chunks: Vec<IndexedChunk>) -> [Vec<Indexed
     buckets
 }
 
-/// Wrap flat chunk tokens into indexed chunks. `global_idx` anchors each
-/// chunk to its pre-bucketing position so bucket forward can reorder by
-/// length yet still restore output order via the `global_idx` lookup.
-fn build_indexed_chunks(all_chunk_tokens: Vec<Vec<u32>>) -> Vec<IndexedChunk> {
-    all_chunk_tokens
-        .into_iter()
-        .enumerate()
-        .map(|(global_idx, tokens)| IndexedChunk { global_idx, tokens })
-        .collect()
+/// Wrap flat chunk tokens into indexed chunks.
+///
+/// `global_idx` anchors each chunk to its pre-bucketing position so bucket
+/// forward can reorder by length yet still restore output order via the
+/// `global_idx` lookup. `doc_idx` + `chunk_in_doc` carry the document layout
+/// through the bucket pass so same-doc chunks can be clustered inside each
+/// bucket (R-M02) and the chunk-in-doc order can be preserved.
+///
+/// `chunks_per_doc[i]` must equal the number of chunks the i-th document
+/// contributed to `all_chunk_tokens`; the sum across all docs must equal
+/// `all_chunk_tokens.len()` (guaranteed by `plan_document_chunks`).
+fn build_indexed_chunks(
+    all_chunk_tokens: Vec<Vec<u32>>,
+    chunks_per_doc: &[usize],
+) -> Vec<IndexedChunk> {
+    let mut result = Vec::with_capacity(all_chunk_tokens.len());
+    let mut tokens_iter = all_chunk_tokens.into_iter();
+    for (doc_idx, &count) in chunks_per_doc.iter().enumerate() {
+        for chunk_in_doc in 0..count {
+            let tokens = tokens_iter
+                .next()
+                .expect("chunks_per_doc total must match all_chunk_tokens length");
+            result.push(IndexedChunk {
+                global_idx: result.len(),
+                doc_idx,
+                chunk_in_doc,
+                tokens,
+            });
+        }
+    }
+    debug_assert!(
+        tokens_iter.next().is_none(),
+        "chunks_per_doc total must match all_chunk_tokens length"
+    );
+    result
 }
 
 /// Token-count ceiling for a single forward pass. Matches the pre-bucketing
@@ -184,17 +223,22 @@ impl EmbedderInner {
         let total_chunks = all_chunk_tokens.len();
         metrics.num_chunks = total_chunks;
 
-        let buckets = distribute_into_buckets(build_indexed_chunks(all_chunk_tokens));
+        let buckets =
+            distribute_into_buckets(build_indexed_chunks(all_chunk_tokens, &chunks_per_doc));
 
         let mut out: Vec<Option<Vec<f32>>> = (0..total_chunks).map(|_| None).collect();
 
-        for (bucket_idx, bucket) in buckets.into_iter().enumerate() {
+        for (bucket_idx, mut bucket) in buckets.into_iter().enumerate() {
             if bucket.is_empty() {
                 continue;
             }
+            // R-M02: cluster same-doc chunks inside each bucket so a sub_batch
+            // prefers to carry chunks from the same document. chunk_in_doc is
+            // the tie-breaker to preserve reading order within a doc.
+            bucket.sort_by_key(IndexedChunk::doc_order_key);
             // sub_batch_size against the bucket ceiling keeps every possible
             // sub-batch under TOKEN_BUDGET even when every chunk is at the
-            // bucket_max boundary — same OOM guarantee as pre-bucketing.
+            // bucket_max boundary, matching the pre-bucketing OOM guarantee.
             let sub_batch_size = (TOKEN_BUDGET / BUCKET_BOUNDS[bucket_idx]).max(1);
             for sub_batch in bucket.chunks(sub_batch_size) {
                 self.forward_sub_batch(sub_batch, &mut out, &mut metrics)?;
@@ -422,11 +466,25 @@ mod tests {
         drop(guard);
     }
 
-    fn make_chunk(global_idx: usize, token_count: usize) -> IndexedChunk {
+    /// Full-position helper used by T-BKT-008 to express a shuffled multi-chunk
+    /// doc layout. `make_chunk` delegates here with each chunk as its own
+    /// single-chunk document.
+    fn make_chunk_at(
+        global_idx: usize,
+        doc_idx: usize,
+        chunk_in_doc: usize,
+        token_count: usize,
+    ) -> IndexedChunk {
         IndexedChunk {
             global_idx,
+            doc_idx,
+            chunk_in_doc,
             tokens: vec![0u32; token_count],
         }
+    }
+
+    fn make_chunk(global_idx: usize, token_count: usize) -> IndexedChunk {
+        make_chunk_at(global_idx, global_idx, 0, token_count)
     }
 
     // T-BKT-001: assign_bucket boundary at 128 / 129
@@ -494,14 +552,19 @@ mod tests {
     }
 
     #[test]
-    fn build_indexed_chunks_assigns_sequential_global_idx() {
+    fn build_indexed_chunks_tracks_doc_structure() {
+        // doc 0 has 2 chunks, doc 1 has 1 chunk → chunks_per_doc = [2, 1]
         let all_chunks = vec![vec![1u32; 10], vec![2u32; 20], vec![3u32; 30]];
-        let indexed = build_indexed_chunks(all_chunks);
-        let shape: Vec<(usize, usize)> = indexed
+        let indexed = build_indexed_chunks(all_chunks, &[2, 1]);
+        let shape: Vec<(usize, usize, usize, usize)> = indexed
             .iter()
-            .map(|c| (c.global_idx, c.tokens.len()))
+            .map(|c| (c.global_idx, c.doc_idx, c.chunk_in_doc, c.tokens.len()))
             .collect();
-        assert_eq!(shape, vec![(0, 10), (1, 20), (2, 30)]);
+        assert_eq!(
+            shape,
+            vec![(0, 0, 0, 10), (1, 0, 1, 20), (2, 1, 0, 30)],
+            "global_idx runs 0..N while doc_idx + chunk_in_doc track doc layout"
+        );
     }
 
     // T-BKT-007: 10 chunks spanning all 4 buckets round-trip in original order
@@ -553,7 +616,7 @@ mod tests {
     // collect to `Vec::new()`. MLX-free proxy for the end-to-end contract.
     #[test]
     fn t_bkt_009_empty_input_zero_subbatches() {
-        let indexed = build_indexed_chunks(Vec::new());
+        let indexed = build_indexed_chunks(Vec::new(), &[]);
         assert!(
             indexed.is_empty(),
             "empty chunk tokens → empty IndexedChunk vec"
@@ -563,6 +626,45 @@ mod tests {
         assert!(
             buckets.iter().all(Vec::is_empty),
             "empty input → every bucket stays empty"
+        );
+    }
+
+    // T-BKT-008: same-doc chunks cluster contiguously inside each bucket after
+    // the in-loop sort, with chunk_in_doc order preserved.
+    //
+    // Uses `IndexedChunk::doc_order_key` — the same function the forward loop
+    // in `embed_documents_batch_chunked` calls — so this test exercises the
+    // production sort contract rather than a hand-rolled mirror.
+    #[test]
+    fn t_bkt_008_same_doc_chunks_cluster_after_sort() {
+        // doc 0 produces 3 chunks split across bucket 0 (×2) and bucket 2 (×1).
+        // Inputs are shuffled so the sort must actively reorder. A no-op sort
+        // would leave bucket 0 as [doc1, doc0_c0, doc2, doc0_c1] and fail.
+        let input = vec![
+            make_chunk_at(3, 1, 0, 60),
+            make_chunk_at(0, 0, 0, 50),
+            make_chunk_at(2, 0, 2, 1000),
+            make_chunk_at(4, 2, 0, 70),
+            make_chunk_at(1, 0, 1, 100),
+        ];
+
+        let mut buckets = distribute_into_buckets(input);
+        for bucket in &mut buckets {
+            bucket.sort_by_key(IndexedChunk::doc_order_key);
+        }
+
+        let b0: Vec<(usize, usize)> = buckets[0].iter().map(IndexedChunk::doc_order_key).collect();
+        assert_eq!(
+            b0,
+            vec![(0, 0), (0, 1), (1, 0), (2, 0)],
+            "bucket 0: doc 0 chunks contiguous in chunk_in_doc order, then doc 1, doc 2"
+        );
+
+        let b2: Vec<(usize, usize)> = buckets[2].iter().map(IndexedChunk::doc_order_key).collect();
+        assert_eq!(
+            b2,
+            vec![(0, 2)],
+            "bucket 2: only doc 0's third chunk (the one that overflowed the smaller buckets)"
         );
     }
 }
