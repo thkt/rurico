@@ -126,6 +126,10 @@ fn run_assertions(embedder: &embed::Embedder) {
         .expect("batch");
     assert_eq!(batch.len(), 2, "batch count");
 
+    // T-BKT-009: empty `texts` → `Vec::new()` (early-return branch regression guard)
+    let empty = embedder.embed_documents_batch(&[]).expect("empty batch");
+    assert!(empty.is_empty(), "empty texts must return Vec::new()");
+
     let sentence = "apple pie is a traditional dessert enjoyed around the world. ";
     let long_text = sentence.repeat(800);
     let ld = embedder.embed_document(&long_text).expect("long doc");
