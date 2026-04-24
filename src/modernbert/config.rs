@@ -7,6 +7,17 @@ fn validate_i32_bound(field: &str, value: usize) -> Result<(), String> {
     Ok(())
 }
 
+// Ensures `value * scale` fits in i32, preventing overflow in downstream i32 arithmetic.
+fn validate_i32_bound_scaled(field: &str, value: usize, scale: i32) -> Result<(), String> {
+    let max = (i32::MAX / scale) as usize;
+    if value > max {
+        return Err(format!(
+            "{field} must be <= {max} ({field} * {scale} must fit in i32)"
+        ));
+    }
+    Ok(())
+}
+
 /// ModernBERT config (config.json).
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
@@ -46,7 +57,8 @@ impl Config {
     /// `hidden_size` is not divisible by `num_attention_heads`. The exact
     /// message text is not part of the stable API contract.
     pub fn validate(&self) -> Result<(), String> {
-        validate_i32_bound("hidden_size", self.hidden_size)?;
+        // `hidden_size * 3` is computed during Wqkv construction, so bound it to `i32::MAX / 3`.
+        validate_i32_bound_scaled("hidden_size", self.hidden_size, 3)?;
         if self.hidden_size == 0 {
             return Err("hidden_size must be > 0".into());
         }
@@ -67,17 +79,13 @@ impl Config {
         if self.vocab_size == 0 {
             return Err("vocab_size must be > 0".into());
         }
-        validate_i32_bound("intermediate_size", self.intermediate_size)?;
+        // `intermediate_size * 2` is computed during Wi construction, so bound it to `i32::MAX / 2`.
+        validate_i32_bound_scaled("intermediate_size", self.intermediate_size, 2)?;
         validate_i32_bound("max_position_embeddings", self.max_position_embeddings)?;
         if self.max_position_embeddings == 0 {
             return Err("max_position_embeddings must be > 0".into());
         }
-        if self.local_attention / 2 > i32::MAX as usize {
-            return Err(format!(
-                "local_attention / 2 must be <= {}",
-                i32::MAX
-            ));
-        }
+        validate_i32_bound("local_attention / 2", self.local_attention / 2)?;
         Ok(())
     }
 }
@@ -160,9 +168,9 @@ pub mod tests {
     }
 
     #[test]
-    fn config_validate_rejects_hidden_size_above_i32_max() {
+    fn config_validate_rejects_hidden_size_above_i32_max_div_3() {
         let mut c = test_config();
-        c.hidden_size = i32::MAX as usize + 1;
+        c.hidden_size = (i32::MAX / 3) as usize + 1;
         assert!(c.validate().unwrap_err().contains("hidden_size"));
     }
 
@@ -181,9 +189,9 @@ pub mod tests {
     }
 
     #[test]
-    fn config_validate_rejects_intermediate_size_above_i32_max() {
+    fn config_validate_rejects_intermediate_size_above_i32_max_div_2() {
         let mut c = test_config();
-        c.intermediate_size = i32::MAX as usize + 1;
+        c.intermediate_size = (i32::MAX / 2) as usize + 1;
         assert!(c.validate().unwrap_err().contains("intermediate_size"));
     }
 
@@ -191,9 +199,15 @@ pub mod tests {
     fn config_validate_rejects_max_position_embeddings_above_i32_max() {
         let mut c = test_config();
         c.max_position_embeddings = i32::MAX as usize + 1;
-        assert!(c.validate().unwrap_err().contains("max_position_embeddings"));
+        assert!(
+            c.validate()
+                .unwrap_err()
+                .contains("max_position_embeddings")
+        );
     }
 
+    // `(i32::MAX as usize) * 2 + 2` overflows on 32-bit `usize` targets; guard accordingly.
+    #[cfg(target_pointer_width = "64")]
     #[test]
     fn config_validate_rejects_local_attention_half_above_i32_max() {
         let mut c = test_config();
