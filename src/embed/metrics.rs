@@ -25,6 +25,9 @@ pub(super) struct PhaseMetrics {
     pub batch_size: usize,
     /// Largest `max_seq_len` observed in this call.
     pub max_seq_len: usize,
+    /// Chunk count per length bucket, indexed by `assign_bucket`. The sum
+    /// equals `num_chunks`; exposes length distribution from a single log line.
+    pub bucket_hist: [usize; 4],
 }
 
 impl PhaseMetrics {
@@ -40,14 +43,14 @@ impl PhaseMetrics {
         padding_ratio(self.real_tokens, self.padded_tokens)
     }
 
-    /// Emit one structured debug line summarising this call.
-    pub(super) fn log(&self) {
-        log::debug!(
+    fn format_log(&self) -> String {
+        format!(
             "embed[{kind}] \
              tokenize_ms={tokenize} chunk_plan_ms={plan} forward_eval_ms={forward} \
              readback_pool_ms={readback} cache_clear_ms={clear} \
              real_tokens={real} padded_tokens={padded} padding_ratio={ratio:.3} \
-             num_chunks={chunks} batch_size={batch} max_seq_len={max_seq}",
+             num_chunks={chunks} batch_size={batch} max_seq_len={max_seq} \
+             bucket_hist=[{h0},{h1},{h2},{h3}]",
             kind = self.kind,
             tokenize = self.tokenize.as_millis(),
             plan = self.chunk_plan.as_millis(),
@@ -60,7 +63,18 @@ impl PhaseMetrics {
             chunks = self.num_chunks,
             batch = self.batch_size,
             max_seq = self.max_seq_len,
-        );
+            h0 = self.bucket_hist[0],
+            h1 = self.bucket_hist[1],
+            h2 = self.bucket_hist[2],
+            h3 = self.bucket_hist[3],
+        )
+    }
+
+    /// Emit one structured debug line summarising this call.
+    pub(super) fn log(&self) {
+        if log::log_enabled!(log::Level::Debug) {
+            log::debug!("{}", self.format_log());
+        }
     }
 }
 
@@ -115,5 +129,31 @@ mod tests {
         let m = PhaseMetrics::new("query");
         assert_eq!(m.kind, "query");
         assert_eq!(m.padded_tokens, 0);
+    }
+
+    // T-MET-001: format_log includes bucket_hist in the expected schema so
+    // smoke logs expose chunk-length distribution from a single line (AC-9).
+    #[test]
+    fn t_met_001_format_log_contains_bucket_hist() {
+        let mut m = PhaseMetrics::new("batch");
+        m.bucket_hist = [3, 5, 2, 1];
+        m.num_chunks = 11;
+        let line = m.format_log();
+        assert!(
+            line.contains("bucket_hist=[3,5,2,1]"),
+            "log line must match spec schema [N0,N1,N2,N3] (got: {line})"
+        );
+    }
+
+    // T-MET-002: bucket_hist sum invariant equals num_chunks so each chunk is
+    // counted in exactly one bucket across query and batch paths.
+    #[test]
+    fn t_met_002_bucket_hist_sum_matches_num_chunks() {
+        let m = PhaseMetrics {
+            num_chunks: 7,
+            bucket_hist: [2, 3, 1, 1],
+            ..Default::default()
+        };
+        assert_eq!(m.bucket_hist.iter().sum::<usize>(), m.num_chunks);
     }
 }
