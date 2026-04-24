@@ -53,6 +53,15 @@ fn t_007_sort_results_descending_by_score() {
 }
 
 #[test]
+fn t_007b_sort_results_ties_break_by_original_index() {
+    // scores: [0.5, 0.7, 0.7, 0.5] — desc by score, asc by index on ties.
+    let scores = vec![0.5, 0.7, 0.7, 0.5];
+    let results = sort_results(&scores);
+    let indices: Vec<usize> = results.iter().map(|r| r.index).collect();
+    assert_eq!(indices, vec![1, 2, 0, 3]);
+}
+
+#[test]
 fn t_013_cache_lookup_returns_some_when_all_files_present() {
     let dir = tempfile::tempdir().unwrap();
     let model = RerankerModelId::RuriV3Reranker310m;
