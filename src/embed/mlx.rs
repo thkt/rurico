@@ -11,6 +11,66 @@ use crate::mlx_cache::release_inference_output;
 use crate::model_io::pad_sequences;
 use crate::modernbert::ModernBert;
 
+/// Length-bucket upper bounds. A chunk with `len` tokens lands in the first
+/// bucket whose `BUCKET_BOUNDS[i] >= len`. Final bucket equals [`MAX_SEQ_LEN`]
+/// so every valid chunk (post-shrink) resolves to some bucket.
+///
+/// Bucketing keeps padding waste bounded by the bucket ceiling rather than the
+/// global max chunk length, so a short chunk batched with a long one pays
+/// at most the bucket's padding cost (Spec R-M01, AC-4, NFR-003).
+pub(super) const BUCKET_BOUNDS: [usize; 4] = [128, 512, 2048, MAX_SEQ_LEN];
+
+/// Per-chunk metadata carried through bucket forward so the flat output can be
+/// restored to the original position after bucket passes reorder by length.
+#[derive(Debug, Clone)]
+pub(super) struct IndexedChunk {
+    /// Position in the flat `all_chunk_tokens` ordering emitted by planning.
+    global_idx: usize,
+    /// Tokenized chunk payload (includes prefix + BOS/EOS).
+    tokens: Vec<u32>,
+}
+
+/// Assign `len` to a bucket via the first `BUCKET_BOUNDS[i] >= len`.
+///
+/// # Panics
+///
+/// Panics if `len > MAX_SEQ_LEN`. Callers must ensure chunks have already
+/// been shrunk to fit (via `shrink_chunk_to_fit`).
+pub(super) fn assign_bucket(len: usize) -> usize {
+    BUCKET_BOUNDS
+        .iter()
+        .position(|&max| len <= max)
+        .expect("chunk len exceeds MAX_SEQ_LEN; shrink_chunk_to_fit must run first")
+}
+
+/// Partition indexed chunks into the four length buckets.
+///
+/// Kept as a standalone helper so the pure distribution logic can be tested
+/// without spinning up MLX (T-BKT-005, T-BKT-006).
+pub(super) fn distribute_into_buckets(chunks: Vec<IndexedChunk>) -> [Vec<IndexedChunk>; 4] {
+    let mut buckets: [Vec<IndexedChunk>; 4] = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
+    for chunk in chunks {
+        let b = assign_bucket(chunk.tokens.len());
+        buckets[b].push(chunk);
+    }
+    buckets
+}
+
+/// Wrap flat chunk tokens into indexed chunks. `global_idx` anchors each
+/// chunk to its pre-bucketing position so bucket forward can reorder by
+/// length yet still restore output order via the `global_idx` lookup.
+fn build_indexed_chunks(all_chunk_tokens: Vec<Vec<u32>>) -> Vec<IndexedChunk> {
+    all_chunk_tokens
+        .into_iter()
+        .enumerate()
+        .map(|(global_idx, tokens)| IndexedChunk { global_idx, tokens })
+        .collect()
+}
+
+/// Token-count ceiling for a single forward pass. Matches the pre-bucketing
+/// value so the memory budget is unchanged by bucketing.
+const TOKEN_BUDGET: usize = 256_000;
+
 pub(super) struct EmbedderInner {
     model: ModernBert,
     tokenizer: tokenizers::Tokenizer,
@@ -99,8 +159,9 @@ impl EmbedderInner {
     /// Batch-embed documents with chunking support.
     ///
     /// Short documents produce a single chunk identical to pre-chunking output.
-    /// Long documents are split into overlapping chunks. All chunks from all
-    /// documents are flattened into a single forward pass.
+    /// Long documents are split into overlapping chunks. Chunks are routed into
+    /// four length buckets (`[128, 512, 2048, MAX_SEQ_LEN]`) and forwarded per
+    /// bucket, keeping padding waste bounded by the bucket ceiling.
     pub(super) fn embed_documents_batch_chunked(
         &mut self,
         texts: &[&str],
@@ -120,52 +181,35 @@ impl EmbedderInner {
             max_content_tokens,
         )?;
         metrics.chunk_plan = t_plan.elapsed();
-        metrics.num_chunks = all_chunk_tokens.len();
+        let total_chunks = all_chunk_tokens.len();
+        metrics.num_chunks = total_chunks;
 
-        // Split into sub-batches bounded by TOKEN_BUDGET total positions to avoid
-        // Metal OOM when long sequences produce large padded tensors.
-        // TOKEN_BUDGET = 256K positions ≈ 128 chunks × 2048 tokens, which matches
-        // the empirically confirmed safe range for ruri-v3-310m on Apple Silicon.
-        const TOKEN_BUDGET: usize = 256_000;
-        let max_len_overall = all_chunk_tokens.iter().map(Vec::len).max().unwrap_or(1);
-        let sub_batch_size = (TOKEN_BUDGET / max_len_overall).max(1);
+        let buckets = distribute_into_buckets(build_indexed_chunks(all_chunk_tokens));
 
-        let mut all_embeddings = Vec::with_capacity(all_chunk_tokens.len());
-        for sub_batch in all_chunk_tokens.chunks(sub_batch_size) {
-            let (input_ids, attention_mask, batch_size, max_len) = pad_sequences(sub_batch, None);
-            // Pre-padding lengths sum to the real token count (pad_sequences pads with 0).
-            metrics.real_tokens += sub_batch.iter().map(Vec::len).sum::<usize>();
-            metrics.padded_tokens += batch_size * max_len;
-            metrics.batch_size = metrics.batch_size.max(batch_size);
-            metrics.max_seq_len = metrics.max_seq_len.max(max_len);
+        let mut out: Vec<Option<Vec<f32>>> = (0..total_chunks).map(|_| None).collect();
 
-            let batch_size_i32 = i32::try_from(batch_size).expect("batch_size fits in i32");
-            let max_len_i32 = i32::try_from(max_len).expect("max_len fits in i32");
-            let t_forward = Instant::now();
-            let output = self
-                .model
-                .forward(&input_ids, &attention_mask, batch_size_i32, max_len_i32)
-                .map_err(EmbedError::inference)?;
-
-            let sub_result = (|| {
-                output.eval().map_err(EmbedError::inference)?;
-                metrics.forward_eval += t_forward.elapsed();
-
-                let t_readback = Instant::now();
-                let flat: &[f32] = output.as_slice();
-                let unpacked = unpack_batch_output(flat, batch_size, max_len, &attention_mask)?;
-                metrics.readback_pool += t_readback.elapsed();
-                Ok(unpacked)
-            })();
-            let t_clear = Instant::now();
-            release_inference_output(output);
-            metrics.cache_clear += t_clear.elapsed();
-            all_embeddings.extend(sub_result?);
+        for (bucket_idx, bucket) in buckets.into_iter().enumerate() {
+            if bucket.is_empty() {
+                continue;
+            }
+            // sub_batch_size against the bucket ceiling keeps every possible
+            // sub-batch under TOKEN_BUDGET even when every chunk is at the
+            // bucket_max boundary — same OOM guarantee as pre-bucketing.
+            let sub_batch_size = (TOKEN_BUDGET / BUCKET_BOUNDS[bucket_idx]).max(1);
+            for sub_batch in bucket.chunks(sub_batch_size) {
+                self.forward_sub_batch(sub_batch, &mut out, &mut metrics)?;
+            }
         }
 
         metrics.log();
 
-        // Regroup by document, preserving input order
+        // Invariant: each global_idx was written exactly once across all bucket
+        // forwards. None here signals a distribution or unpack bug, not input.
+        let all_embeddings: Vec<Vec<f32>> = out
+            .into_iter()
+            .map(|slot| slot.expect("every chunk slot must be filled by bucket forward"))
+            .collect();
+
         let mut results = Vec::with_capacity(texts.len());
         let mut iter = all_embeddings.into_iter();
         for &count in &chunks_per_doc {
@@ -174,6 +218,49 @@ impl EmbedderInner {
         }
 
         Ok(results)
+    }
+
+    /// Forward one sub-batch of indexed chunks, write pooled embeddings into
+    /// `out` at each chunk's `global_idx`, and accumulate metrics.
+    fn forward_sub_batch(
+        &mut self,
+        sub_batch: &[IndexedChunk],
+        out: &mut [Option<Vec<f32>>],
+        metrics: &mut PhaseMetrics,
+    ) -> Result<(), EmbedError> {
+        let sub_tokens: Vec<Vec<u32>> = sub_batch.iter().map(|c| c.tokens.clone()).collect();
+        let (input_ids, attention_mask, batch_size, max_len) = pad_sequences(&sub_tokens, None);
+        metrics.real_tokens += sub_tokens.iter().map(Vec::len).sum::<usize>();
+        metrics.padded_tokens += batch_size * max_len;
+        metrics.batch_size = metrics.batch_size.max(batch_size);
+        metrics.max_seq_len = metrics.max_seq_len.max(max_len);
+
+        let batch_size_i32 = i32::try_from(batch_size).expect("batch_size fits in i32");
+        let max_len_i32 = i32::try_from(max_len).expect("max_len fits in i32");
+        let t_forward = Instant::now();
+        let output = self
+            .model
+            .forward(&input_ids, &attention_mask, batch_size_i32, max_len_i32)
+            .map_err(EmbedError::inference)?;
+
+        let sub_result: Result<Vec<Vec<f32>>, EmbedError> = (|| {
+            output.eval().map_err(EmbedError::inference)?;
+            metrics.forward_eval += t_forward.elapsed();
+
+            let t_readback = Instant::now();
+            let flat: &[f32] = output.as_slice();
+            let unpacked = unpack_batch_output(flat, batch_size, max_len, &attention_mask)?;
+            metrics.readback_pool += t_readback.elapsed();
+            Ok(unpacked)
+        })();
+        let t_clear = Instant::now();
+        release_inference_output(output);
+        metrics.cache_clear += t_clear.elapsed();
+
+        for (chunk, emb) in sub_batch.iter().zip(sub_result?) {
+            out[chunk.global_idx] = Some(emb);
+        }
+        Ok(())
     }
 }
 
@@ -318,6 +405,10 @@ mod tests {
     use std::panic::catch_unwind;
     use std::sync::{Mutex, PoisonError};
 
+    use super::{
+        BUCKET_BOUNDS, IndexedChunk, assign_bucket, build_indexed_chunks, distribute_into_buckets,
+    };
+
     #[test]
     fn poison_recovery_pattern_works() {
         let lock = Mutex::new(());
@@ -329,5 +420,87 @@ mod tests {
         // Same pattern as mlx_cache::release_inference_output — unwrap_or_else recovers the guard
         let guard = lock.lock().unwrap_or_else(PoisonError::into_inner);
         drop(guard);
+    }
+
+    fn make_chunk(global_idx: usize, token_count: usize) -> IndexedChunk {
+        IndexedChunk {
+            global_idx,
+            tokens: vec![0u32; token_count],
+        }
+    }
+
+    // T-BKT-001: assign_bucket boundary at 128 / 129
+    #[test]
+    fn t_bkt_001_assign_bucket_boundary_128_129() {
+        assert_eq!(assign_bucket(1), 0, "len=1 is in bucket 0");
+        assert_eq!(
+            assign_bucket(128),
+            0,
+            "len=128 is in bucket 0 (upper bound)"
+        );
+        assert_eq!(assign_bucket(129), 1, "len=129 crosses into bucket 1");
+    }
+
+    // T-BKT-002: assign_bucket boundary at 512 / 513
+    #[test]
+    fn t_bkt_002_assign_bucket_boundary_512_513() {
+        assert_eq!(
+            assign_bucket(512),
+            1,
+            "len=512 is in bucket 1 (upper bound)"
+        );
+        assert_eq!(assign_bucket(513), 2, "len=513 crosses into bucket 2");
+    }
+
+    // T-BKT-003: assign_bucket boundary at 2048 / 2049
+    #[test]
+    fn t_bkt_003_assign_bucket_boundary_2048_2049() {
+        assert_eq!(
+            assign_bucket(2048),
+            2,
+            "len=2048 is in bucket 2 (upper bound)"
+        );
+        assert_eq!(assign_bucket(2049), 3, "len=2049 crosses into bucket 3");
+    }
+
+    // T-BKT-004: assign_bucket accepts up to MAX_SEQ_LEN (8192)
+    #[test]
+    fn t_bkt_004_assign_bucket_max_seq_len() {
+        assert_eq!(
+            assign_bucket(BUCKET_BOUNDS[3]),
+            3,
+            "len=MAX_SEQ_LEN is in final bucket"
+        );
+    }
+
+    // T-BKT-005: all chunks at len=300 land in bucket 1; other buckets stay empty
+    #[test]
+    fn t_bkt_005_uniform_length_single_bucket() {
+        let chunks: Vec<IndexedChunk> = (0..10).map(|i| make_chunk(i, 300)).collect();
+        let buckets = distribute_into_buckets(chunks);
+        assert_eq!(buckets[0].len(), 0, "bucket 0 (<=128) should be empty");
+        assert_eq!(buckets[1].len(), 10, "all len=300 chunks in bucket 1");
+        assert_eq!(buckets[2].len(), 0, "bucket 2 (<=2048) should be empty");
+        assert_eq!(buckets[3].len(), 0, "bucket 3 should be empty");
+    }
+
+    // T-BKT-006: single-chunk distribution — other buckets empty, one bucket has 1
+    #[test]
+    fn t_bkt_006_single_chunk_distribution() {
+        let buckets = distribute_into_buckets(vec![make_chunk(0, 50)]);
+        let total: usize = buckets.iter().map(Vec::len).sum();
+        assert_eq!(total, 1, "single chunk routes to exactly one bucket");
+        assert_eq!(buckets[0].len(), 1, "len=50 lands in bucket 0");
+    }
+
+    #[test]
+    fn build_indexed_chunks_assigns_sequential_global_idx() {
+        let all_chunks = vec![vec![1u32; 10], vec![2u32; 20], vec![3u32; 30]];
+        let indexed = build_indexed_chunks(all_chunks);
+        let shape: Vec<(usize, usize)> = indexed
+            .iter()
+            .map(|c| (c.global_idx, c.tokens.len()))
+            .collect();
+        assert_eq!(shape, vec![(0, 10), (1, 20), (2, 30)]);
     }
 }
