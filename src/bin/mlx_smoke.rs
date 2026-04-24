@@ -10,7 +10,40 @@ use rurico::embed::{self, Embed};
 use rurico::model_probe;
 use rurico::sandbox;
 
+/// Minimal `log` crate subscriber that writes every record to stderr.
+///
+/// Kept inside the smoke binary so that debug logs emitted by the library are
+/// visible when this binary runs, without forcing a logging backend on
+/// library consumers.
+struct StderrLogger;
+
+impl log::Log for StderrLogger {
+    fn enabled(&self, _: &log::Metadata) -> bool {
+        true
+    }
+    fn log(&self, record: &log::Record) {
+        if self.enabled(record.metadata()) {
+            eprintln!(
+                "[{}] {}: {}",
+                record.level(),
+                record.target(),
+                record.args()
+            );
+        }
+    }
+    fn flush(&self) {}
+}
+
+static LOGGER: StderrLogger = StderrLogger;
+
+fn init_logger() {
+    let _ = log::set_logger(&LOGGER);
+    log::set_max_level(log::LevelFilter::Debug);
+}
+
 fn main() {
+    init_logger();
+
     // Also acts as a probe subprocess when probe env vars are set.
     model_probe::handle_probe_if_needed();
 
