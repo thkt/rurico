@@ -504,18 +504,10 @@ mod tests {
     /// Run with `cargo test --features test-mlx -- --ignored` outside Codex seatbelt.
     #[cfg(feature = "test-mlx")]
     mod mlx_runtime_tests {
-        use std::env;
-
         use serial_test::serial;
 
         use super::*;
-
-        fn require_unsandboxed_mlx_runtime() {
-            assert!(
-                !env::var("CODEX_SANDBOX").is_ok_and(|v| v == "seatbelt"),
-                "MLX runtime tests must run outside Codex seatbelt sandbox"
-            );
-        }
+        use crate::sandbox::require_unsandboxed_mlx_runtime;
 
         #[test]
         #[ignore = "requires unsandboxed MLX runtime"]

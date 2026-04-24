@@ -9,7 +9,7 @@
 
 use std::process::{Command, Output};
 
-const SEATBELT_SKIP_EXIT: i32 = 78;
+use rurico::sandbox::SEATBELT_SKIP_EXIT;
 
 /// Run the embed smoke binary and check it succeeds.
 ///

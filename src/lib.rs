@@ -15,6 +15,8 @@ pub mod model_probe;
 pub mod modernbert;
 /// Cross-encoder reranker for query-document relevance scoring.
 pub mod reranker;
+/// Codex seatbelt sandbox detection for MLX runtime gating.
+pub mod sandbox;
 /// SQLite-backed vector + FTS5 hybrid storage.
 pub mod storage;
 #[cfg(test)]

@@ -8,29 +8,15 @@
 //! `Embedder::probe()` re-execs `current_exe()`, it re-execs this binary —
 //! so the full probe cycle is exercised end-to-end.
 
-use std::env;
-use std::process;
-
 use rurico::embed::{Embedder, ModelId, ProbeStatus, cached_artifacts};
 use rurico::model_probe;
-
-const SEATBELT_SKIP_EXIT: i32 = 78;
-
-fn codex_seatbelt_sandbox_active() -> bool {
-    env::var("CODEX_SANDBOX").is_ok_and(|v| v == "seatbelt")
-}
+use rurico::sandbox;
 
 fn main() {
     // Must be first: handles re-exec when called as a probe subprocess.
     model_probe::handle_probe_if_needed();
 
-    if codex_seatbelt_sandbox_active() {
-        eprintln!(
-            "probe_embed_smoke: skipped in Codex seatbelt sandbox; \
-             run outside sandbox for MLX probe verification"
-        );
-        process::exit(SEATBELT_SKIP_EXIT);
-    }
+    sandbox::exit_if_seatbelt(env!("CARGO_BIN_NAME"));
 
     let artifacts = cached_artifacts(ModelId::default())
         .expect("embed cache lookup failed")
