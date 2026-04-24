@@ -460,6 +460,42 @@ mod tests {
         assert!(result.is_err());
     }
 
+    fn assert_new_rejects_without_panicking(config: &Config, expected_field: &str) {
+        use std::panic::{AssertUnwindSafe, catch_unwind};
+
+        let outcome = catch_unwind(AssertUnwindSafe(|| ModernBert::new(config)));
+        assert!(
+            outcome.is_ok(),
+            "oversized config should return Err, not panic"
+        );
+
+        let err = outcome
+            .unwrap()
+            .expect_err("oversized config should be rejected");
+        let expected = format!("invalid config: {expected_field}");
+        assert!(
+            err.what().contains(&expected),
+            "expected error to contain {expected:?}, got: {}",
+            err.what()
+        );
+    }
+
+    #[test]
+    fn new_rejects_hidden_size_above_bound_without_panicking() {
+        let mut config = test_config();
+        // Just above `i32::MAX / 3`; would overflow `h * 3` in Wqkv if not rejected.
+        config.hidden_size = (i32::MAX / 3) as usize + 1;
+        assert_new_rejects_without_panicking(&config, "hidden_size");
+    }
+
+    #[test]
+    fn new_rejects_intermediate_size_above_bound_without_panicking() {
+        let mut config = test_config();
+        // Just above `i32::MAX / 2`; would overflow `inter * 2` in Wi if not rejected.
+        config.intermediate_size = (i32::MAX / 2) as usize + 1;
+        assert_new_rejects_without_panicking(&config, "intermediate_size");
+    }
+
     #[test]
     fn validate_mask_rejects_fully_masked_row() {
         let result = validate_attention_mask(&[0, 0, 0], 3);
