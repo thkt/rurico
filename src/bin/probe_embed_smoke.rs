@@ -10,10 +10,13 @@
 
 use rurico::embed::{Embedder, ModelId, ProbeStatus, cached_artifacts};
 use rurico::model_probe;
+use rurico::sandbox;
 
 fn main() {
     // Must be first: handles re-exec when called as a probe subprocess.
     model_probe::handle_probe_if_needed();
+
+    sandbox::exit_if_seatbelt(env!("CARGO_BIN_NAME"));
 
     let artifacts = cached_artifacts(ModelId::default())
         .expect("embed cache lookup failed")

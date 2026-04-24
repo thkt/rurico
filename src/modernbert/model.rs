@@ -501,16 +501,19 @@ mod tests {
     }
 
     /// MLX runtime tests — may abort due to foreign exceptions from mlx-rs FFI.
-    /// Run with `cargo test --features test-mlx`.
+    /// Run with `cargo test --features test-mlx -- --ignored` outside Codex seatbelt.
     #[cfg(feature = "test-mlx")]
     mod mlx_runtime_tests {
         use serial_test::serial;
 
         use super::*;
+        use crate::sandbox::require_unsandboxed_mlx_runtime;
 
         #[test]
+        #[ignore = "requires unsandboxed MLX runtime"]
         #[serial]
         fn forward_produces_correct_shape() {
+            require_unsandboxed_mlx_runtime();
             let config = test_config();
             let mut model = ModernBert::new(&config).expect("create model");
 
@@ -522,8 +525,10 @@ mod tests {
         }
 
         #[test]
+        #[ignore = "requires unsandboxed MLX runtime"]
         #[serial]
         fn forward_different_seq_lengths() {
+            require_unsandboxed_mlx_runtime();
             let config = test_config();
             let mut model = ModernBert::new(&config).expect("create model");
 
@@ -534,8 +539,10 @@ mod tests {
         }
 
         #[test]
+        #[ignore = "requires unsandboxed MLX runtime"]
         #[serial]
         fn forward_with_padding_mask() {
+            require_unsandboxed_mlx_runtime();
             let config = test_config();
             let mut model = ModernBert::new(&config).expect("create model");
 
@@ -547,8 +554,10 @@ mod tests {
         }
 
         #[test]
+        #[ignore = "requires unsandboxed MLX runtime"]
         #[serial]
         fn global_mask_values() {
+            require_unsandboxed_mlx_runtime();
             let mask = Array::from_slice(&[1u32, 1, 0], &[1, 3]);
             let result = prepare_4d_attention_mask(&mask, 1, 3).expect("mask");
             result.eval().unwrap();
@@ -565,8 +574,10 @@ mod tests {
         }
 
         #[test]
+        #[ignore = "requires unsandboxed MLX runtime"]
         #[serial]
         fn global_mask_all_ones() {
+            require_unsandboxed_mlx_runtime();
             let mask = Array::from_slice(&[1u32, 1, 1, 1], &[1, 4]);
             let result = prepare_4d_attention_mask(&mask, 1, 4).expect("mask");
             result.eval().unwrap();
@@ -578,8 +589,10 @@ mod tests {
         }
 
         #[test]
+        #[ignore = "requires unsandboxed MLX runtime"]
         #[serial]
         fn local_mask_window() {
+            require_unsandboxed_mlx_runtime();
             let result = get_local_attention_mask(5, 1).expect("local mask");
             result.eval().unwrap();
 
@@ -603,8 +616,10 @@ mod tests {
         }
 
         #[test]
+        #[ignore = "requires unsandboxed MLX runtime"]
         #[serial]
         fn local_mask_zero_window() {
+            require_unsandboxed_mlx_runtime();
             let result = get_local_attention_mask(3, 0).expect("local mask");
             result.eval().unwrap();
 
@@ -622,8 +637,10 @@ mod tests {
         }
 
         #[test]
+        #[ignore = "requires unsandboxed MLX runtime"]
         #[serial]
         fn t_010_forward_truncates_oversize_input() {
+            require_unsandboxed_mlx_runtime();
             // [T-010] seq_len > max_seq_len → truncate + warn, not error
             let config = test_config(); // max_position_embeddings = 512
             let mut model = ModernBert::new(&config).expect("create model");
@@ -654,8 +671,10 @@ mod tests {
         }
 
         #[test]
+        #[ignore = "requires unsandboxed MLX runtime"]
         #[serial]
         fn forward_rejects_oversize_seq_with_short_buffer() {
+            require_unsandboxed_mlx_runtime();
             let config = test_config(); // max_position_embeddings = 512
             let mut model = ModernBert::new(&config).expect("create model");
 
@@ -672,8 +691,10 @@ mod tests {
         }
 
         #[test]
+        #[ignore = "requires unsandboxed MLX runtime"]
         #[serial]
         fn forward_rejects_zero_batch_size() {
+            require_unsandboxed_mlx_runtime();
             let config = test_config();
             let mut model = ModernBert::new(&config).expect("create model");
 
@@ -689,8 +710,10 @@ mod tests {
         }
 
         #[test]
+        #[ignore = "requires unsandboxed MLX runtime"]
         #[serial]
         fn forward_rejects_negative_batch_size() {
+            require_unsandboxed_mlx_runtime();
             let config = test_config();
             let mut model = ModernBert::new(&config).expect("create model");
 

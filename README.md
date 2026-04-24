@@ -259,8 +259,12 @@ assert_eq!(v.len(), 768);
 
 ```sh
 cargo test                    # MLX ランタイム不要のテスト
-cargo test --features test-mlx  # MLX ランタイムテスト（SIGABRT の可能性あり）
+cargo test --features test-mlx -- --ignored  # MLX ランタイムテスト（通常 Terminal 推奨）
 ```
+
+Codex Desktop の `CODEX_SANDBOX=seatbelt` 環境では、MLX / Metal 初期化が abort することがあるため、
+smoke binary は専用 exit code で停止し、`test-mlx` は ignored のままにしている。
+実検証は通常の Terminal か、sandbox 外の実行環境で行う。
 
 ## ライセンス
 

@@ -9,6 +9,8 @@
 
 use std::process::{Command, Output};
 
+use rurico::sandbox::SEATBELT_SKIP_EXIT;
+
 /// Run the embed smoke binary and check it succeeds.
 ///
 /// Covers: query embedding, document embedding (short + long + batch),
@@ -60,6 +62,12 @@ fn assert_smoke_success(output: &Output) {
         return;
     }
     let stderr = String::from_utf8_lossy(&output.stderr);
+    if output.status.code() == Some(SEATBELT_SKIP_EXIT) {
+        panic!(
+            "smoke binary skipped in Codex seatbelt sandbox; \
+             run this verification outside the sandbox\nstderr: {stderr}"
+        );
+    }
     #[cfg(unix)]
     {
         use std::os::unix::process::ExitStatusExt;
