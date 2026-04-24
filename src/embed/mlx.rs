@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use super::Artifacts;
-use super::metrics::PhaseMetrics;
+use super::metrics::{BatchMetrics, PhaseMetrics};
 use super::{
     CHUNK_OVERLAP_TOKENS, ChunkedEmbedding, DOCUMENT_PREFIX, EmbedError, EmbedInitError,
     MAX_SEQ_LEN, extract_prefix_tokens, max_content, postprocess_embedding, tokenize_with_prefix,
@@ -206,8 +206,21 @@ impl EmbedderInner {
         &mut self,
         texts: &[&str],
     ) -> Result<Vec<ChunkedEmbedding>, EmbedError> {
+        self.embed_documents_batch_chunked_with_metrics(texts)
+            .map(|(results, _metrics)| results)
+    }
+
+    /// Same as [`embed_documents_batch_chunked`](Self::embed_documents_batch_chunked)
+    /// but also returns a [`BatchMetrics`] snapshot of the call. Used by the
+    /// smoke harness (PR #6) to assert SLA + padding + R² bounds without
+    /// parsing a debug-log line. Empty `texts` yields
+    /// `(Vec::new(), BatchMetrics::default())`.
+    pub(super) fn embed_documents_batch_chunked_with_metrics(
+        &mut self,
+        texts: &[&str],
+    ) -> Result<(Vec<ChunkedEmbedding>, BatchMetrics), EmbedError> {
         if texts.is_empty() {
-            return Ok(Vec::new());
+            return Ok((Vec::new(), BatchMetrics::default()));
         }
 
         let mut metrics = PhaseMetrics::new("batch");
@@ -248,6 +261,7 @@ impl EmbedderInner {
         }
 
         metrics.log();
+        let batch_metrics = BatchMetrics::from(&metrics);
 
         // Invariant: each global_idx was written exactly once across all bucket
         // forwards. None here signals a distribution or unpack bug, not input.
@@ -263,7 +277,7 @@ impl EmbedderInner {
             results.push(ChunkedEmbedding { chunks });
         }
 
-        Ok(results)
+        Ok((results, batch_metrics))
     }
 
     /// Forward one sub-batch of indexed chunks, write pooled embeddings into

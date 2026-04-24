@@ -1,6 +1,7 @@
 use std::fmt::{self, Debug, Formatter};
 use std::sync::{Mutex, MutexGuard};
 
+use super::metrics::BatchMetrics;
 use super::mlx::EmbedderInner;
 use super::{
     Artifacts, ChunkedEmbedding, Embed, EmbedError, EmbedInitError, ProbeStatus, QUERY_PREFIX,
@@ -47,6 +48,28 @@ impl Embedder {
     /// [`embed_text`](Embed::embed_text) have this length.
     pub fn embedding_dims(&self) -> usize {
         self.embedding_dims
+    }
+
+    /// Batch-embed documents and return a [`BatchMetrics`] snapshot alongside
+    /// the embeddings.
+    ///
+    /// Equivalent to [`embed_documents_batch`](Embed::embed_documents_batch),
+    /// but exposes padding ratio, real/padded token counts, per-phase timings,
+    /// and the length-bucket histogram that would otherwise only surface in the
+    /// debug log. Intended for the Phase 2 smoke harness (SLA + R² linearity
+    /// assertions) and for downstream consumers that want structured
+    /// observability.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EmbedError`] on tokenization, inference, or post-processing
+    /// failure, matching [`embed_documents_batch`](Embed::embed_documents_batch).
+    pub fn embed_documents_batch_with_metrics(
+        &self,
+        texts: &[&str],
+    ) -> Result<(Vec<ChunkedEmbedding>, BatchMetrics), EmbedError> {
+        self.lock_inner()?
+            .embed_documents_batch_chunked_with_metrics(texts)
     }
 
     /// Test whether the model can load without aborting the caller.
