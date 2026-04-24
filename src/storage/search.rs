@@ -219,13 +219,19 @@ fn expand_token_via_vocab(
             Ok(Some(format!("({})", quoted.join(" OR "))))
         }
         Ok(_) => Ok(None),
-        Err(rusqlite::Error::SqliteFailure(_, Some(ref msg))) if msg.contains("no such table") => {
-            Ok(None)
-        }
-        Err(e) => {
-            Err(SanitizeError::VocabLookupFailed(e.to_string()))
-        }
+        Err(e) if is_missing_table_error(&e) => Ok(None),
+        Err(e) => Err(SanitizeError::VocabLookupFailed(e.to_string())),
     }
+}
+
+// SQLite reports missing tables via `SqliteFailure` with an English `errmsg`
+// containing "no such table". The extended code (`SQLITE_ERROR = 1`) covers
+// many other causes, so the message substring is the only portable signal.
+fn is_missing_table_error(err: &rusqlite::Error) -> bool {
+    matches!(
+        err,
+        rusqlite::Error::SqliteFailure(_, Some(msg)) if msg.contains("no such table")
+    )
 }
 
 fn is_valid_sql_identifier(value: &str) -> bool {
@@ -238,12 +244,21 @@ fn is_valid_sql_identifier(value: &str) -> bool {
 }
 
 /// Expand short terms (1-2 chars) via `fts5vocab` prefix matching.
-/// Falls back to quoting as-is when the vocab table is unavailable.
+/// Falls back to quoting as-is when the vocab table is missing.
 ///
 /// `vocab_table` must be an `fts5vocab` of type `row` or `col` (the SQL
 /// references the `term` and `cnt` columns). The name is interpolated into
 /// the SQL unescaped.
 ///
+/// # Errors
+///
+/// Returns:
+/// - [`SanitizeError::InvalidVocabTable`] if `vocab_table` is not a valid
+///   SQL identifier (non-empty, leading character ASCII alphabetic or `_`,
+///   remaining characters ASCII alphanumeric or `_`).
+/// - [`SanitizeError::VocabLookupFailed`] if SQLite fails while preparing
+///   or executing the vocab query for any reason other than the vocab table
+///   being absent.
 pub(crate) fn fts_expand_short_terms(
     conn: &Connection,
     query: &SanitizedFtsQuery,
@@ -259,12 +274,8 @@ pub(crate) fn fts_expand_short_terms(
     );
     let mut stmt = match conn.prepare_cached(&sql) {
         Ok(s) => Some(s),
-        Err(rusqlite::Error::SqliteFailure(_, Some(ref msg))) if msg.contains("no such table") => {
-            None
-        }
-        Err(e) => {
-            return Err(SanitizeError::VocabLookupFailed(e.to_string()));
-        }
+        Err(e) if is_missing_table_error(&e) => None,
+        Err(e) => return Err(SanitizeError::VocabLookupFailed(e.to_string())),
     };
 
     let mut parts = Vec::new();
@@ -496,6 +507,42 @@ mod tests {
             matches!(result, Err(SanitizeError::VocabLookupFailed(_))),
             "expected vocab lookup failure, got {result:?}"
         );
+    }
+
+    #[test]
+    fn prepare_match_query_with_missing_vocab_degrades() {
+        let conn = Connection::open_in_memory().unwrap();
+        let result = prepare_match_query(&conn, "au login", "fts_chunks_vocab").unwrap();
+        assert_eq!(result.as_str(), "\"au\" \"login\"");
+    }
+
+    fn prepare_err(conn: &Connection, sql: &str) -> rusqlite::Error {
+        let Err(e) = conn.prepare_cached(sql) else {
+            panic!("expected prepare_cached to fail for: {sql}");
+        };
+        e
+    }
+
+    #[test]
+    fn is_missing_table_error_detects_sqlite_no_such_table() {
+        let conn = Connection::open_in_memory().unwrap();
+        let err = prepare_err(&conn, "SELECT * FROM definitely_nonexistent");
+        assert!(is_missing_table_error(&err), "got {err:?}");
+    }
+
+    #[test]
+    fn is_missing_table_error_rejects_syntax_error() {
+        let conn = Connection::open_in_memory().unwrap();
+        let err = prepare_err(&conn, "SELECT FROM");
+        assert!(!is_missing_table_error(&err), "got {err:?}");
+    }
+
+    #[test]
+    fn is_missing_table_error_rejects_missing_column() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute("CREATE TABLE t(x INTEGER)", []).unwrap();
+        let err = prepare_err(&conn, "SELECT y FROM t");
+        assert!(!is_missing_table_error(&err), "got {err:?}");
     }
 
     fn sanitized(s: &str) -> SanitizedFtsQuery {
