@@ -5,6 +5,9 @@ mod probe;
 
 mod pooling;
 
+pub mod fixtures;
+pub mod workloads;
+
 #[cfg(any(test, feature = "test-support"))]
 mod test_support;
 
