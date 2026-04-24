@@ -4,6 +4,10 @@
 //! kills only the subprocess, not the test runner.
 //!
 //! - `smoke_full`: embed model functionality end-to-end (via `mlx_smoke`)
+//! - `smoke_verify_fixture`: Phase 2 numerical equivalence (T-BIT-001〜003)
+//!   — invokes `mlx_smoke verify-fixture` which compares W1/W2/W3 output
+//!   against `tests/fixtures/phase2_baseline/w{1,2,3}.bin` at Spec NFR-001
+//!   tolerances.
 //! - `probe_embed_smoke_binary`: embed subprocess probe contract (via `probe_embed_smoke`)
 //! - `probe_reranker_smoke_binary`: reranker subprocess probe contract (via `probe_reranker_smoke`)
 
@@ -24,6 +28,24 @@ fn smoke_full() {
     let output = Command::new(env!("CARGO_BIN_EXE_mlx_smoke"))
         .output()
         .expect("spawn smoke binary");
+    assert_smoke_success(&output);
+}
+
+/// T-BIT-001〜003: Phase 2 numerical equivalence check.
+///
+/// Runs the bucket-batched `embed_documents_batch` on W1/W2/W3, loads the
+/// committed Phase 1 fixtures, and verifies `cosine_similarity ≥ 0.99999`
+/// AND `max_abs_diff ≤ 1e-5` on every chunk pair (Spec NFR-001).
+///
+/// Re-generate the fixtures via `mlx_smoke capture-fixture` when the expected
+/// output genuinely changes (model upgrade, intentional algorithm change).
+#[test]
+#[ignore] // requires ruri-v3-310m cached + MLX (Apple Silicon)
+fn smoke_verify_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_mlx_smoke"))
+        .arg("verify-fixture")
+        .output()
+        .expect("spawn mlx_smoke verify-fixture");
     assert_smoke_success(&output);
 }
 

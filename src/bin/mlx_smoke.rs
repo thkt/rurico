@@ -17,15 +17,21 @@
 //! - `measure-baseline`: run W1/W2/W3 timing `embed_documents_batch` and a
 //!   sequential equivalent, emitting one `baseline[wN] ...` line per workload
 //!   so the numbers can be copied into `docs/benchmarks/phase1_baseline.md`.
+//! - `verify-fixture`: run W1/W2/W3, load the committed fixtures, and assert
+//!   numerical equivalence within Spec NFR-001 tolerances
+//!   (`cosine_similarity ≥ 0.99999 AND max_abs_diff ≤ 1e-5`). Fails non-zero
+//!   when any workload diverges; used by `tests/mlx_smoke.rs::smoke_verify_fixture`
+//!   to drive T-BIT-001〜003.
 
 use std::env;
 use std::fs::{self, File};
-use std::io::BufWriter;
+use std::io::{BufReader, BufWriter};
 use std::path::PathBuf;
 use std::time::Instant;
 
 use rurico::embed::{
-    self, Embed, fixtures,
+    self, Embed,
+    fixtures::{self, DEFAULT_COSINE_MIN, DEFAULT_MAX_ABS_DIFF},
     workloads::{workload_w1, workload_w2, workload_w3},
 };
 use rurico::model_probe;
@@ -80,10 +86,12 @@ fn main() {
     match mode.as_str() {
         "capture-fixture" => run_capture_fixture(&embedder),
         "measure-baseline" => run_measure_baseline(&embedder),
+        "verify-fixture" => run_verify_fixture(&embedder),
         "" => run_assertions(&embedder),
         unknown => {
             eprintln!(
-                "mlx_smoke: unknown mode {unknown:?} (known: capture-fixture, measure-baseline); \
+                "mlx_smoke: unknown mode {unknown:?} \
+                 (known: capture-fixture, measure-baseline, verify-fixture); \
                  running default assertions"
             );
             run_assertions(&embedder);
@@ -169,6 +177,56 @@ fn run_capture_fixture(embedder: &embed::Embedder) {
         );
     }
     eprintln!("capture-fixture: done");
+}
+
+// ── verify-fixture mode ──────────────────────────────────────────────────────
+
+fn run_verify_fixture(embedder: &embed::Embedder) {
+    let dir = fixture_dir();
+    let mut failures = Vec::new();
+
+    for (name, texts) in [
+        ("w1", workload_w1()),
+        ("w2", workload_w2()),
+        ("w3", workload_w3()),
+    ] {
+        let refs = as_refs(&texts);
+        let actual = embedder
+            .embed_documents_batch(&refs)
+            .unwrap_or_else(|e| panic!("embed {name}: {e}"));
+
+        let path = dir.join(format!("{name}.bin"));
+        let file =
+            File::open(&path).unwrap_or_else(|e| panic!("open fixture {}: {e}", path.display()));
+        let mut r = BufReader::new(file);
+        let expected = fixtures::load(&mut r).unwrap_or_else(|e| panic!("load {name}: {e}"));
+
+        match fixtures::compare(&expected, &actual) {
+            Ok(diff) => {
+                eprintln!(
+                    "verify[{name}] cosine_min={:.6} max_abs_diff={:.3e} \
+                     (thresholds: cos>={DEFAULT_COSINE_MIN}, diff<={DEFAULT_MAX_ABS_DIFF:.0e})",
+                    diff.cosine_min, diff.max_abs_diff
+                );
+                if diff.cosine_min < DEFAULT_COSINE_MIN || diff.max_abs_diff > DEFAULT_MAX_ABS_DIFF
+                {
+                    failures.push(format!(
+                        "{name}: cosine_min={:.6} max_abs_diff={:.3e} exceeds NFR-001",
+                        diff.cosine_min, diff.max_abs_diff
+                    ));
+                }
+            }
+            Err(shape) => failures.push(format!("{name}: shape mismatch: {shape:?}")),
+        }
+    }
+
+    if !failures.is_empty() {
+        for f in &failures {
+            eprintln!("verify-fixture FAIL: {f}");
+        }
+        panic!("verify-fixture: {} workload(s) diverged", failures.len());
+    }
+    eprintln!("verify-fixture: all workloads match fixtures within NFR-001");
 }
 
 // ── measure-baseline mode ────────────────────────────────────────────────────
