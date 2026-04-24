@@ -16,6 +16,11 @@ pub mod modernbert;
 /// Cross-encoder reranker for query-document relevance scoring.
 pub mod reranker;
 /// Codex seatbelt sandbox detection for MLX runtime gating.
+///
+/// Internal support API used by smoke binaries and integration tests. Exposed
+/// as `pub` for cross-target reuse within this crate — not part of the public
+/// semantic-search surface for downstream consumers.
+#[doc(hidden)]
 pub mod sandbox;
 /// SQLite-backed vector + FTS5 hybrid storage.
 pub mod storage;
