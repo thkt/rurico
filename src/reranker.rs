@@ -212,7 +212,9 @@ pub trait Rerank: Send + Sync {
 
     /// Rerank documents by relevance to a query.
     ///
-    /// Returns `Vec<RankedResult>` sorted by score descending.
+    /// Returns `Vec<RankedResult>` sorted by score descending. Ties on
+    /// `score` are broken by ascending original input index, so repeated
+    /// calls with identical scores produce identical ordering.
     fn rerank(&self, query: &str, documents: &[&str]) -> Result<Vec<RankedResult>, RerankerError>;
 }
 
@@ -275,8 +277,9 @@ impl Reranker {
 
     /// Rerank documents by relevance to a query.
     ///
-    /// Returns `Vec<RankedResult>` sorted by score descending. Each result
-    /// contains the original index in `documents` and the relevance score.
+    /// Returns `Vec<RankedResult>` sorted by score descending, with ties on
+    /// `score` broken by ascending original input index. Each result contains
+    /// the original index in `documents` and the relevance score.
     pub fn rerank(
         &self,
         query: &str,
