@@ -182,6 +182,7 @@ impl EmbedderInner {
         metrics.num_chunks = 1;
         metrics.batch_size = 1;
         metrics.max_seq_len = seq_len;
+        metrics.bucket_hist[assign_bucket(seq_len)] = 1;
         metrics.log();
 
         result
@@ -229,6 +230,7 @@ impl EmbedderInner {
         let mut out: Vec<Option<Vec<f32>>> = (0..total_chunks).map(|_| None).collect();
 
         for (bucket_idx, mut bucket) in buckets.into_iter().enumerate() {
+            metrics.bucket_hist[bucket_idx] = bucket.len();
             if bucket.is_empty() {
                 continue;
             }
