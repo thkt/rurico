@@ -29,7 +29,11 @@ pub use crate::artifacts::{ArtifactError, EmbedKind, VerifiedArtifacts};
 pub use crate::model_probe::{ProbeStatus, handle_probe_if_needed};
 pub use embedder::Embedder;
 pub use metrics::BatchMetrics;
-pub(crate) use pooling::postprocess_embedding;
+pub use pooling::gpu_pool_and_normalize;
+// Re-exported for the Phase 3a precursor probe bin (`src/bin/gpu_pool_probe.rs`).
+// Hidden from docs — the CPU reference path is removed in Phase 3c.
+#[doc(hidden)]
+pub use pooling::postprocess_embedding;
 pub(crate) use probe::probe_env_to_paths;
 
 use crate::artifacts::verify_as_embed;
