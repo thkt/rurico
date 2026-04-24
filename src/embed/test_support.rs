@@ -2,6 +2,45 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use super::{ChunkedEmbedding, EMBEDDING_DIMS, Embed, EmbedError};
 
+// ── Phase 2 reference workloads ──────────────────────────────────────────────
+//
+// Deterministic text generators for benchmarking `embed_documents_batch_chunked`.
+// Phase 1 (issue #52) established `padding_ratio=1.405` and `forward_eval_ms=16,896`
+// on the long-document mix that is now encoded as [`workload_w1`]. Workloads W2 and
+// W3 explore other shapes of chunk-length distribution to validate that bucket
+// batching improves the long-document case without degrading short-text throughput.
+
+/// W1: long-document mix. 2 texts, both chunked into multiple overlapping chunks.
+/// Matches the Phase 1 smoke's long-doc assertion (~7991 + ~3669 tokens).
+pub fn workload_w1() -> Vec<String> {
+    vec![
+        "apple pie is a traditional dessert enjoyed around the world. ".repeat(800),
+        "the rain in Spain falls mainly on the plain. ".repeat(500),
+    ]
+}
+
+/// W2: short-text-heavy batch. 100 texts, each ~50-70 characters
+/// (well below a single chunk boundary).
+pub fn workload_w2() -> Vec<String> {
+    (0..100)
+        .map(|i| format!("short text number {i} for benchmarking W2 workload"))
+        .collect()
+}
+
+/// W3: long/short alternating. 10 texts: 5 long (~4000-5600 tokens each)
+/// interleaved with 5 short (~100 bytes each). Stresses the long×short
+/// padding-waste case that bucket batching is designed to fix.
+pub fn workload_w3() -> Vec<String> {
+    (0..5)
+        .flat_map(|i| {
+            vec![
+                "benchmarking long text for W3 workload. ".repeat(100 + i * 10),
+                format!("short text {i}"),
+            ]
+        })
+        .collect()
+}
+
 fn one_hot(index: usize, dims: usize) -> Vec<f32> {
     let mut v = vec![0.0_f32; dims];
     v[index % dims] = 1.0;
@@ -230,5 +269,72 @@ impl Embed for AlternatingEmbedder {
 
     fn embed_text(&self, text: &str, _prefix: &str) -> Result<Vec<f32>, EmbedError> {
         self.embed_query(text)
+    }
+}
+
+#[cfg(test)]
+mod workload_tests {
+    use super::*;
+
+    // W1: 2 long texts, both containing their base phrase
+    #[test]
+    fn workload_w1_has_two_long_texts() {
+        let w = workload_w1();
+        assert_eq!(w.len(), 2);
+        assert!(w[0].contains("apple pie"));
+        assert!(w[1].contains("Spain"));
+        assert!(
+            w[0].len() > 40000,
+            "w1[0] should be long, got {}",
+            w[0].len()
+        );
+        assert!(
+            w[1].len() > 20000,
+            "w1[1] should be long, got {}",
+            w[1].len()
+        );
+    }
+
+    // W2: exactly 100 short texts, each under 80 bytes
+    #[test]
+    fn workload_w2_has_hundred_short_texts() {
+        let w = workload_w2();
+        assert_eq!(w.len(), 100);
+        assert!(
+            w.iter().all(|t| t.len() < 80),
+            "all W2 texts should be short"
+        );
+        assert!(w[0].contains("number 0"));
+        assert!(w[99].contains("number 99"));
+    }
+
+    // W3: 10 texts, alternating long/short
+    #[test]
+    fn workload_w3_alternates_long_and_short() {
+        let w = workload_w3();
+        assert_eq!(w.len(), 10);
+        for (i, text) in w.iter().enumerate() {
+            if i.is_multiple_of(2) {
+                assert!(
+                    text.len() > 3000,
+                    "w3[{i}] should be long, got {}",
+                    text.len()
+                );
+            } else {
+                assert!(
+                    text.len() < 50,
+                    "w3[{i}] should be short, got {}",
+                    text.len()
+                );
+            }
+        }
+    }
+
+    // Determinism: same function returns equal output across calls
+    #[test]
+    fn workloads_are_deterministic() {
+        assert_eq!(workload_w1(), workload_w1());
+        assert_eq!(workload_w2(), workload_w2());
+        assert_eq!(workload_w3(), workload_w3());
     }
 }

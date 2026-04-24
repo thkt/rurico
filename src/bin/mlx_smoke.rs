@@ -5,8 +5,26 @@
 //!
 //! Loads the default embed model from the local HF Hub cache. The model
 //! must be downloaded before running smoke tests.
+//!
+//! # Modes
+//!
+//! - default (no args): the legacy smoke assertions that other integration
+//!   tests rely on. Running bare `mlx_smoke` keeps the contract with
+//!   `tests/mlx_smoke.rs`.
+//! - `capture-fixture`: run W1/W2/W3 and write the current-branch output to
+//!   `tests/fixtures/phase2_baseline/w{1,2,3}.bin` so later PRs can compare
+//!   bucket-batched output against today's main-branch baseline.
+//! - `measure-baseline`: run W1/W2/W3 timing `embed_documents_batch` and a
+//!   sequential equivalent, emitting one `baseline[wN] ...` line per workload
+//!   so the numbers can be copied into `docs/benchmarks/phase1_baseline.md`.
 
-use rurico::embed::{self, Embed};
+use std::env;
+use std::fs::{self, File};
+use std::io::BufWriter;
+use std::path::PathBuf;
+use std::time::Instant;
+
+use rurico::embed::{self, Embed, fixtures};
 use rurico::model_probe;
 use rurico::sandbox;
 
@@ -54,26 +72,34 @@ fn main() {
         .expect("model not cached; run download first");
 
     let embedder = embed::Embedder::new(&artifacts).expect("model load");
+
+    let mode = env::args().nth(1).unwrap_or_default();
+    match mode.as_str() {
+        "capture-fixture" => run_capture_fixture(&embedder),
+        "measure-baseline" => run_measure_baseline(&embedder),
+        _ => run_assertions(&embedder),
+    }
+}
+
+// ── Legacy smoke assertions ──────────────────────────────────────────────────
+
+fn run_assertions(embedder: &embed::Embedder) {
     let dims = embedder.embedding_dims();
 
-    // Query embedding
     let q = embedder.embed_query("authentication logic").expect("query");
     assert_eq!(q.len(), dims, "query dims");
 
-    // Consistency
     let q2 = embedder
         .embed_query("authentication logic")
         .expect("query2");
     assert_eq!(q, q2, "deterministic");
 
-    // Short document (single chunk)
     let d = embedder
         .embed_document("function useAuth() { return user; }")
         .expect("short doc");
     assert_eq!(d.chunks.len(), 1, "short doc: 1 chunk");
     assert_eq!(d.chunks[0].len(), dims, "short doc dims");
 
-    // Batch
     let batch = embedder
         .embed_documents_batch(&[
             "function useAuth() { return user; }",
@@ -82,7 +108,6 @@ fn main() {
         .expect("batch");
     assert_eq!(batch.len(), 2, "batch count");
 
-    // Long document (multi-chunk, prefix-merge-triggering "apple")
     let sentence = "apple pie is a traditional dessert enjoyed around the world. ";
     let long_text = sentence.repeat(800);
     let ld = embedder.embed_document(&long_text).expect("long doc");
@@ -91,7 +116,6 @@ fn main() {
         assert_eq!(chunk.len(), dims, "long doc chunk {i} dims");
     }
 
-    // Prefix-merge short texts
     for text in ["apple pie", "the cat", "Rust", "This is a test"] {
         let r = embedder.embed_document(text).expect(text);
         assert_eq!(r.chunks.len(), 1, "'{text}': 1 chunk");
@@ -99,4 +123,108 @@ fn main() {
     }
 
     eprintln!("smoke: all checks passed");
+}
+
+// ── Phase 2 workloads ────────────────────────────────────────────────────────
+
+fn workload_w1() -> Vec<String> {
+    vec![
+        "apple pie is a traditional dessert enjoyed around the world. ".repeat(800),
+        "the rain in Spain falls mainly on the plain. ".repeat(500),
+    ]
+}
+
+fn workload_w2() -> Vec<String> {
+    (0..100)
+        .map(|i| format!("short text number {i} for benchmarking W2 workload"))
+        .collect()
+}
+
+fn workload_w3() -> Vec<String> {
+    (0..5)
+        .flat_map(|i| {
+            vec![
+                "benchmarking long text for W3 workload. ".repeat(100 + i * 10),
+                format!("short text {i}"),
+            ]
+        })
+        .collect()
+}
+
+// ── capture-fixture mode ─────────────────────────────────────────────────────
+
+fn fixture_dir() -> PathBuf {
+    PathBuf::from("tests/fixtures/phase2_baseline")
+}
+
+fn as_refs(texts: &[String]) -> Vec<&str> {
+    texts.iter().map(String::as_str).collect()
+}
+
+fn run_capture_fixture(embedder: &embed::Embedder) {
+    let dir = fixture_dir();
+    fs::create_dir_all(&dir).expect("create fixture dir");
+
+    for (name, texts) in [
+        ("w1", workload_w1()),
+        ("w2", workload_w2()),
+        ("w3", workload_w3()),
+    ] {
+        let refs = as_refs(&texts);
+        let out = embedder
+            .embed_documents_batch(&refs)
+            .unwrap_or_else(|e| panic!("embed {name}: {e}"));
+        let path = dir.join(format!("{name}.bin"));
+        let file = File::create(&path).expect("create fixture file");
+        let mut w = BufWriter::new(file);
+        fixtures::save(&mut w, &out).expect("save fixture");
+        eprintln!(
+            "capture[{name}] wrote {} docs to {}",
+            out.len(),
+            path.display()
+        );
+    }
+    eprintln!("capture-fixture: done");
+}
+
+// ── measure-baseline mode ────────────────────────────────────────────────────
+
+fn run_measure_baseline(embedder: &embed::Embedder) {
+    // warm-up: one full W1 batch before measuring so MLX compile cache is hot
+    let warm = workload_w1();
+    let refs = as_refs(&warm);
+    let _ = embedder
+        .embed_documents_batch(&refs)
+        .expect("warm-up batch");
+
+    for (name, texts) in [
+        ("w1", workload_w1()),
+        ("w2", workload_w2()),
+        ("w3", workload_w3()),
+    ] {
+        let refs = as_refs(&texts);
+
+        let t0 = Instant::now();
+        let _batch = embedder.embed_documents_batch(&refs).expect("batch embed");
+        let batch_ms = t0.elapsed().as_millis();
+
+        let t1 = Instant::now();
+        for text in &refs {
+            let _ = embedder.embed_document(text).expect("sequential embed");
+        }
+        let sequential_ms = t1.elapsed().as_millis();
+
+        let ratio = if sequential_ms > 0 {
+            batch_ms as f64 / sequential_ms as f64
+        } else {
+            0.0
+        };
+
+        eprintln!(
+            "baseline[{name}] num_texts={} batch_ms={batch_ms} sequential_ms={sequential_ms} \
+             ratio={ratio:.3}",
+            refs.len()
+        );
+    }
+    eprintln!("measure-baseline: done");
 }
