@@ -210,7 +210,7 @@ pub fn probe_via_subprocess(env_pairs: &[(&str, &str)]) -> Result<ProbeStatus, P
     interpret_probe_output(&output)
 }
 
-fn drain_pipe_async<R>(pipe: Option<R>, label: &'static str) -> Option<JoinHandle<Vec<u8>>>
+fn spawn_drain_pipe<R>(pipe: Option<R>, label: &'static str) -> Option<JoinHandle<Vec<u8>>>
 where
     R: Read + Send + 'static,
 {
@@ -262,8 +262,8 @@ pub(crate) fn probe_paths_via_subprocess(
 /// timeout output if the deadline is exceeded.
 fn wait_with_timeout(child: &mut Child, timeout: Duration) -> Result<Output, ProbeError> {
     let deadline = Instant::now() + timeout;
-    let stdout = drain_pipe_async(child.stdout.take(), "stdout");
-    let stderr = drain_pipe_async(child.stderr.take(), "stderr");
+    let stdout = spawn_drain_pipe(child.stdout.take(), "stdout");
+    let stderr = spawn_drain_pipe(child.stderr.take(), "stderr");
 
     loop {
         match child.try_wait() {
