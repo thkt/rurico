@@ -51,14 +51,18 @@ fn smoke_verify_fixture() {
     assert_smoke_success(&output);
 }
 
-/// Guard the `baseline[wN] ...` stderr format that `mlx_smoke measure-baseline`
-/// emits, so PR #6's downstream SLA + linearity parser (R-S05, NFR-005)
-/// catches format drift here rather than in its fit computation.
+/// End-to-end Phase 2E gate: T-WLD-001..006 SLA + padding + T-MET-003 R²
+/// linearity are all enforced inside `mlx_smoke measure-baseline`, which
+/// panics (non-zero exit) on any violation. This integration test therefore:
 ///
-/// Numbers are not asserted — that is PR #6's job. Only the shape of the
-/// output is checked: one `baseline[wN]` line per workload.
+/// 1. Asserts the binary completed successfully (→ every threshold passed).
+/// 2. Guards the stderr shape so downstream consumers (`phase2_result.md`
+///    paste, future parsers) catch format drift before number drift.
+///
+/// Run time is ~4 minutes on Apple Silicon because each workload is timed
+/// `MEASURE_REPEATS = 3` times to harden the median against single-run noise.
 #[test]
-#[ignore] // requires ruri-v3-310m cached + MLX (Apple Silicon); ~60-90s runtime
+#[ignore] // requires ruri-v3-310m cached + MLX (Apple Silicon); ~4 minute runtime
 fn smoke_measure_baseline() {
     let output = Command::new(env!("CARGO_BIN_EXE_mlx_smoke"))
         .arg("measure-baseline")
@@ -66,12 +70,62 @@ fn smoke_measure_baseline() {
         .expect("spawn mlx_smoke measure-baseline");
     assert_smoke_success(&output);
     let stderr = String::from_utf8_lossy(&output.stderr);
+
     for name in ["baseline[w1]", "baseline[w2]", "baseline[w3]"] {
         assert!(
             stderr.contains(name),
             "measure-baseline stderr must contain {name} line (got: {stderr})"
         );
     }
+    for field in [
+        "padding_ratio=",
+        "real_tokens=",
+        "padded_tokens=",
+        "forward_eval_ms=",
+        "tokenize_ms=",
+        "chunk_plan_ms=",
+        "num_chunks=",
+        "bucket_hist=[",
+    ] {
+        assert!(
+            stderr.contains(field),
+            "measure-baseline baseline[wN] line must carry `{field}` (got: {stderr})"
+        );
+    }
+    for row in ["mdrow[w1]", "mdrow[w2]", "mdrow[w3]"] {
+        assert!(
+            stderr.contains(row),
+            "measure-baseline must emit {row} line for phase2_result.md paste \
+             (got: {stderr})"
+        );
+    }
+    for tag in ["linearity ", "r_squared=", "slope=", "intercept="] {
+        assert!(
+            stderr.contains(tag),
+            "measure-baseline linearity summary must carry `{tag}` (got: {stderr})"
+        );
+    }
+    for res in ["residual[w1]", "residual[w2]", "residual[w3]"] {
+        assert!(
+            stderr.contains(res),
+            "measure-baseline must emit per-workload {res} line (got: {stderr})"
+        );
+    }
+    assert!(
+        stderr.contains("saturated:"),
+        "measure-baseline should surface W1 bucket-saturated diagnostics \
+         per spec NFR-bucket-saturated; got: {stderr}"
+    );
+    assert!(
+        stderr.contains("aspirational:"),
+        "measure-baseline should surface aspirational-target diagnostics \
+         (spec NFR-003/004-aspirational, Phase 3/5a gap); got: {stderr}"
+    );
+    assert!(
+        stderr.contains("measure-baseline: primary thresholds passed"),
+        "measure-baseline should end with the primary-thresholds-passed \
+         banner (got: {stderr})"
+    );
 }
 
 /// Validate the embed subprocess probe contract end-to-end.

@@ -2,8 +2,61 @@
 //!
 //! One `log::debug!` line per `embed_*` call so that bottlenecks can be read
 //! from a run log without extra infrastructure.
+//!
+//! [`PhaseMetrics`] is the internal accumulator, `pub(super)` so only the
+//! `embed` module tree mutates it. [`BatchMetrics`] is the public
+//! downstream-facing snapshot returned by
+//! [`Embedder::embed_documents_batch_with_metrics`](super::Embedder::embed_documents_batch_with_metrics)
+//! — it carries the same numbers in millisecond integers so consumers avoid
+//! coupling to `std::time::Duration` and the internal `kind` tag.
 
 use std::time::Duration;
+
+/// Public batch-level metrics snapshot mirroring the `"batch"` [`PhaseMetrics`]
+/// record. Returned alongside embeddings by
+/// [`Embedder::embed_documents_batch_with_metrics`](super::Embedder::embed_documents_batch_with_metrics)
+/// so callers (smoke harness, downstream indexers) can observe padding,
+/// linearity, and bucket distribution without parsing a debug-log line.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct BatchMetrics {
+    /// `padded_tokens / real_tokens` — 1.0 means zero padding overhead.
+    pub padding_ratio: f32,
+    /// Tokens whose attention mask is non-zero (real work).
+    pub real_tokens: usize,
+    /// Total positions processed, including padding.
+    pub padded_tokens: usize,
+    /// Wall-clock of the forward + eval phase in milliseconds.
+    pub forward_eval_ms: u128,
+    /// Wall-clock of the tokenization phase in milliseconds.
+    pub tokenize_ms: u128,
+    /// Wall-clock of the chunk-planning phase in milliseconds.
+    pub chunk_plan_ms: u128,
+    /// Number of chunks produced across all input texts.
+    pub num_chunks: usize,
+    /// Chunk count per length bucket (indexed by `assign_bucket`).
+    pub bucket_hist: [usize; 4],
+    /// Largest `max_seq_len` observed across sub-batches.
+    pub max_seq_len: usize,
+    /// Largest sub-batch size observed.
+    pub batch_size: usize,
+}
+
+impl From<&PhaseMetrics> for BatchMetrics {
+    fn from(m: &PhaseMetrics) -> Self {
+        Self {
+            padding_ratio: m.padding_ratio(),
+            real_tokens: m.real_tokens,
+            padded_tokens: m.padded_tokens,
+            forward_eval_ms: m.forward_eval.as_millis(),
+            tokenize_ms: m.tokenize.as_millis(),
+            chunk_plan_ms: m.chunk_plan.as_millis(),
+            num_chunks: m.num_chunks,
+            bucket_hist: m.bucket_hist,
+            max_seq_len: m.max_seq_len,
+            batch_size: m.batch_size,
+        }
+    }
+}
 
 /// Phase timings and batch counters for one `embed_*` call.
 #[derive(Debug, Clone, Copy, Default)]

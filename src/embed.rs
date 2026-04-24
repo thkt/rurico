@@ -1,4 +1,10 @@
 mod embedder;
+/// Ordinary least squares linear regression. Internal support for the Phase 2
+/// smoke harness (`mlx_smoke measure-baseline`'s R² assertion). Exposed `pub`
+/// for cross-target reuse within this crate only — not part of the public
+/// semantic-search surface.
+#[doc(hidden)]
+pub mod linreg;
 mod metrics;
 mod mlx;
 mod probe;
@@ -22,6 +28,7 @@ pub use test_support::{
 pub use crate::artifacts::{ArtifactError, EmbedKind, VerifiedArtifacts};
 pub use crate::model_probe::{ProbeStatus, handle_probe_if_needed};
 pub use embedder::Embedder;
+pub use metrics::BatchMetrics;
 pub(crate) use pooling::postprocess_embedding;
 pub(crate) use probe::probe_env_to_paths;
 
