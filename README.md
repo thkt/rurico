@@ -23,7 +23,7 @@ Apple Silicon (MLX) 上で日本語テキストのembedding・reranking・類似
 ## 要件
 
 - macOS (Apple Silicon) — MLX backend必須
-- Rust 1.94+ (edition 2024)
+- Rust 1.95+ (edition 2024)
 
 ## 使い方
 
@@ -266,8 +266,8 @@ assert_eq!(v.len(), 768);
 ## テスト
 
 ```sh
-cargo test                    # MLX ランタイム不要のテスト
-cargo test --features test-mlx -- --ignored  # MLX ランタイムテスト（通常 Terminal 推奨）
+cargo test --workspace                    # MLX ランタイム不要のテスト
+cargo test --workspace --features test-mlx -- --ignored  # MLX ランタイムテスト（通常 Terminal 推奨）
 ```
 
 Codex Desktop の `CODEX_SANDBOX=seatbelt` 環境では、MLX / Metal 初期化が abort することがあるため、
