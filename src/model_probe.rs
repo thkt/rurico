@@ -8,9 +8,13 @@ use std::env;
 use std::fmt;
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
-use std::process::{self, Child, Command, ExitStatus, Output, Stdio};
+use std::process::{self, Child, Command, Output, Stdio};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::thread;
 use std::time::{Duration, Instant};
+
+#[cfg(test)]
+use std::process::ExitStatus;
 
 use crate::embed;
 use crate::model_io::ModelPaths;
@@ -207,14 +211,49 @@ pub fn probe_via_subprocess(env_pairs: &[(&str, &str)]) -> Result<ProbeStatus, P
     interpret_probe_output(&output)
 }
 
-fn drain_pipe(pipe: Option<impl Read>, label: &str) -> Vec<u8> {
-    pipe.map_or_else(Vec::new, |mut s| {
-        let mut buf = Vec::new();
-        if let Err(e) = s.read_to_end(&mut buf) {
-            log::warn!("probe: failed to drain child {label}: {e}");
-        }
-        buf
+fn spawn_drain_pipe<R>(pipe: Option<R>, label: &'static str) -> Option<Receiver<Vec<u8>>>
+where
+    R: Read + Send + 'static,
+{
+    pipe.map(|mut stream| {
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let mut buf = Vec::new();
+            if let Err(e) = stream.read_to_end(&mut buf) {
+                log::warn!("probe: failed to drain child {label}: {e}");
+            }
+            let _ = tx.send(buf);
+        });
+        rx
     })
+}
+
+/// Upper bound on how long `collect_pipe` waits for a reader thread's buffer.
+///
+/// If a grandchild inherited the probe's pipe FDs, the reader's `read_to_end`
+/// never observes EOF even after the direct child exits. Cap the wait here
+/// and return a best-effort empty buffer — the reader thread leaks, which is
+/// acceptable because probes are rare and this scenario is itself exceptional.
+const COLLECT_PIPE_TIMEOUT: Duration = Duration::from_secs(2);
+
+fn collect_pipe(recv: Option<Receiver<Vec<u8>>>, label: &str) -> Vec<u8> {
+    let Some(rx) = recv else {
+        return Vec::new();
+    };
+    match rx.recv_timeout(COLLECT_PIPE_TIMEOUT) {
+        Ok(buf) => buf,
+        Err(RecvTimeoutError::Timeout) => {
+            log::warn!(
+                "probe: child {label} drain timed out after {}s; reader thread will leak",
+                COLLECT_PIPE_TIMEOUT.as_secs()
+            );
+            Vec::new()
+        }
+        Err(RecvTimeoutError::Disconnected) => {
+            log::warn!("probe: child {label} reader thread dropped channel");
+            Vec::new()
+        }
+    }
 }
 
 /// Re-exec the current binary as a probe subprocess, passing `paths` as env vars.
@@ -241,16 +280,16 @@ pub(crate) fn probe_paths_via_subprocess(
 /// timeout output if the deadline is exceeded.
 fn wait_with_timeout(child: &mut Child, timeout: Duration) -> Result<Output, ProbeError> {
     let deadline = Instant::now() + timeout;
+    let stdout = spawn_drain_pipe(child.stdout.take(), "stdout");
+    let stderr = spawn_drain_pipe(child.stderr.take(), "stderr");
 
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
-                let stdout = drain_pipe(child.stdout.take(), "stdout");
-                let stderr = drain_pipe(child.stderr.take(), "stderr");
                 return Ok(Output {
                     status,
-                    stdout,
-                    stderr,
+                    stdout: collect_pipe(stdout, "stdout"),
+                    stderr: collect_pipe(stderr, "stderr"),
                 });
             }
             Ok(None) => {
@@ -260,8 +299,14 @@ fn wait_with_timeout(child: &mut Child, timeout: Duration) -> Result<Output, Pro
                         timeout.as_secs()
                     );
                     let _ = child.kill();
-                    let _ = child.wait();
-                    return Ok(build_timeout_output());
+                    let status = child.wait().map_err(|e| {
+                        ProbeError::SubprocessFailed(format!("probe wait after kill failed: {e}"))
+                    })?;
+                    return Ok(Output {
+                        status,
+                        stdout: collect_pipe(stdout, "stdout"),
+                        stderr: collect_pipe(stderr, "stderr"),
+                    });
                 }
                 thread::sleep(Duration::from_millis(100));
             }
@@ -277,7 +322,7 @@ fn wait_with_timeout(child: &mut Child, timeout: Duration) -> Result<Output, Pro
 /// Build a synthetic Output that `interpret_probe_output` maps to
 /// `BackendUnavailable` (no exit code, PROBE_ACK present so it doesn't
 /// trigger the "handler not installed" error).
-#[cfg(unix)]
+#[cfg(all(test, unix))]
 fn build_timeout_output() -> Output {
     use std::os::unix::process::ExitStatusExt;
     Output {
@@ -460,6 +505,65 @@ mod tests {
         assert_eq!(
             interpret_probe_output(&output).unwrap(),
             ProbeStatus::BackendUnavailable
+        );
+    }
+
+    #[test]
+    fn wait_with_timeout_drains_verbose_failure_before_timeout() {
+        let mut child = Command::new("sh")
+            .args([
+                "-c",
+                "printf '%s\\n' \"$0\"; \
+                 i=0; \
+                 while [ \"$i\" -lt 5000 ]; do \
+                   printf 'verbose probe failure line %04d\\n' \"$i\" 1>&2; \
+                   i=$((i + 1)); \
+                 done; \
+                 exit 1",
+                PROBE_ACK,
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+
+        let output = wait_with_timeout(&mut child, Duration::from_secs(2)).unwrap();
+        assert_eq!(output.status.code(), Some(1), "child should exit normally");
+        assert!(
+            output.stderr.len() > 100_000,
+            "stderr should be fully drained, got {} bytes",
+            output.stderr.len()
+        );
+
+        let err = interpret_probe_output(&output).unwrap_err();
+        assert!(
+            matches!(err, ProbeError::ModelLoadFailed { .. }),
+            "expected verbose failure to remain ModelLoadFailed, got {err}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn wait_with_timeout_returns_when_grandchild_inherits_pipes() {
+        let mut child = Command::new("sh")
+            .args(["-c", "sleep 10 & printf '%s\\n' \"$0\"; exit 1", PROBE_ACK])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+
+        let start = Instant::now();
+        let output = wait_with_timeout(&mut child, Duration::from_secs(30)).unwrap();
+        let elapsed = start.elapsed();
+
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "direct child should exit with 1 before the grandchild finishes"
+        );
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "collect_pipe must not wait for the grandchild's inherited FDs; elapsed {elapsed:?}"
         );
     }
 }
