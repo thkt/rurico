@@ -1,19 +1,10 @@
 use serde::Deserialize;
 
-fn validate_i32_bound(field: &str, value: usize) -> Result<(), String> {
-    if value > i32::MAX as usize {
-        return Err(format!("{field} must be <= {}", i32::MAX));
-    }
-    Ok(())
-}
-
-// Ensures `value * scale` fits in i32, preventing overflow in downstream i32 arithmetic.
-fn validate_i32_bound_scaled(field: &str, value: usize, scale: i32) -> Result<(), String> {
+// Ensures `value * scale` fits in i32. Pass `scale = 1` for a plain `value <= i32::MAX` check.
+fn validate_i32_bound(field: &str, value: usize, scale: i32) -> Result<(), String> {
     let max = (i32::MAX / scale) as usize;
     if value > max {
-        return Err(format!(
-            "{field} must be <= {max} ({field} * {scale} must fit in i32)"
-        ));
+        return Err(format!("{field} must be <= {max}"));
     }
     Ok(())
 }
@@ -57,12 +48,12 @@ impl Config {
     /// `hidden_size` is not divisible by `num_attention_heads`. The exact
     /// message text is not part of the stable API contract.
     pub fn validate(&self) -> Result<(), String> {
-        // `hidden_size * 3` is computed during Wqkv construction, so bound it to `i32::MAX / 3`.
-        validate_i32_bound_scaled("hidden_size", self.hidden_size, 3)?;
+        // `hidden_size * 3` is computed during Wqkv construction.
+        validate_i32_bound("hidden_size", self.hidden_size, 3)?;
         if self.hidden_size == 0 {
             return Err("hidden_size must be > 0".into());
         }
-        validate_i32_bound("num_attention_heads", self.num_attention_heads)?;
+        validate_i32_bound("num_attention_heads", self.num_attention_heads, 1)?;
         if self.num_attention_heads == 0 {
             return Err("num_attention_heads must be > 0".into());
         }
@@ -75,17 +66,23 @@ impl Config {
         if self.global_attn_every_n_layers == 0 {
             return Err("global_attn_every_n_layers must be > 0".into());
         }
-        validate_i32_bound("vocab_size", self.vocab_size)?;
+        validate_i32_bound("vocab_size", self.vocab_size, 1)?;
         if self.vocab_size == 0 {
             return Err("vocab_size must be > 0".into());
         }
-        // `intermediate_size * 2` is computed during Wi construction, so bound it to `i32::MAX / 2`.
-        validate_i32_bound_scaled("intermediate_size", self.intermediate_size, 2)?;
-        validate_i32_bound("max_position_embeddings", self.max_position_embeddings)?;
+        // `intermediate_size * 2` is computed during Wi construction.
+        validate_i32_bound("intermediate_size", self.intermediate_size, 2)?;
+        validate_i32_bound("max_position_embeddings", self.max_position_embeddings, 1)?;
         if self.max_position_embeddings == 0 {
             return Err("max_position_embeddings must be > 0".into());
         }
-        validate_i32_bound("local_attention / 2", self.local_attention / 2)?;
+        // `local_attention / 2` is cast to i32 when building the local-attention mask.
+        let max_local = (i32::MAX as usize).saturating_mul(2).saturating_add(1);
+        if self.local_attention > max_local {
+            return Err(format!(
+                "local_attention must be <= {max_local} (local_attention / 2 must fit in i32)"
+            ));
+        }
         Ok(())
     }
 }
@@ -111,6 +108,16 @@ pub mod tests {
         }
     }
 
+    fn assert_rejects<F: FnOnce(&mut Config)>(mutate: F, expected_substring: &str) {
+        let mut c = test_config();
+        mutate(&mut c);
+        let err = c.validate().unwrap_err();
+        assert!(
+            err.contains(expected_substring),
+            "expected error to contain {expected_substring:?}, got: {err}"
+        );
+    }
+
     #[test]
     fn config_validate_valid() {
         assert!(test_config().validate().is_ok());
@@ -118,100 +125,87 @@ pub mod tests {
 
     #[test]
     fn config_validate_zero_hidden_size() {
-        let mut c = test_config();
-        c.hidden_size = 0;
-        assert!(c.validate().unwrap_err().contains("hidden_size"));
+        assert_rejects(|c| c.hidden_size = 0, "hidden_size");
     }
 
     #[test]
     fn config_validate_zero_attention_heads() {
-        let mut c = test_config();
-        c.num_attention_heads = 0;
-        assert!(c.validate().unwrap_err().contains("num_attention_heads"));
+        assert_rejects(|c| c.num_attention_heads = 0, "num_attention_heads");
     }
 
     #[test]
     fn config_validate_indivisible_hidden_size() {
-        let mut c = test_config();
-        c.hidden_size = 100;
-        c.num_attention_heads = 3;
-        assert!(c.validate().unwrap_err().contains("divisible"));
+        assert_rejects(
+            |c| {
+                c.hidden_size = 100;
+                c.num_attention_heads = 3;
+            },
+            "divisible",
+        );
     }
 
     #[test]
     fn config_validate_zero_global_attn() {
-        let mut c = test_config();
-        c.global_attn_every_n_layers = 0;
-        assert!(
-            c.validate()
-                .unwrap_err()
-                .contains("global_attn_every_n_layers")
+        assert_rejects(
+            |c| c.global_attn_every_n_layers = 0,
+            "global_attn_every_n_layers",
         );
     }
 
     #[test]
     fn config_validate_zero_vocab_size() {
-        let mut c = test_config();
-        c.vocab_size = 0;
-        assert!(c.validate().unwrap_err().contains("vocab_size"));
+        assert_rejects(|c| c.vocab_size = 0, "vocab_size");
     }
 
     #[test]
     fn config_validate_zero_max_position_embeddings() {
-        let mut c = test_config();
-        c.max_position_embeddings = 0;
-        assert!(
-            c.validate()
-                .unwrap_err()
-                .contains("max_position_embeddings")
-        );
+        assert_rejects(|c| c.max_position_embeddings = 0, "max_position_embeddings");
     }
 
     #[test]
     fn config_validate_rejects_hidden_size_above_i32_max_div_3() {
-        let mut c = test_config();
-        c.hidden_size = (i32::MAX / 3) as usize + 1;
-        assert!(c.validate().unwrap_err().contains("hidden_size"));
+        assert_rejects(
+            |c| c.hidden_size = (i32::MAX / 3) as usize + 1,
+            "hidden_size",
+        );
     }
 
     #[test]
     fn config_validate_rejects_attention_heads_above_i32_max() {
-        let mut c = test_config();
-        c.num_attention_heads = i32::MAX as usize + 1;
-        assert!(c.validate().unwrap_err().contains("num_attention_heads"));
+        assert_rejects(
+            |c| c.num_attention_heads = i32::MAX as usize + 1,
+            "num_attention_heads",
+        );
     }
 
     #[test]
     fn config_validate_rejects_vocab_size_above_i32_max() {
-        let mut c = test_config();
-        c.vocab_size = i32::MAX as usize + 1;
-        assert!(c.validate().unwrap_err().contains("vocab_size"));
+        assert_rejects(|c| c.vocab_size = i32::MAX as usize + 1, "vocab_size");
     }
 
     #[test]
     fn config_validate_rejects_intermediate_size_above_i32_max_div_2() {
-        let mut c = test_config();
-        c.intermediate_size = (i32::MAX / 2) as usize + 1;
-        assert!(c.validate().unwrap_err().contains("intermediate_size"));
+        assert_rejects(
+            |c| c.intermediate_size = (i32::MAX / 2) as usize + 1,
+            "intermediate_size",
+        );
     }
 
     #[test]
     fn config_validate_rejects_max_position_embeddings_above_i32_max() {
-        let mut c = test_config();
-        c.max_position_embeddings = i32::MAX as usize + 1;
-        assert!(
-            c.validate()
-                .unwrap_err()
-                .contains("max_position_embeddings")
+        assert_rejects(
+            |c| c.max_position_embeddings = i32::MAX as usize + 1,
+            "max_position_embeddings",
         );
     }
 
     // `(i32::MAX as usize) * 2 + 2` overflows on 32-bit `usize` targets; guard accordingly.
     #[cfg(target_pointer_width = "64")]
     #[test]
-    fn config_validate_rejects_local_attention_half_above_i32_max() {
-        let mut c = test_config();
-        c.local_attention = (i32::MAX as usize) * 2 + 2;
-        assert!(c.validate().unwrap_err().contains("local_attention / 2"));
+    fn config_validate_rejects_local_attention_above_bound() {
+        assert_rejects(
+            |c| c.local_attention = (i32::MAX as usize) * 2 + 2,
+            "local_attention",
+        );
     }
 }
