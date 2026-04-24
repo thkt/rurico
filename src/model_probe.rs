@@ -9,7 +9,8 @@ use std::fmt;
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::process::{self, Child, Command, Output, Stdio};
-use std::thread::{self, JoinHandle};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::thread;
 use std::time::{Duration, Instant};
 
 #[cfg(test)]
@@ -210,31 +211,48 @@ pub fn probe_via_subprocess(env_pairs: &[(&str, &str)]) -> Result<ProbeStatus, P
     interpret_probe_output(&output)
 }
 
-fn spawn_drain_pipe<R>(pipe: Option<R>, label: &'static str) -> Option<JoinHandle<Vec<u8>>>
+fn spawn_drain_pipe<R>(pipe: Option<R>, label: &'static str) -> Option<Receiver<Vec<u8>>>
 where
     R: Read + Send + 'static,
 {
     pipe.map(|mut stream| {
+        let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
             let mut buf = Vec::new();
             if let Err(e) = stream.read_to_end(&mut buf) {
                 log::warn!("probe: failed to drain child {label}: {e}");
             }
-            buf
-        })
+            let _ = tx.send(buf);
+        });
+        rx
     })
 }
 
-fn collect_pipe(handle: Option<JoinHandle<Vec<u8>>>, label: &str) -> Vec<u8> {
-    match handle {
-        Some(reader) => match reader.join() {
-            Ok(buf) => buf,
-            Err(_) => {
-                log::warn!("probe: child {label} reader thread panicked");
-                Vec::new()
-            }
-        },
-        None => Vec::new(),
+/// Upper bound on how long `collect_pipe` waits for a reader thread's buffer.
+///
+/// If a grandchild inherited the probe's pipe FDs, the reader's `read_to_end`
+/// never observes EOF even after the direct child exits. Cap the wait here
+/// and return a best-effort empty buffer — the reader thread leaks, which is
+/// acceptable because probes are rare and this scenario is itself exceptional.
+const COLLECT_PIPE_TIMEOUT: Duration = Duration::from_secs(2);
+
+fn collect_pipe(recv: Option<Receiver<Vec<u8>>>, label: &str) -> Vec<u8> {
+    let Some(rx) = recv else {
+        return Vec::new();
+    };
+    match rx.recv_timeout(COLLECT_PIPE_TIMEOUT) {
+        Ok(buf) => buf,
+        Err(RecvTimeoutError::Timeout) => {
+            log::warn!(
+                "probe: child {label} drain timed out after {}s; reader thread will leak",
+                COLLECT_PIPE_TIMEOUT.as_secs()
+            );
+            Vec::new()
+        }
+        Err(RecvTimeoutError::Disconnected) => {
+            log::warn!("probe: child {label} reader thread dropped channel");
+            Vec::new()
+        }
     }
 }
 
@@ -521,6 +539,31 @@ mod tests {
         assert!(
             matches!(err, ProbeError::ModelLoadFailed { .. }),
             "expected verbose failure to remain ModelLoadFailed, got {err}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn wait_with_timeout_returns_when_grandchild_inherits_pipes() {
+        let mut child = Command::new("sh")
+            .args(["-c", "sleep 10 & printf '%s\\n' \"$0\"; exit 1", PROBE_ACK])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+
+        let start = Instant::now();
+        let output = wait_with_timeout(&mut child, Duration::from_secs(30)).unwrap();
+        let elapsed = start.elapsed();
+
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "direct child should exit with 1 before the grandchild finishes"
+        );
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "collect_pipe must not wait for the grandchild's inherited FDs; elapsed {elapsed:?}"
         );
     }
 }
