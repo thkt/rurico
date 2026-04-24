@@ -8,6 +8,8 @@
 //!   — invokes `mlx_smoke verify-fixture` which compares W1/W2/W3 output
 //!   against `tests/fixtures/phase2_baseline/w{1,2,3}.bin` at Spec NFR-001
 //!   tolerances.
+//! - `smoke_measure_baseline`: shape check for `mlx_smoke measure-baseline`
+//!   output that PR #6's SLA + linearity parser will consume.
 //! - `probe_embed_smoke_binary`: embed subprocess probe contract (via `probe_embed_smoke`)
 //! - `probe_reranker_smoke_binary`: reranker subprocess probe contract (via `probe_reranker_smoke`)
 
@@ -47,6 +49,29 @@ fn smoke_verify_fixture() {
         .output()
         .expect("spawn mlx_smoke verify-fixture");
     assert_smoke_success(&output);
+}
+
+/// Guard the `baseline[wN] ...` stderr format that `mlx_smoke measure-baseline`
+/// emits, so PR #6's downstream SLA + linearity parser (R-S05, NFR-005)
+/// catches format drift here rather than in its fit computation.
+///
+/// Numbers are not asserted — that is PR #6's job. Only the shape of the
+/// output is checked: one `baseline[wN]` line per workload.
+#[test]
+#[ignore] // requires ruri-v3-310m cached + MLX (Apple Silicon); ~60-90s runtime
+fn smoke_measure_baseline() {
+    let output = Command::new(env!("CARGO_BIN_EXE_mlx_smoke"))
+        .arg("measure-baseline")
+        .output()
+        .expect("spawn mlx_smoke measure-baseline");
+    assert_smoke_success(&output);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    for name in ["baseline[w1]", "baseline[w2]", "baseline[w3]"] {
+        assert!(
+            stderr.contains(name),
+            "measure-baseline stderr must contain {name} line (got: {stderr})"
+        );
+    }
 }
 
 /// Validate the embed subprocess probe contract end-to-end.
