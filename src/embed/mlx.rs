@@ -1,4 +1,7 @@
+use std::time::Instant;
+
 use super::Artifacts;
+use super::metrics::PhaseMetrics;
 use super::{
     CHUNK_OVERLAP_TOKENS, ChunkedEmbedding, DOCUMENT_PREFIX, EmbedError, EmbedInitError,
     MAX_SEQ_LEN, extract_prefix_tokens, max_content, postprocess_embedding, tokenize_with_prefix,
@@ -44,11 +47,16 @@ impl EmbedderInner {
         text: &str,
         prefix: &str,
     ) -> Result<Vec<f32>, EmbedError> {
+        let mut metrics = PhaseMetrics::new("query");
+
+        let t_tok = Instant::now();
         let tok = tokenize_with_prefix(&self.tokenizer, text, prefix)?;
         let (input_ids, attention_mask, seq_len) =
             truncate_for_query(tok.input_ids, tok.attention_mask, MAX_SEQ_LEN);
+        metrics.tokenize = t_tok.elapsed();
 
         let seq_len_i32 = i32::try_from(seq_len).expect("seq_len fits in i32");
+        let t_forward = Instant::now();
         let output = self
             .model
             .forward(&input_ids, &attention_mask, 1, seq_len_i32)
@@ -56,10 +64,27 @@ impl EmbedderInner {
 
         let result = (|| {
             output.eval().map_err(EmbedError::inference)?;
+            metrics.forward_eval = t_forward.elapsed();
+
+            let t_readback = Instant::now();
             let flat: &[f32] = output.as_slice();
-            postprocess_embedding(flat, seq_len, &attention_mask)
+            let pooled = postprocess_embedding(flat, seq_len, &attention_mask)?;
+            metrics.readback_pool = t_readback.elapsed();
+            Ok(pooled)
         })();
+        let t_clear = Instant::now();
         release_inference_output(output);
+        metrics.cache_clear = t_clear.elapsed();
+
+        // Query tokenization produces no padding (truncate, not pad), so every
+        // mask entry is non-zero — real_tokens equals seq_len.
+        metrics.real_tokens = seq_len;
+        metrics.padded_tokens = seq_len;
+        metrics.num_chunks = 1;
+        metrics.batch_size = 1;
+        metrics.max_seq_len = seq_len;
+        metrics.log();
+
         result
     }
 
@@ -84,6 +109,9 @@ impl EmbedderInner {
             return Ok(Vec::new());
         }
 
+        let mut metrics = PhaseMetrics::new("batch");
+
+        let t_plan = Instant::now();
         let max_content_tokens = max_content(self.doc_prefix_tokens.len());
         let (all_chunk_tokens, chunks_per_doc) = plan_document_chunks(
             &self.tokenizer,
@@ -91,6 +119,8 @@ impl EmbedderInner {
             &self.doc_prefix_tokens,
             max_content_tokens,
         )?;
+        metrics.chunk_plan = t_plan.elapsed();
+        metrics.num_chunks = all_chunk_tokens.len();
 
         // Split into sub-batches bounded by TOKEN_BUDGET total positions to avoid
         // Metal OOM when long sequences produce large padded tensors.
@@ -103,9 +133,15 @@ impl EmbedderInner {
         let mut all_embeddings = Vec::with_capacity(all_chunk_tokens.len());
         for sub_batch in all_chunk_tokens.chunks(sub_batch_size) {
             let (input_ids, attention_mask, batch_size, max_len) = pad_sequences(sub_batch, None);
+            // Pre-padding lengths sum to the real token count (pad_sequences pads with 0).
+            metrics.real_tokens += sub_batch.iter().map(Vec::len).sum::<usize>();
+            metrics.padded_tokens += batch_size * max_len;
+            metrics.batch_size = metrics.batch_size.max(batch_size);
+            metrics.max_seq_len = metrics.max_seq_len.max(max_len);
 
             let batch_size_i32 = i32::try_from(batch_size).expect("batch_size fits in i32");
             let max_len_i32 = i32::try_from(max_len).expect("max_len fits in i32");
+            let t_forward = Instant::now();
             let output = self
                 .model
                 .forward(&input_ids, &attention_mask, batch_size_i32, max_len_i32)
@@ -113,12 +149,21 @@ impl EmbedderInner {
 
             let sub_result = (|| {
                 output.eval().map_err(EmbedError::inference)?;
+                metrics.forward_eval += t_forward.elapsed();
+
+                let t_readback = Instant::now();
                 let flat: &[f32] = output.as_slice();
-                unpack_batch_output(flat, batch_size, max_len, &attention_mask)
+                let unpacked = unpack_batch_output(flat, batch_size, max_len, &attention_mask)?;
+                metrics.readback_pool += t_readback.elapsed();
+                Ok(unpacked)
             })();
+            let t_clear = Instant::now();
             release_inference_output(output);
+            metrics.cache_clear += t_clear.elapsed();
             all_embeddings.extend(sub_result?);
         }
+
+        metrics.log();
 
         // Regroup by document, preserving input order
         let mut results = Vec::with_capacity(texts.len());

@@ -1,4 +1,5 @@
 mod embedder;
+mod metrics;
 mod mlx;
 mod probe;
 
