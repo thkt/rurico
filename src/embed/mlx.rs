@@ -503,4 +503,66 @@ mod tests {
             .collect();
         assert_eq!(shape, vec![(0, 10), (1, 20), (2, 30)]);
     }
+
+    // T-BKT-007: 10 chunks spanning all 4 buckets round-trip in original order
+    //
+    // Mirrors the restoration that `embed_documents_batch_chunked` performs:
+    // forward writes `out[chunk.global_idx]`, so flattening every bucket and
+    // sorting by `global_idx` must recover the original insertion order.
+    // Testing this on `distribute_into_buckets` keeps the check MLX-free.
+    #[test]
+    fn t_bkt_007_cross_bucket_order_preserved() {
+        // bucket 0 (≤128): idx 0, 4 | bucket 1 (≤512): idx 3, 6, 8
+        // bucket 2 (≤2048): idx 1, 7 | bucket 3 (≤MAX): idx 2, 5, 9
+        let lengths = [50usize, 1500, 3000, 200, 100, 5000, 300, 800, 400, 7000];
+        let chunks: Vec<IndexedChunk> = lengths
+            .iter()
+            .enumerate()
+            .map(|(i, &len)| make_chunk(i, len))
+            .collect();
+
+        let buckets = distribute_into_buckets(chunks);
+
+        let sizes: Vec<usize> = buckets.iter().map(Vec::len).collect();
+        assert!(
+            buckets.iter().all(|b| !b.is_empty()),
+            "test input must span all 4 buckets (got {sizes:?})"
+        );
+        assert_eq!(
+            sizes.iter().sum::<usize>(),
+            lengths.len(),
+            "every chunk must land in exactly one bucket"
+        );
+
+        let mut flat: Vec<&IndexedChunk> = buckets.iter().flatten().collect();
+        flat.sort_by_key(|c| c.global_idx);
+        let recovered: Vec<usize> = flat.iter().map(|c| c.tokens.len()).collect();
+        assert_eq!(
+            recovered,
+            lengths.to_vec(),
+            "flatten + sort-by-global_idx must recover original chunk order"
+        );
+    }
+
+    // T-BKT-009: empty input pipeline produces zero work
+    //
+    // Guards the building blocks behind `texts.is_empty() → Vec::new()` in
+    // `embed_documents_batch_chunked`: even if the early return were removed,
+    // an empty `all_chunk_tokens` would yield all-empty buckets, the forward
+    // loop would not execute, and the `Vec<Option<Vec<f32>>>` (size 0) would
+    // collect to `Vec::new()`. MLX-free proxy for the end-to-end contract.
+    #[test]
+    fn t_bkt_009_empty_input_zero_subbatches() {
+        let indexed = build_indexed_chunks(Vec::new());
+        assert!(
+            indexed.is_empty(),
+            "empty chunk tokens → empty IndexedChunk vec"
+        );
+
+        let buckets = distribute_into_buckets(indexed);
+        assert!(
+            buckets.iter().all(Vec::is_empty),
+            "empty input → every bucket stays empty"
+        );
+    }
 }
