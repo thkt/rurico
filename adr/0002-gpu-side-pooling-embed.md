@@ -21,7 +21,7 @@ Today's embed pipeline reads the full `[batch, seq, hidden]` tensor back to CPU 
 
 Three contract gaps this ADR resolves.
 
-1. Readback volume is proportional to `seq × hidden` instead of `hidden`. For W1 (`8192 × 768 × 3` chunks, plus the sequential denominator's equivalent repeats), readback dominates `forward_eval_ms = 15,620`. The pooling math only needs `[batch, hidden]` out.
+1. Readback volume is proportional to `seq × hidden` instead of `hidden`. For W1 (`8192 × 768 × 3` chunks, plus the sequential denominator's equivalent repeats), readback dominates `forward_eval_ms = 15,620`. The pooling math only needs `[batch, hidden]` out. Any post-check that triggers a synchronous `eval() + as_slice()` inside the pool function defeats this lever and is pushed to direct callers instead of the hot path.
 2. `release_inference_output(output: Array)` has a one-value contract. `src/mlx_cache.rs:26-31` documents drop-before-clear ordering at compile time by consuming the Array by value. If GPU pooling introduces a second Array (`hidden` + `pooled`), the ordering is no longer compile-time guaranteed.
 3. f32 accumulation order drifts between CPU and GPU reductions. CPU `mean_pooling` is strict left-to-right row-major accumulation. Any GPU reduction uses tree or warp-partial aggregation, which introduces per-element `~1e-6` drift that L2 normalize can amplify toward the NFR-001 `max_abs_diff ≤ 1e-5` boundary. Risk is highest at `seq_len = 8192` where 8192 terms are summed per hidden dim.
 
@@ -112,12 +112,14 @@ Positive:
 - `ModernBert::forward` remains a pure backbone. Phase 5a mutex scope work is unaffected.
 - Issue #52 AC "CPU-side pooling と GPU-side pooling の結果差分が許容範囲内" is reached.
 - NFR-001 regression detection is explicit via the probe bin. Phase 2 aspirational diagnostics continue as ongoing regression detectors.
+- `gpu_pool_and_normalize` stays readback-free. The only NaN source (fully-masked row, `0/0` on divide) is already rejected upstream by `ModernBert::forward::validate_attention_mask`; the pool function relies on that invariant instead of re-scanning its output. Direct callers that bypass `ModernBert::forward` (the Phase 3a probe bin) add their own `is_finite` guard as a defensive check.
 
 Negative:
 
 - `src/embed/pooling.rs` grows from 85 lines to roughly 165 lines while both variants coexist. Phase 3c cleanup removes the CPU variant after rewiring stabilises, but Phase 3b to 3c leaves a dead-code window.
 - Approach is conditional on mlx-rs 0.25.3 exposing reduction + broadcasting ops. If not, Phase 3 is deferred until a bindings update or an alternative (f64 intermediate, CPU-hybrid) is chosen.
 - Probe bin is additional binary target surface that must be kept green until Phase 3c deletes it.
+- FR-001a invariant is now distributed across `validate_attention_mask` (upstream rejection) and the probe bin (`is_finite` defensive guard). A regression that removes either location would leave a NaN-pathway silently open. Mitigation: T-011 is re-typed as an integration scenario on the probe bin; any replacement wiring must add an equivalent guard at the new direct-caller site.
 
 ## Migration Plan
 
