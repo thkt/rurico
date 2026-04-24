@@ -175,12 +175,17 @@ fn run_capture_fixture(embedder: &embed::Embedder) {
 
 fn run_measure_baseline(embedder: &embed::Embedder) {
     // MLX compiles a kernel per distinct (batch_size, max_seq_len) shape. Warm
-    // each workload's shape once before timing so the first timed call does not
-    // absorb a shape-specific compile spike.
+    // each workload's batched shape AND each per-document shape used by the
+    // sequential pass before timing, so neither side absorbs a compile spike
+    // on its first timed call.
     for texts in [workload_w1(), workload_w2(), workload_w3()] {
+        let refs = as_refs(&texts);
         let _ = embedder
-            .embed_documents_batch(&as_refs(&texts))
+            .embed_documents_batch(&refs)
             .expect("warm-up batch");
+        for text in &refs {
+            let _ = embedder.embed_document(text).expect("warm-up sequential");
+        }
     }
 
     for (name, texts) in [
