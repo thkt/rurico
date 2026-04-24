@@ -6,6 +6,7 @@ mod probe;
 mod pooling;
 
 pub mod fixtures;
+pub mod workloads;
 
 #[cfg(any(test, feature = "test-support"))]
 mod test_support;
@@ -16,7 +17,6 @@ mod tests;
 #[cfg(any(test, feature = "test-support"))]
 pub use test_support::{
     AlternatingEmbedder, FailingEmbedder, MismatchEmbedder, MockChunkedEmbedder, MockEmbedder,
-    workload_w1, workload_w2, workload_w3,
 };
 
 pub use crate::artifacts::{ArtifactError, EmbedKind, VerifiedArtifacts};

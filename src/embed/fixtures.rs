@@ -1,8 +1,10 @@
-//! Fixture serialisation for Phase 2 numerical-equivalence checks.
+//! Save / load / compare `Vec<ChunkedEmbedding>` in a compact self-describing
+//! binary format.
 //!
-//! Saves and loads `Vec<ChunkedEmbedding>` in a compact little-endian binary
-//! format so the main-branch output can be captured as a fixture and compared
-//! bit-exactly (or within tolerance) against bucket-batched output in later PRs.
+//! Consumers capture the output of `embed_documents_batch` on one branch and
+//! replay it on another to check that a refactor preserves embeddings within a
+//! tolerance (Spec NFR-001: `cosine_similarity ≥ 0.99999` AND
+//! `max_abs_diff ≤ 1e-5`).
 //!
 //! # Format
 //!
@@ -15,32 +17,43 @@
 //!       f32 LE × hidden_dim
 //! ```
 //!
-//! Self-describing (per-chunk dim), so fixtures survive model-dim changes at read
-//! time and the loader can validate against the current model.
+//! Per-chunk `hidden_dim` makes the loader safe against model-dim drift; a
+//! mismatched fixture surfaces as a load error rather than silent corruption.
+//!
+//! # Buffering
+//!
+//! [`save`] writes one 4-byte length + one `hidden_dim × 4`-byte block per
+//! chunk. [`load`] mirrors it. When writing or reading from a [`std::fs::File`],
+//! wrap in [`std::io::BufWriter`] / [`std::io::BufReader`] — without buffering
+//! each short write/read becomes a separate syscall.
 
 use std::io;
 use std::io::{Read, Write};
 
 use super::ChunkedEmbedding;
+use crate::storage::f32_as_bytes;
 
-/// Minimum cosine similarity between two fixtures to count as numerically equivalent.
-/// Phase 2 Spec NFR-001.
+/// Minimum cosine similarity for two fixtures to count as numerically
+/// equivalent (Spec NFR-001).
 pub const DEFAULT_COSINE_MIN: f32 = 0.99999;
 
-/// Maximum per-element absolute difference for numerical equivalence.
-/// Phase 2 Spec NFR-001.
+/// Maximum per-element absolute difference for numerical equivalence
+/// (Spec NFR-001).
 pub const DEFAULT_MAX_ABS_DIFF: f32 = 1e-5;
 
 /// Summary of the worst-case divergence between two fixtures of identical shape.
+///
+/// Field order mirrors the order the reader reasons about: cosine similarity
+/// first (main metric), then the absolute-diff tiebreaker.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FixtureDiff {
-    /// Largest absolute per-element difference observed.
-    pub max_abs_diff: f32,
     /// Smallest cosine similarity observed across all chunk pairs.
     pub cosine_min: f32,
+    /// Largest absolute per-element difference observed.
+    pub max_abs_diff: f32,
 }
 
-/// Shape mismatch between two fixtures. Contains the first offending index.
+/// Shape mismatch between two fixtures. Carries the first offending index.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShapeMismatch {
     /// Top-level `Vec<ChunkedEmbedding>` lengths differ.
@@ -73,6 +86,11 @@ pub enum ShapeMismatch {
 }
 
 /// Write `docs` to `w` in the format documented at the module level.
+///
+/// Each chunk triggers two writes: a 4-byte `hidden_dim` header and the
+/// f32 payload as a single contiguous little-endian byte slice (via
+/// [`f32_as_bytes`]). Callers writing to a [`std::fs::File`] must wrap it
+/// in a [`std::io::BufWriter`] to avoid one syscall per chunk boundary.
 pub fn save<W: Write>(w: &mut W, docs: &[ChunkedEmbedding]) -> io::Result<()> {
     let num_docs = u32::try_from(docs.len()).expect("num_docs fits in u32");
     w.write_all(&num_docs.to_le_bytes())?;
@@ -82,15 +100,16 @@ pub fn save<W: Write>(w: &mut W, docs: &[ChunkedEmbedding]) -> io::Result<()> {
         for chunk in &doc.chunks {
             let dim = u32::try_from(chunk.len()).expect("hidden_dim fits in u32");
             w.write_all(&dim.to_le_bytes())?;
-            for &v in chunk {
-                w.write_all(&v.to_le_bytes())?;
-            }
+            w.write_all(f32_as_bytes(chunk))?;
         }
     }
     Ok(())
 }
 
 /// Read a fixture from `r` that was written by [`save`].
+///
+/// Uses buffered reads per chunk. Callers reading from a [`std::fs::File`]
+/// should wrap it in a [`std::io::BufReader`] to avoid one syscall per chunk.
 pub fn load<R: Read>(r: &mut R) -> io::Result<Vec<ChunkedEmbedding>> {
     let num_docs = read_u32(r)? as usize;
     let mut docs = Vec::with_capacity(num_docs);
@@ -99,10 +118,9 @@ pub fn load<R: Read>(r: &mut R) -> io::Result<Vec<ChunkedEmbedding>> {
         let mut chunks = Vec::with_capacity(num_chunks);
         for _ in 0..num_chunks {
             let dim = read_u32(r)? as usize;
-            let mut vec = Vec::with_capacity(dim);
-            for _ in 0..dim {
-                vec.push(read_f32(r)?);
-            }
+            let mut bytes = vec![0u8; dim * 4];
+            r.read_exact(&mut bytes)?;
+            let vec: Vec<f32> = bytemuck::cast_slice::<u8, f32>(&bytes).to_vec();
             chunks.push(vec);
         }
         docs.push(ChunkedEmbedding { chunks });
@@ -153,8 +171,8 @@ pub fn compare(
         }
     }
     Ok(FixtureDiff {
-        max_abs_diff,
         cosine_min,
+        max_abs_diff,
     })
 }
 
@@ -164,12 +182,12 @@ fn read_u32<R: Read>(r: &mut R) -> io::Result<u32> {
     Ok(u32::from_le_bytes(buf))
 }
 
-fn read_f32<R: Read>(r: &mut R) -> io::Result<f32> {
-    let mut buf = [0u8; 4];
-    r.read_exact(&mut buf)?;
-    Ok(f32::from_le_bytes(buf))
-}
-
+/// Cosine similarity between two equal-length slices.
+///
+/// Returns `1.0` when both inputs are element-wise equal (including the
+/// all-zero case), `0.0` when they disagree but at least one has zero norm.
+/// This keeps identical zero fixtures from being reported as catastrophic
+/// mismatches while still flagging zero-versus-nonzero cases.
 fn cosine(a: &[f32], b: &[f32]) -> f32 {
     let mut dot = 0.0f32;
     let mut na = 0.0f32;
@@ -180,7 +198,13 @@ fn cosine(a: &[f32], b: &[f32]) -> f32 {
         nb += y * y;
     }
     let denom = na.sqrt() * nb.sqrt();
-    if denom > 0.0 { dot / denom } else { 0.0 }
+    if denom > 0.0 {
+        dot / denom
+    } else if a == b {
+        1.0
+    } else {
+        0.0
+    }
 }
 
 #[cfg(test)]
@@ -199,7 +223,6 @@ mod tests {
         ]
     }
 
-    // save + load round-trip preserves values
     #[test]
     fn save_and_load_round_trips_identically() {
         let docs = sample_docs();
@@ -212,8 +235,6 @@ mod tests {
         }
     }
 
-    // compare: identical fixtures → diff=0, cosine≈1 (f32 rounding makes an exact
-    // equality unattainable even when the inputs are bitwise identical)
     #[test]
     fn compare_identical_fixtures_reports_zero_diff() {
         let docs = sample_docs();
@@ -226,18 +247,41 @@ mod tests {
         );
     }
 
-    // compare: element difference surfaces in max_abs_diff
+    // Regression: identical all-zero fixtures must report cosine=1.0 (not 0.0)
+    // so the NFR-001 threshold stays passable on zero-norm inputs.
+    #[test]
+    fn compare_identical_zero_fixtures_reports_cosine_one() {
+        let zeros = vec![ChunkedEmbedding {
+            chunks: vec![vec![0.0f32; 8]],
+        }];
+        let diff = compare(&zeros, &zeros).unwrap();
+        assert_eq!(diff.cosine_min, 1.0);
+        assert_eq!(diff.max_abs_diff, 0.0);
+    }
+
+    // Regression: zero vs nonzero must report cosine=0.0 (clear mismatch).
+    #[test]
+    fn compare_zero_versus_nonzero_reports_cosine_zero() {
+        let a = vec![ChunkedEmbedding {
+            chunks: vec![vec![0.0f32; 3]],
+        }];
+        let b = vec![ChunkedEmbedding {
+            chunks: vec![vec![1.0, 2.0, 3.0]],
+        }];
+        let diff = compare(&a, &b).unwrap();
+        assert_eq!(diff.cosine_min, 0.0);
+    }
+
     #[test]
     fn compare_divergent_fixtures_reports_max_abs_diff() {
         let a = sample_docs();
         let mut b = sample_docs();
-        b[0].chunks[0][0] += 0.01; // perturb one element
+        b[0].chunks[0][0] += 0.01;
         let diff = compare(&a, &b).unwrap();
         assert!((diff.max_abs_diff - 0.01).abs() < 1e-6);
         assert!(diff.cosine_min < 1.0);
     }
 
-    // compare: shape mismatch at doc-count returns Err
     #[test]
     fn compare_doc_count_mismatch_returns_err() {
         let a = sample_docs();
@@ -251,7 +295,6 @@ mod tests {
         );
     }
 
-    // compare: shape mismatch at chunk-count returns Err with doc index
     #[test]
     fn compare_chunk_count_mismatch_returns_err_with_doc_index() {
         let a = sample_docs();
@@ -271,7 +314,6 @@ mod tests {
         }
     }
 
-    // compare: shape mismatch at dim returns Err with (doc, chunk) index
     #[test]
     fn compare_dim_mismatch_returns_err_with_chunk_index() {
         let a = sample_docs();
@@ -293,7 +335,6 @@ mod tests {
         }
     }
 
-    // Defaults match Spec NFR-001
     #[test]
     fn default_tolerances_match_spec_nfr_001() {
         assert!((DEFAULT_COSINE_MIN - 0.99999).abs() < f32::EPSILON);

@@ -24,7 +24,10 @@ use std::io::BufWriter;
 use std::path::PathBuf;
 use std::time::Instant;
 
-use rurico::embed::{self, Embed, fixtures};
+use rurico::embed::{
+    self, Embed, fixtures,
+    workloads::{workload_w1, workload_w2, workload_w3},
+};
 use rurico::model_probe;
 use rurico::sandbox;
 
@@ -77,7 +80,14 @@ fn main() {
     match mode.as_str() {
         "capture-fixture" => run_capture_fixture(&embedder),
         "measure-baseline" => run_measure_baseline(&embedder),
-        _ => run_assertions(&embedder),
+        "" => run_assertions(&embedder),
+        unknown => {
+            eprintln!(
+                "mlx_smoke: unknown mode {unknown:?} (known: capture-fixture, measure-baseline); \
+                 running default assertions"
+            );
+            run_assertions(&embedder);
+        }
     }
 }
 
@@ -125,32 +135,6 @@ fn run_assertions(embedder: &embed::Embedder) {
     eprintln!("smoke: all checks passed");
 }
 
-// ── Phase 2 workloads ────────────────────────────────────────────────────────
-
-fn workload_w1() -> Vec<String> {
-    vec![
-        "apple pie is a traditional dessert enjoyed around the world. ".repeat(800),
-        "the rain in Spain falls mainly on the plain. ".repeat(500),
-    ]
-}
-
-fn workload_w2() -> Vec<String> {
-    (0..100)
-        .map(|i| format!("short text number {i} for benchmarking W2 workload"))
-        .collect()
-}
-
-fn workload_w3() -> Vec<String> {
-    (0..5)
-        .flat_map(|i| {
-            vec![
-                "benchmarking long text for W3 workload. ".repeat(100 + i * 10),
-                format!("short text {i}"),
-            ]
-        })
-        .collect()
-}
-
 // ── capture-fixture mode ─────────────────────────────────────────────────────
 
 fn fixture_dir() -> PathBuf {
@@ -190,12 +174,14 @@ fn run_capture_fixture(embedder: &embed::Embedder) {
 // ── measure-baseline mode ────────────────────────────────────────────────────
 
 fn run_measure_baseline(embedder: &embed::Embedder) {
-    // warm-up: one full W1 batch before measuring so MLX compile cache is hot
-    let warm = workload_w1();
-    let refs = as_refs(&warm);
-    let _ = embedder
-        .embed_documents_batch(&refs)
-        .expect("warm-up batch");
+    // MLX compiles a kernel per distinct (batch_size, max_seq_len) shape. Warm
+    // each workload's shape once before timing so the first timed call does not
+    // absorb a shape-specific compile spike.
+    for texts in [workload_w1(), workload_w2(), workload_w3()] {
+        let _ = embedder
+            .embed_documents_batch(&as_refs(&texts))
+            .expect("warm-up batch");
+    }
 
     for (name, texts) in [
         ("w1", workload_w1()),
