@@ -63,30 +63,6 @@ impl<K> VerifiedArtifacts<K> {
         }
     }
 
-    /// Borrow the underlying model paths.
-    ///
-    /// Scoped to cross-target probe bins (`src/bin/gpu_pool_probe.rs`) that
-    /// need to load raw files without going through the full `Embedder`.
-    /// Hidden from public docs so it does not become part of the stable
-    /// semantic-search surface. Phase 3c removes the Phase 3a probe bin and
-    /// with it the only external caller.
-    #[doc(hidden)]
-    pub fn paths(&self) -> &ModelPaths {
-        &self.paths
-    }
-
-    /// Borrow the parsed model config. See [`paths`](Self::paths) for scope.
-    #[doc(hidden)]
-    pub fn config(&self) -> &Config {
-        &self.config
-    }
-
-    /// Borrow the loaded tokenizer. See [`paths`](Self::paths) for scope.
-    #[doc(hidden)]
-    pub fn tokenizer(&self) -> &tokenizers::Tokenizer {
-        &self.tokenizer
-    }
-
     /// Delete the artifact files from disk.
     ///
     /// Consumes `self` so the artifacts cannot be used after deletion.
