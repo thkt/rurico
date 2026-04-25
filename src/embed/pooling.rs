@@ -1,108 +1,5 @@
 use mlx_rs::{Array, Dtype, error::Exception, ops::maximum};
 
-use super::EmbedError;
-
-/// Compute mean pooling over hidden states, weighted by attention mask.
-///
-/// `data` is a flat row-major buffer of shape `[seq_len × hidden_size]`.
-/// Mask values act as weights: 0 excludes the token, 1 includes it equally,
-/// and values > 1 increase the token's contribution proportionally.
-/// Only the first `seq_len` mask entries are read (mask may be longer).
-///
-/// # Preconditions
-///
-/// - `attention_mask` must contain at least `seq_len` entries (only the first
-///   `seq_len` entries are read; the caller is responsible for this invariant).
-/// - At least one mask entry in `[0..seq_len]` must be non-zero. If all
-///   entries are zero, pooling returns a zero vector (division is skipped),
-///   which after L2 normalisation remains zero. Callers must ensure the
-///   tokenizer always emits at least one real token (BOS/EOS count).
-pub(crate) fn mean_pooling(
-    data: &[f32],
-    seq_len: usize,
-    hidden_size: usize,
-    attention_mask: &[u32],
-) -> Vec<f32> {
-    let mut result = vec![0.0f32; hidden_size];
-    let mut mask_sum = 0.0f32;
-
-    for (t, &m) in attention_mask.iter().enumerate().take(seq_len) {
-        if m > 0 {
-            let mf = m as f32;
-            let offset = t * hidden_size;
-            for d in 0..hidden_size {
-                result[d] += data[offset + d] * mf;
-            }
-            mask_sum += mf;
-        }
-    }
-
-    if mask_sum > 0.0 {
-        for v in &mut result {
-            *v /= mask_sum;
-        }
-    }
-
-    result
-}
-
-pub(crate) fn l2_normalize(v: &mut [f32]) {
-    let norm: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
-    if norm > 0.0 {
-        for x in v.iter_mut() {
-            *x /= norm;
-        }
-    }
-}
-
-/// Phase 2 CPU-side post-processing: mask-weighted mean pool plus L2 unit-norm.
-///
-/// Reference implementation for the Phase 3a precision probe
-/// (`src/bin/gpu_pool_probe.rs`). Phase 3c removes this function once the
-/// GPU pool has stabilised — hidden from public docs via
-/// `#[doc(hidden)] pub use` on [`embed`](crate::embed).
-///
-/// `flat` is a row-major `[seq_len × hidden_size]` buffer and
-/// `attention_mask.len() >= seq_len`.
-///
-/// # Errors
-///
-/// Returns [`EmbedError::EmptySequence`] when `seq_len == 0`, and
-/// [`EmbedError::inference`](EmbedError) when the flat buffer length or
-/// mask length is inconsistent with `seq_len`. Returns
-/// [`EmbedError::NonFiniteOutput`] if the pooled vector contains NaN or
-/// infinity.
-pub fn postprocess_embedding(
-    flat: &[f32],
-    seq_len: usize,
-    attention_mask: &[u32],
-) -> Result<Vec<f32>, EmbedError> {
-    if seq_len == 0 {
-        return Err(EmbedError::EmptySequence);
-    }
-    if !flat.len().is_multiple_of(seq_len) {
-        return Err(EmbedError::inference(format!(
-            "flat buffer length {} not divisible by seq_len {}",
-            flat.len(),
-            seq_len
-        )));
-    }
-    let hidden_size = flat.len() / seq_len;
-    if attention_mask.len() < seq_len {
-        return Err(EmbedError::inference(format!(
-            "attention_mask length {} < seq_len {}",
-            attention_mask.len(),
-            seq_len
-        )));
-    }
-    let mut pooled = mean_pooling(flat, seq_len, hidden_size, attention_mask);
-    l2_normalize(&mut pooled);
-    if pooled.iter().any(|v| !v.is_finite()) {
-        return Err(EmbedError::NonFiniteOutput);
-    }
-    Ok(pooled)
-}
-
 /// GPU-side mask-weighted mean pool + L2 unit-norm. Mask is cast to
 /// `Float32` internally (FR-006). `hidden` is consumed by value to preserve
 /// the drop-before-clear ordering in
@@ -113,9 +10,11 @@ pub fn postprocess_embedding(
 /// rows — the only NaN source (`0/0` on a fully-masked row). Keeping the
 /// function readback-free is the primary lever of ADR 0002 (`O(hidden)` per
 /// batch entry instead of `O(seq × hidden)`); an internal `eval() +
-/// as_slice() + is_finite scan` would defeat that on every forward. Direct
-/// callers that bypass `ModernBert::forward` (the Phase 3a probe bin) add
-/// their own `is_finite` check — see `src/bin/gpu_pool_probe.rs`.
+/// as_slice() + is_finite scan` would defeat that on every forward. The
+/// production caller `pool_output` calls `split_pooled` post-readback,
+/// where `is_finite` runs against the already-readback flat buffer — so
+/// non-finite outputs (corrupt weights, kernel overflow) still get caught
+/// without a second readback.
 ///
 /// # Errors
 ///
@@ -139,19 +38,19 @@ pub fn gpu_pool_and_normalize(hidden: Array, mask: &Array) -> Result<Array, Exce
     let pooled = sum_hidden.divide(&mask_sum)?;
     let norm_sq = pooled.multiply(&pooled)?.sum_axes(&[-1], true)?;
     let norm = norm_sq.sqrt()?;
-    // CPU `l2_normalize` leaves a zero-norm vector unchanged. Match that on
-    // GPU by clamping the norm to `f32::MIN_POSITIVE` before division: a
-    // zero pooled row still divides to zeros (0 / 1e-38 = 0), and any real
-    // norm ≥ MIN_POSITIVE passes through unchanged. Readback-free.
+    // Clamp the norm to `f32::MIN_POSITIVE` before division to leave a
+    // zero pooled row at zero (0 / 1e-38 = 0); any real norm ≥
+    // MIN_POSITIVE passes through unchanged. Readback-free.
     let eps = Array::from_slice(&[f32::MIN_POSITIVE], &[1]);
     let safe_norm = maximum(&norm, &eps)?;
     pooled.divide(&safe_norm)
 }
 
-/// `t_NNN_` prefix maps to Spec test scenarios in
-/// `.claude/workspace/planning/2026-04-24-phase3-gpu-pooling/spec.md`.
 #[cfg(test)]
 mod tests {
+    //! `t_NNN_` prefix maps to Spec test scenarios in
+    //! `.claude/workspace/planning/2026-04-24-phase3-gpu-pooling/spec.md`.
+
     use super::*;
     use mlx_rs::Array;
     use mlx_rs::error::Exception;
@@ -192,13 +91,6 @@ mod tests {
             Array::from_slice(&data, &[batch, seq, hidden])
         }
 
-        fn max_abs_diff(a: &[f32], b: &[f32]) -> f32 {
-            a.iter()
-                .zip(b)
-                .map(|(x, y)| (x - y).abs())
-                .fold(0.0f32, f32::max)
-        }
-
         // T-001 / FR-001 / AC-3
         //
         // [T-001] Small known-shape pool: batch=2, seq=4, hidden=3 with mask
@@ -231,44 +123,6 @@ mod tests {
                     "[T-001] row {row} L2 norm^2 must be 1.0 ± 1e-6, got {norm_sq} (row={r:?})"
                 );
             }
-        }
-
-        // T-002 / FR-001 / AC-3
-        //
-        // [T-002] GPU vs CPU reference parity on `[1, 5, 4]`. The same flat
-        // buffer feeds both paths so any `max_abs_diff > 1e-6` is reduction
-        // order drift, not input drift.
-        #[test]
-        #[ignore = "requires unsandboxed MLX runtime"]
-        #[serial]
-        fn t_002_gpu_vs_cpu_reference_within_tolerance() {
-            require_unsandboxed_mlx_runtime();
-            let seq: i32 = 5;
-            let hidden: i32 = 4;
-            let total = (seq * hidden) as usize;
-            let data: Vec<f32> = (0..total).map(|i| (i as f32) * 0.01).collect();
-            let mask_vec: Vec<u32> = vec![1, 1, 1, 1, 0];
-
-            let hidden_arr = Array::from_slice(&data, &[1, seq, hidden]);
-            let mask_arr = Array::from_slice(&mask_vec, &[1, seq]);
-
-            let pooled = gpu_pool_and_normalize(hidden_arr, &mask_arr).expect("pool ok");
-            pooled.eval().expect("eval pool");
-            let gpu_flat: &[f32] = pooled.as_slice();
-
-            let cpu_flat = postprocess_embedding(&data, seq as usize, &mask_vec)
-                .expect("cpu reference post-process must succeed");
-
-            assert_eq!(
-                gpu_flat.len(),
-                cpu_flat.len(),
-                "[T-002] GPU and CPU flat lengths must match"
-            );
-            let diff = max_abs_diff(gpu_flat, &cpu_flat);
-            assert!(
-                diff <= 1e-6,
-                "[T-002] max_abs_diff must be ≤ 1e-6, got {diff} (gpu={gpu_flat:?} cpu={cpu_flat:?})"
-            );
         }
 
         // T-003 / FR-001 / AC-3
@@ -355,14 +209,14 @@ mod tests {
         // intentionally has no internal all-zero-mask guard so the hot path
         // stays readback-free (ADR 0002 primary lever). Production callers go
         // through `ModernBert::forward::validate_attention_mask`, which rejects
-        // fully-masked rows; direct callers (the Phase 3a probe bin) add a
-        // defensive `is_finite` check.
+        // fully-masked rows; `pool_output` then runs `is_finite` against the
+        // already-readback flat buffer in `split_pooled`.
         //
         // This test feeds an all-zero mask row directly and asserts the
         // output contains NaN. If someone re-adds an in-function guard that
         // converts this to `Err` or a zero vector, the test fails, forcing
         // a revisit of ADR 0002 sub-decision 2 before the readback tax
-        // silently returns to the Phase 3b production path.
+        // silently returns to the production path.
         #[test]
         #[ignore = "requires unsandboxed MLX runtime"]
         #[serial]

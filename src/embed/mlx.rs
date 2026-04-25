@@ -531,9 +531,9 @@ pub(super) fn pool_output(
 /// GPU pool reduces readback to `batch_size * hidden_size` floats, so the
 /// validation here mirrors the `O(hidden)` invariant.
 ///
-/// The `is_finite` check restores the [`postprocess_embedding`] safety net
-/// against non-finite outputs (corrupt weights, kernel overflow); this
-/// catches sources beyond the all-zero-mask `0/0` case that
+/// The `is_finite` check guards against non-finite outputs (corrupt
+/// weights, kernel overflow); this catches
+/// sources beyond the all-zero-mask `0/0` case that
 /// `validate_attention_mask` already rejects upstream. It runs against
 /// the already-readback flat buffer so it does not defeat the ADR 0002
 /// readback-free hot path.
@@ -927,9 +927,9 @@ mod tests {
 
     // T-015 / FR-002c / AC-1
     //
-    // [T-015] `split_pooled` rejects `NaN` with `NonFiniteOutput`. Restores
-    // the Phase 2 `postprocess_embedding::is_finite` safety net that
-    // Phase 3b would otherwise lose: the all-zero-mask `0/0` source is
+    // [T-015] `split_pooled` rejects `NaN` with `NonFiniteOutput`. The
+    // `is_finite` guard catches non-finite outputs that Phase 3b would
+    // otherwise miss: the all-zero-mask `0/0` source is
     // already rejected by `validate_attention_mask` upstream, but other
     // sources (corrupt weights, kernel overflow) are not. The check runs
     // on the already-readback flat buffer so it does not defeat the
