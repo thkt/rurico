@@ -197,12 +197,18 @@ fn verify_tokenizer(paths: &ModelPaths) -> Result<tokenizers::Tokenizer, Artifac
 
 // ── Kind check (safetensors header inspection) ───────────────────────────────
 
-/// Tensor key prefixes that must be present in all ModernBERT-based models.
+/// Tensor key prefixes that identify ModernBERT-based backbone weights.
 ///
-/// The ruri-v3 MLX weight files use a flat naming convention without the `model.`
-/// wrapper common in HuggingFace transformers checkpoints. The backbone layers are
-/// always present and keyed under the `"layers."` namespace.
-const MODERNBERT_KEY_PREFIXES: &[&str] = &["layers."];
+/// Two naming conventions are accepted (any-of):
+/// - `"layers."` — flat MLX convention used by ruri-v3 embed checkpoints
+///   (e.g. `cl-nagoya/ruri-v3-310m`).
+/// - `"model.layers."` — HuggingFace transformers wrapping convention used by
+///   sequence-classification heads such as `ModernBertForSequenceClassification`
+///   (e.g. `cl-nagoya/ruri-v3-reranker-310m`).
+///
+/// At least one prefix must match a key in the safetensors header for the
+/// backbone check to succeed.
+const MODERNBERT_KEY_PREFIXES: &[&str] = &["layers.", "model.layers."];
 
 /// Tensor key prefixes that are present in reranker models and absent in embed models.
 const RERANKER_KEY_PREFIXES: &[&str] = &["classifier.", "head.dense.", "head.norm."];
@@ -217,21 +223,28 @@ fn verify_reranker_kind(paths: &ModelPaths) -> Result<(), ArtifactError> {
 
 /// Check safetensors key prefixes for a ModernBERT-based model.
 ///
-/// Always requires backbone keys (`MODERNBERT_KEY_PREFIXES`).
-/// When `require_reranker_keys` is `true`, classifier/head keys must also be present.
-/// When `false`, they must be absent.
+/// Backbone check: at least one prefix from [`MODERNBERT_KEY_PREFIXES`] must
+/// match (any-of). This accepts both flat MLX checkpoints (`"layers."`) and
+/// HuggingFace-wrapped checkpoints (`"model.layers."`).
+///
+/// Reranker head check (`RERANKER_KEY_PREFIXES`): when `require_reranker_keys`
+/// is `true`, every classifier/head prefix must match (all-of); when `false`,
+/// none of them may match.
 fn verify_model_kind(
     paths: &ModelPaths,
     expected: &'static str,
     require_reranker_keys: bool,
 ) -> Result<(), ArtifactError> {
-    let mut backbone_seen = [false; MODERNBERT_KEY_PREFIXES.len()];
+    let mut backbone_seen = false;
     let mut reranker_seen = [false; RERANKER_KEY_PREFIXES.len()];
 
     scan_safetensors_keys(&paths.model, |k| {
-        for (i, prefix) in MODERNBERT_KEY_PREFIXES.iter().enumerate() {
-            if !backbone_seen[i] && k.starts_with(prefix) {
-                backbone_seen[i] = true;
+        if !backbone_seen {
+            for prefix in MODERNBERT_KEY_PREFIXES {
+                if k.starts_with(prefix) {
+                    backbone_seen = true;
+                    break;
+                }
             }
         }
         for (i, prefix) in RERANKER_KEY_PREFIXES.iter().enumerate() {
@@ -241,13 +254,13 @@ fn verify_model_kind(
         }
     })?;
 
-    for (i, prefix) in MODERNBERT_KEY_PREFIXES.iter().enumerate() {
-        if !backbone_seen[i] {
-            return Err(ArtifactError::WrongModelKind {
-                expected,
-                keys_hint: format!("missing required key with prefix '{prefix}'"),
-            });
-        }
+    if !backbone_seen {
+        return Err(ArtifactError::WrongModelKind {
+            expected,
+            keys_hint: format!(
+                "missing required key with any of prefixes {MODERNBERT_KEY_PREFIXES:?}"
+            ),
+        });
     }
     for (i, prefix) in RERANKER_KEY_PREFIXES.iter().enumerate() {
         let found = reranker_seen[i];
@@ -655,6 +668,30 @@ mod tests {
         assert!(
             verify_as_reranker(paths).is_err(),
             "verify_as_reranker should reject safetensors without backbone keys"
+        );
+    }
+
+    /// Real-world checkpoint: `cl-nagoya/ruri-v3-reranker-310m` ships HF
+    /// transformers-style backbone keys (`model.layers.*`) alongside flat
+    /// classifier/head keys. The any-of backbone-prefix check must accept it.
+    #[test]
+    fn verify_as_reranker_succeeds_with_hf_wrapped_backbone() {
+        let dir = tempfile::tempdir().unwrap();
+        write_fake_safetensors(
+            &dir.path().join("model.safetensors"),
+            &[
+                "model.layers.0.attn.Wo.weight",
+                "classifier.weight",
+                "head.dense.weight",
+                "head.norm.weight",
+            ],
+        );
+        write_valid_config(dir.path());
+        write_valid_tokenizer(dir.path());
+        let paths = ModelPaths::from_dir(dir.path());
+        assert!(
+            verify_as_reranker(paths).is_ok(),
+            "verify_as_reranker should succeed for HF-wrapped backbone keys"
         );
     }
 
