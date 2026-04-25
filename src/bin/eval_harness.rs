@@ -118,8 +118,10 @@ fn run_evaluate(kvs: &HashMap<String, String>) -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    if kind == "shuffled" {
-        shuffle_each_ranking(&mut results);
+    match kind {
+        "shuffled" => shuffle_each_ranking(&mut results),
+        "reverse" => reverse_each_ranking(&mut results),
+        _ => {}
     }
     let summary = serde_json::json!({
         "kind": kind,
@@ -235,9 +237,7 @@ fn run_capture_reverse_baseline(kvs: &HashMap<String, String>) -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    for r in &mut results {
-        r.ranked_hits.reverse();
-    }
+    reverse_each_ranking(&mut results);
     let observed_lower_bound = global_metric(&results, &queries, ndcg_at_k, 10);
 
     let payload = serde_json::json!({
@@ -417,6 +417,16 @@ fn shuffle_each_ranking(results: &mut [QueryResult]) {
     let mut rng = ChaCha8Rng::seed_from_u64(SHUFFLE_SEED);
     for r in results.iter_mut() {
         r.ranked_hits.shuffle(&mut rng);
+    }
+}
+
+/// Reverse every per-query ranking. Mirrors the operation
+/// `capture-reverse-baseline` performs to derive `observed_lower_bound`
+/// (FR-012); shared so `evaluate kind=reverse` and the baseline capture stay
+/// in lockstep.
+fn reverse_each_ranking(results: &mut [QueryResult]) {
+    for r in results.iter_mut() {
+        r.ranked_hits.reverse();
     }
 }
 
