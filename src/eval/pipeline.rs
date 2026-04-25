@@ -26,6 +26,18 @@ const FTS_VOCAB_TABLE: &str = "docs_vocab";
 /// RRF; matches recall's `opts.limit * 3` heuristic.
 const RRF_CANDIDATE_MULTIPLIER: usize = 3;
 
+/// Upper bound on `cross_product` output size in [`clean_for_trigram`].
+///
+/// When `Π or_groups[i].len()` exceeds this threshold, the OR-distribution
+/// path is skipped and only `fixed` terms are used. Prevents the O(Π m_i)
+/// memory blowup observed in issue #71 (worst observed `8 × 25 × 25 × 12 ×
+/// 20 × 25 = 30,000,000` combos in `queries.jsonl`).
+///
+/// At 100 combos the MATCH string stays under ~10 KB; the reranker recovers
+/// any recall lost on the small fraction of queries that hit the fallback
+/// (mrr / ndcg_at_10 unchanged versus a 10,000-combo cap).
+const MAX_COMBOS: usize = 100;
+
 /// Single ranked hit from the pipeline.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Hit {
@@ -138,20 +150,15 @@ fn index_corpus<E: Embed>(
 ) -> Result<(), PipelineError> {
     let bodies: Vec<&str> = corpus.iter().map(|d| d.body.as_str()).collect();
     let chunked = embedder.embed_documents_batch(&bodies)?;
+    let mut insert_doc = conn.prepare_cached("INSERT INTO documents(id, body) VALUES (?, ?)")?;
+    let mut insert_fts = conn.prepare_cached("INSERT INTO docs_fts(doc_id, body) VALUES (?, ?)")?;
+    let mut insert_vec =
+        conn.prepare_cached("INSERT INTO vec_docs(embedding, doc_id) VALUES (?, ?)")?;
     for (doc, chunked_embedding) in corpus.iter().zip(chunked.iter()) {
-        conn.execute(
-            "INSERT INTO documents(id, body) VALUES (?, ?)",
-            params![&doc.id, &doc.body],
-        )?;
-        conn.execute(
-            "INSERT INTO docs_fts(doc_id, body) VALUES (?, ?)",
-            params![&doc.id, &doc.body],
-        )?;
+        insert_doc.execute(params![&doc.id, &doc.body])?;
+        insert_fts.execute(params![&doc.id, &doc.body])?;
         if let Some(vector) = chunked_embedding.chunks.first() {
-            conn.execute(
-                "INSERT INTO vec_docs(embedding, doc_id) VALUES (?, ?)",
-                params![f32_as_bytes(vector), &doc.id],
-            )?;
+            insert_vec.execute(params![f32_as_bytes(vector), &doc.id])?;
         }
     }
     Ok(())
@@ -205,7 +212,7 @@ fn retrieve_fts(
         return Ok(Vec::new());
     };
     let limit_i64 = i64::try_from(limit).unwrap_or(i64::MAX);
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare_cached(
         "SELECT doc_id, rank FROM docs_fts WHERE docs_fts MATCH ? ORDER BY rank LIMIT ?",
     )?;
     let rows = stmt.query_map(params![fts_query, limit_i64], |row| {
@@ -231,12 +238,23 @@ fn retrieve_fts(
 fn clean_for_trigram(query: &MatchFtsQuery) -> Option<String> {
     let cleaned: String = query.as_str().chars().filter(|c| !c.is_control()).collect();
     let (fixed, or_groups) = parse_fts_segments(&cleaned);
+    let fixed_only = || (!fixed.is_empty()).then(|| fixed.join(" "));
+
     if or_groups.is_empty() {
-        if fixed.is_empty() {
-            return None;
-        }
-        return Some(fixed.join(" "));
+        return fixed_only();
     }
+
+    // Estimate Π m_i without materializing cross_product. Saturates at
+    // usize::MAX on overflow so the threshold check still fires.
+    let estimated_combos = or_groups
+        .iter()
+        .map(Vec::len)
+        .try_fold(1usize, usize::checked_mul)
+        .unwrap_or(usize::MAX);
+    if estimated_combos > MAX_COMBOS {
+        return fixed_only();
+    }
+
     let combos = cross_product(&or_groups);
     Some(
         combos
@@ -306,8 +324,10 @@ fn cross_product(groups: &[Vec<String>]) -> Vec<Vec<String>> {
     result
 }
 
-/// Vector retrieval via the `vec0` virtual table's `MATCH` operator and
-/// distance ordering.
+/// Vector retrieval via the `vec0` virtual table's KNN operator.
+///
+/// Uses sqlite-vec's official `AND k = ?` syntax; rows already arrive in
+/// distance-ascending order, so no `ORDER BY` clause is needed.
 fn retrieve_vec<E: Embed>(
     conn: &Connection,
     embedder: &E,
@@ -316,11 +336,11 @@ fn retrieve_vec<E: Embed>(
 ) -> Result<Vec<(String, f64)>, PipelineError> {
     let embedding = embedder.embed_query(query)?;
     let bytes = f32_as_bytes(&embedding);
-    let limit_i64 = i64::try_from(limit).unwrap_or(i64::MAX);
-    let mut stmt = conn.prepare(
-        "SELECT doc_id, distance FROM vec_docs WHERE embedding MATCH ? ORDER BY distance LIMIT ?",
+    let k_i64 = i64::try_from(limit).unwrap_or(i64::MAX);
+    let mut stmt = conn.prepare_cached(
+        "SELECT doc_id, distance FROM vec_docs WHERE embedding MATCH ? AND k = ?",
     )?;
-    let rows = stmt.query_map(params![bytes, limit_i64], |row| {
+    let rows = stmt.query_map(params![bytes, k_i64], |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?))
     })?;
     let mut hits = Vec::new();
