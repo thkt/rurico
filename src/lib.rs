@@ -5,6 +5,8 @@
 pub mod artifacts;
 /// Embedding models and the [`Embed`](embed::Embed) trait.
 pub mod embed;
+/// Search evaluation harness — metrics, fixtures, pipeline (Phase 1, Issue #65).
+pub mod eval;
 /// Process-global MLX cache lock shared by embed and reranker.
 pub(crate) mod mlx_cache;
 /// Shared model I/O utilities (config, tokenizer, constants).

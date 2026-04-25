@@ -21,6 +21,8 @@ bytemuck = "1"
 hf-hub = "0.5"
 log = "0.4"
 mlx-rs = "0.25"
+rand = "0.9"
+rand_chacha = "0.9"
 rusqlite = { version = "0.39", features = ["bundled"] }
 rurico-ffi = { path = "crates/rurico-ffi" }
 serde = { version = "1", features = ["derive"] }
