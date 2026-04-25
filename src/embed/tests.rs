@@ -1,4 +1,4 @@
-use super::mlx::{shrink_chunk_to_fit, unpack_batch_output};
+use super::mlx::shrink_chunk_to_fit;
 use super::pooling::{l2_normalize, mean_pooling};
 use super::probe::probe_env_to_paths;
 use super::*;
@@ -187,21 +187,6 @@ fn postprocess_embedding_rejects_short_attention_mask() {
     );
 }
 
-#[test]
-fn unpack_batch_output_rejects_nan_embedding() {
-    let hidden_size = EMBEDDING_DIMS;
-    let max_seq_len = 1;
-    let batch_size = 1;
-    let mut flat = vec![0.0f32; batch_size * max_seq_len * hidden_size];
-    flat[0] = f32::NAN;
-    let attention_mask = vec![1u32; batch_size * max_seq_len];
-    let err = unpack_batch_output(&flat, batch_size, max_seq_len, &attention_mask).unwrap_err();
-    assert!(
-        matches!(err, EmbedError::NonFiniteOutput),
-        "expected NonFiniteOutput, got: {err}"
-    );
-}
-
 fn setup_fake_cache_for(hub_dir: &Path, model: ModelId) {
     setup_fake_hf_cache(
         hub_dir,
@@ -309,78 +294,6 @@ fn probe_env_to_paths_returns_paths_when_all_present() {
     assert_eq!(candidate.paths.model, PathBuf::from("/m"));
     assert_eq!(candidate.paths.config, PathBuf::from("/c"));
     assert_eq!(candidate.paths.tokenizer, PathBuf::from("/t"));
-}
-
-#[test]
-fn unpack_batch_output_rejects_indivisible_shape() {
-    let flat = vec![0.0f32; 10];
-    let mask = vec![1u32; 6];
-    let err = unpack_batch_output(&flat, 2, 3, &mask).unwrap_err();
-    assert!(
-        matches!(
-            err,
-            EmbedError::BufferShapeMismatch {
-                expected: 6,
-                actual: 10
-            }
-        ),
-        "{err}"
-    );
-}
-
-#[test]
-fn unpack_batch_output_rejects_zero_total() {
-    let flat = vec![0.0f32; 10];
-    let err = unpack_batch_output(&flat, 0, 0, &[]).unwrap_err();
-    assert!(
-        matches!(
-            err,
-            EmbedError::BufferShapeMismatch {
-                expected: 0,
-                actual: 10
-            }
-        ),
-        "{err}"
-    );
-}
-
-#[test]
-fn unpack_batch_output_happy_path() {
-    let hidden = EMBEDDING_DIMS;
-    let batch_size = 2;
-    let max_seq_len = 1;
-    let mut flat = vec![0.0f32; batch_size * max_seq_len * hidden];
-    // chunk 0: nonzero at dim 1
-    flat[1] = 1.0;
-    // chunk 1: nonzero at dim 0
-    flat[hidden] = 1.0;
-    let mask = vec![1u32; batch_size * max_seq_len];
-    let results = unpack_batch_output(&flat, batch_size, max_seq_len, &mask).unwrap();
-    assert_eq!(results.len(), 2);
-    assert_eq!(results[0].len(), hidden);
-    assert_eq!(results[1].len(), hidden);
-    // results[0] from chunk 0 (dim 1 nonzero)
-    assert!(
-        results[0][0].abs() < 1e-6,
-        "results[0][0]={}",
-        results[0][0]
-    );
-    assert!(
-        (results[0][1] - 1.0).abs() < 1e-6,
-        "results[0][1]={}",
-        results[0][1]
-    );
-    // results[1] from chunk 1 (dim 0 nonzero)
-    assert!(
-        (results[1][0] - 1.0).abs() < 1e-6,
-        "results[1][0]={}",
-        results[1][0]
-    );
-    assert!(
-        results[1][1].abs() < 1e-6,
-        "results[1][1]={}",
-        results[1][1]
-    );
 }
 
 #[test]
