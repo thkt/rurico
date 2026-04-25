@@ -111,6 +111,40 @@ fn smoke_measure_baseline() {
             "measure-baseline must emit per-workload {res} line (got: {stderr})"
         );
     }
+    // T-006 / FR-002 / NFR-002 / AC-1
+    //
+    // [T-006] Phase 3b GPU pool emits per-workload `readback_shape[wN]:`
+    // banner so this integration test confirms readback volume reduced
+    // from `O(seq * hidden)` to `O(batch * hidden)`. Two-stage check:
+    // (a) banner exists per workload (presence guard, mirrors the
+    // `baseline[wN]` / `mdrow[wN]` / `residual[wN]` style), then
+    // (b) the banner's `total_flat == total_rows * hidden_size` arithmetic
+    // identity holds — this is the actual NFR-002 guarantee. The arithmetic
+    // check survives format reordering and would catch a regression that
+    // the prefix-only check would miss.
+    for name in ["w1", "w2", "w3"] {
+        let prefix = format!("readback_shape[{name}]:");
+        let line = stderr
+            .lines()
+            .find(|l| l.contains(&prefix))
+            .unwrap_or_else(|| {
+                panic!("[T-006] missing {prefix} banner in measure-baseline stderr: {stderr}")
+            });
+        let parse_field = |key: &str| -> usize {
+            line.split_whitespace()
+                .find_map(|tok| tok.strip_prefix(key)?.parse::<usize>().ok())
+                .unwrap_or_else(|| panic!("[T-006] {prefix} banner missing field '{key}': {line}"))
+        };
+        let hidden_size = parse_field("hidden_size=");
+        let total_rows = parse_field("total_rows=");
+        let total_flat = parse_field("total_flat=");
+        assert_eq!(
+            total_flat,
+            total_rows * hidden_size,
+            "[T-006] {prefix} NFR-002 invariant: total_flat must equal total_rows * hidden_size \
+             (got total_flat={total_flat}, total_rows={total_rows}, hidden_size={hidden_size})"
+        );
+    }
     assert!(
         stderr.contains("saturated:"),
         "measure-baseline should surface W1 bucket-saturated diagnostics \

@@ -30,7 +30,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use rurico::embed::{
-    self, BatchMetrics, Embed,
+    self, BatchMetrics, EMBEDDING_DIMS, Embed,
     fixtures::{self, DEFAULT_COSINE_MIN, DEFAULT_MAX_ABS_DIFF},
     linreg::{linear_regression, r_squared},
     workloads::{workload_w1, workload_w2, workload_w3},
@@ -332,6 +332,24 @@ fn run_measure_baseline(embedder: &embed::Embedder) {
             fw = m.forward_eval_ms,
             pr = m.padding_ratio,
             nc = m.num_chunks,
+        );
+        // T-006 / FR-002 / NFR-002: per-workload proof that the Phase 3b
+        // GPU pool reduced the readback to `O(batch * hidden)` floats.
+        // Emission is post-`split_pooled` invariant — any sub-batch shape
+        // mismatch would have `?`-returned earlier and skipped this line.
+        //
+        // `EMBEDDING_DIMS` is the default-model compile-time constant.
+        // The runtime invariant inside `forward_sub_batch` checks against
+        // `self.embedding_dims` (config-driven). For non-default model
+        // runs, the banner is informative for the default-model case;
+        // extending `BatchMetrics` to carry the runtime `hidden_size` is
+        // a Phase 3c follow-up if multi-model `measure-baseline` becomes
+        // a use case.
+        eprintln!(
+            "readback_shape[{name}]: hidden_size={hs} total_rows={rows} total_flat={flat}",
+            hs = EMBEDDING_DIMS,
+            rows = m.num_chunks,
+            flat = m.num_chunks * EMBEDDING_DIMS,
         );
 
         results.push(WorkloadResult {

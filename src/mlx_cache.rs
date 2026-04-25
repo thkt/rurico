@@ -29,6 +29,24 @@ pub(crate) static MLX_CACHE_LOCK: Mutex<()> = Mutex::new(());
 /// 3. `MLX_CACHE_LOCK` serializes concurrent calls across all modules.
 pub(crate) fn release_inference_output(output: mlx_rs::Array) {
     drop(output);
+    clear_inference_cache();
+}
+
+/// Clear the MLX GPU caches without consuming an Array.
+///
+/// Sibling of [`release_inference_output`] for the case where a forward
+/// pass succeeded (model weights uploaded, kernels compiled) but a
+/// downstream MLX op (`gpu_pool_and_normalize`, `eval`) errored, leaving
+/// no Array to drop. Skips the drop step but keeps the same cache-clear
+/// contract so error paths do not leak compile-cache entries across long
+/// embedding runs (Codex CX-001 regression guard for Phase 3b).
+///
+/// # Safety
+///
+/// Only call this when there is no live `Array` from the just-failed
+/// forward pass. If an Array exists, prefer [`release_inference_output`]
+/// to preserve the drop-before-clear ordering.
+pub(crate) fn clear_inference_cache() {
     let _guard = MLX_CACHE_LOCK.lock().unwrap_or_else(|e| {
         log::warn!("MLX cache lock was poisoned; recovering");
         e.into_inner()
