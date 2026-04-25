@@ -380,16 +380,35 @@ fn load_fixture_for_kind(kind: &str) -> Result<(Vec<EvalDocument>, Vec<EvalQuery
 }
 
 fn init_embedder() -> Result<embed::Embedder, String> {
-    let artifacts = embed::cached_artifacts(embed::ModelId::default())
-        .map_err(|e| format!("embed cache lookup: {e}"))?
-        .ok_or_else(|| "embed model not cached; run download first".to_owned())?;
+    let model_id = embed::ModelId::default();
+    let artifacts =
+        match embed::cached_artifacts(model_id).map_err(|e| format!("embed cache lookup: {e}"))? {
+            Some(a) => a,
+            None => {
+                eprintln!(
+                    "embed model not cached, downloading {}...",
+                    model_id.repo_id()
+                );
+                embed::download_model(model_id).map_err(|e| format!("embed download: {e}"))?
+            }
+        };
     embed::Embedder::new(&artifacts).map_err(|e| format!("embedder load: {e}"))
 }
 
 fn init_reranker() -> Result<reranker::Reranker, String> {
-    let artifacts = reranker::cached_artifacts(reranker::RerankerModelId::default())
+    let model_id = reranker::RerankerModelId::default();
+    let artifacts = match reranker::cached_artifacts(model_id)
         .map_err(|e| format!("reranker cache lookup: {e}"))?
-        .ok_or_else(|| "reranker model not cached; run download first".to_owned())?;
+    {
+        Some(a) => a,
+        None => {
+            eprintln!(
+                "reranker model not cached, downloading {}...",
+                model_id.repo_id()
+            );
+            reranker::download_model(model_id).map_err(|e| format!("reranker download: {e}"))?
+        }
+    };
     reranker::Reranker::new(&artifacts).map_err(|e| format!("reranker load: {e}"))
 }
 
