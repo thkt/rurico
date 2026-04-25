@@ -1,0 +1,335 @@
+//! Reference search pipeline composition (FR-008..FR-010).
+//!
+//! Inline composition of `rurico` primitives — in-memory SQLite + FTS5 +
+//! sqlite-vec + RRF + optional reranker — modeled after `recall`'s wiring
+//! shape (ADR 0003). recall is *not* imported (cyclic dep avoided).
+//!
+//! Phase 1c RED — `evaluate` is a stub. Tests use `MockEmbedder` to drive
+//! the wiring; Phase 1d wires the real mlx embedder via the harness binary.
+
+use std::time::Instant;
+
+use rusqlite::{Connection, params};
+use serde::{Deserialize, Serialize};
+
+use crate::embed::{EMBEDDING_DIMS, Embed, EmbedError};
+use crate::eval::fixture::{EvalDocument, EvalQuery};
+use crate::reranker::{Rerank, RerankerError};
+use crate::storage::{
+    SanitizeError, ensure_sqlite_vec, f32_as_bytes, prepare_match_query, rrf_merge,
+};
+
+/// FTS5 vocab table name used by [`prepare_match_query`].
+const FTS_VOCAB_TABLE: &str = "docs_vocab";
+
+/// FTS + vec retrievals each fetch this many candidates per query before
+/// RRF; matches recall's `opts.limit * 3` heuristic.
+const RRF_CANDIDATE_MULTIPLIER: usize = 3;
+
+/// Single ranked hit from the pipeline.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Hit {
+    /// Document identifier (matches `EvalDocument::id`).
+    pub doc_id: String,
+    /// Aggregated relevance score after RRF merge and optional rerank.
+    pub score: f64,
+}
+
+/// One query's pipeline output: ordered hits + wall-clock latency.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueryResult {
+    /// Identifier of the input [`EvalQuery`].
+    pub query_id: String,
+    /// Hits sorted by descending [`Hit::score`].
+    pub ranked_hits: Vec<Hit>,
+    /// Wall-clock latency for this single query in milliseconds.
+    pub latency_ms: u64,
+}
+
+/// Tunable pipeline parameters.
+#[derive(Debug, Clone)]
+pub struct PipelineConfig {
+    /// Top-k cutoff after RRF merge.
+    pub k: usize,
+}
+
+/// Errors surfaced by the reference pipeline.
+#[derive(thiserror::Error, Debug)]
+#[non_exhaustive]
+pub enum PipelineError {
+    /// SQLite storage failure (schema build, FTS index, vec table, etc.).
+    #[error("pipeline sqlite error: {0}")]
+    Sqlite(#[from] rusqlite::Error),
+    /// Embedder failed during query or document encoding.
+    #[error("pipeline embed error: {0}")]
+    Embed(#[from] EmbedError),
+    /// Optional reranker failed during scoring.
+    #[error("pipeline rerank error: {0}")]
+    Rerank(#[from] RerankerError),
+    /// FTS5 query sanitization rejected the surface query.
+    #[error("pipeline FTS sanitize error: {0}")]
+    Sanitize(#[from] SanitizeError),
+    /// `sqlite_vec` extension registration failed at process level.
+    #[error("pipeline sqlite-vec load failed: {0}")]
+    SqliteVec(String),
+}
+
+/// Run the reference pipeline on `corpus` for every query in `queries`.
+///
+/// Indexes `corpus` into an in-memory SQLite store with FTS5 and sqlite-vec
+/// virtual tables, encodes each query with `embedder`, retrieves top hits via
+/// FTS5 and vector search, merges with RRF, and optionally rescores with
+/// `reranker`. Output ranked-hit count is bounded by [`PipelineConfig::k`].
+///
+/// # Errors
+///
+/// See [`PipelineError`] variants. Sqlite, embed, rerank, and sanitize errors
+/// each surface their respective source via `#[from]`; sqlite-vec load
+/// failure surfaces as [`PipelineError::SqliteVec`].
+pub fn evaluate<E, R>(
+    corpus: &[EvalDocument],
+    queries: &[EvalQuery],
+    embedder: &E,
+    reranker: Option<&R>,
+    config: &PipelineConfig,
+) -> Result<Vec<QueryResult>, PipelineError>
+where
+    E: Embed,
+    R: Rerank,
+{
+    ensure_sqlite_vec().map_err(PipelineError::SqliteVec)?;
+    let conn = Connection::open_in_memory()?;
+    create_schema(&conn)?;
+    index_corpus(&conn, corpus, embedder)?;
+
+    let mut results = Vec::with_capacity(queries.len());
+    for query in queries {
+        let started = Instant::now();
+        let ranked_hits = run_single_query(&conn, query, embedder, reranker, corpus, config)?;
+        let latency_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        results.push(QueryResult {
+            query_id: query.id.clone(),
+            ranked_hits,
+            latency_ms,
+        });
+    }
+    Ok(results)
+}
+
+/// Build the in-memory schema (documents + FTS5 + vec0 + fts5vocab).
+fn create_schema(conn: &Connection) -> Result<(), PipelineError> {
+    conn.execute_batch(&format!(
+        "CREATE TABLE documents(id TEXT PRIMARY KEY, body TEXT NOT NULL); \
+         CREATE VIRTUAL TABLE docs_fts USING fts5(doc_id UNINDEXED, body, tokenize='trigram'); \
+         CREATE VIRTUAL TABLE vec_docs USING vec0(embedding FLOAT[{EMBEDDING_DIMS}], +doc_id TEXT); \
+         CREATE VIRTUAL TABLE {FTS_VOCAB_TABLE} USING fts5vocab(docs_fts, row);"
+    ))?;
+    Ok(())
+}
+
+/// Encode each document body with `embedder` and insert into all three tables.
+///
+/// `EvalDocument` is treated as a single chunk; the first chunk vector from
+/// [`Embed::embed_documents_batch`] is what lands in `vec_docs`.
+fn index_corpus<E: Embed>(
+    conn: &Connection,
+    corpus: &[EvalDocument],
+    embedder: &E,
+) -> Result<(), PipelineError> {
+    let bodies: Vec<&str> = corpus.iter().map(|d| d.body.as_str()).collect();
+    let chunked = embedder.embed_documents_batch(&bodies)?;
+    for (doc, chunked_embedding) in corpus.iter().zip(chunked.iter()) {
+        conn.execute(
+            "INSERT INTO documents(id, body) VALUES (?, ?)",
+            params![&doc.id, &doc.body],
+        )?;
+        conn.execute(
+            "INSERT INTO docs_fts(doc_id, body) VALUES (?, ?)",
+            params![&doc.id, &doc.body],
+        )?;
+        if let Some(vector) = chunked_embedding.chunks.first() {
+            conn.execute(
+                "INSERT INTO vec_docs(embedding, doc_id) VALUES (?, ?)",
+                params![f32_as_bytes(vector), &doc.id],
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// Drive one `EvalQuery` through FTS + vec retrieval, RRF merge, and (when
+/// supplied) reranker rescoring.
+fn run_single_query<E, R>(
+    conn: &Connection,
+    query: &EvalQuery,
+    embedder: &E,
+    reranker: Option<&R>,
+    corpus: &[EvalDocument],
+    config: &PipelineConfig,
+) -> Result<Vec<Hit>, PipelineError>
+where
+    E: Embed,
+    R: Rerank,
+{
+    let candidate_limit = config.k * RRF_CANDIDATE_MULTIPLIER;
+    let fts_hits = retrieve_fts(conn, &query.text, candidate_limit)?;
+    let vec_hits = retrieve_vec(conn, embedder, &query.text, candidate_limit)?;
+    let mut merged = rrf_merge(&fts_hits, &vec_hits);
+    merged.truncate(config.k);
+
+    if let Some(reranker) = reranker {
+        merged = apply_reranker(reranker, &query.text, &merged, corpus)?;
+    }
+
+    Ok(merged
+        .into_iter()
+        .map(|(doc_id, score)| Hit { doc_id, score })
+        .collect())
+}
+
+/// FTS5 retrieval. Empty / unsanitisable queries return an empty hit list
+/// (mirrors recall's early-return behavior on `SanitizeError::EmptyInput`).
+fn retrieve_fts(
+    conn: &Connection,
+    query: &str,
+    limit: usize,
+) -> Result<Vec<(String, f64)>, PipelineError> {
+    let matched = match prepare_match_query(conn, query, FTS_VOCAB_TABLE) {
+        Ok(m) => m,
+        Err(SanitizeError::EmptyInput | SanitizeError::NoSearchableTerms) => {
+            return Ok(Vec::new());
+        }
+        Err(e) => return Err(e.into()),
+    };
+    let limit_i64 = i64::try_from(limit).unwrap_or(i64::MAX);
+    let mut stmt = conn.prepare(
+        "SELECT doc_id, rank FROM docs_fts WHERE docs_fts MATCH ? ORDER BY rank LIMIT ?",
+    )?;
+    let rows = stmt.query_map(params![matched.as_str(), limit_i64], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?))
+    })?;
+    let mut hits = Vec::new();
+    for r in rows {
+        hits.push(r?);
+    }
+    Ok(hits)
+}
+
+/// Vector retrieval via the `vec0` virtual table's `MATCH` operator and
+/// distance ordering.
+fn retrieve_vec<E: Embed>(
+    conn: &Connection,
+    embedder: &E,
+    query: &str,
+    limit: usize,
+) -> Result<Vec<(String, f64)>, PipelineError> {
+    let embedding = embedder.embed_query(query)?;
+    let bytes = f32_as_bytes(&embedding);
+    let limit_i64 = i64::try_from(limit).unwrap_or(i64::MAX);
+    let mut stmt = conn.prepare(
+        "SELECT doc_id, distance FROM vec_docs WHERE embedding MATCH ? ORDER BY distance LIMIT ?",
+    )?;
+    let rows = stmt.query_map(params![bytes, limit_i64], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?))
+    })?;
+    let mut hits = Vec::new();
+    for r in rows {
+        hits.push(r?);
+    }
+    Ok(hits)
+}
+
+/// Rescore `merged` via `reranker.rerank(query, doc_bodies)`.
+///
+/// Output preserves only docs the reranker still indexed; rerank score
+/// (`f32`) widens to `f64` to keep the merged list type consistent.
+fn apply_reranker<R: Rerank>(
+    reranker: &R,
+    query: &str,
+    merged: &[(String, f64)],
+    corpus: &[EvalDocument],
+) -> Result<Vec<(String, f64)>, PipelineError> {
+    let bodies: Vec<&str> = merged
+        .iter()
+        .filter_map(|(id, _)| corpus.iter().find(|d| &d.id == id).map(|d| d.body.as_str()))
+        .collect();
+    let ranked_results = reranker.rerank(query, &bodies)?;
+    let mut reranked = Vec::with_capacity(ranked_results.len());
+    for r in ranked_results {
+        if let Some((doc_id, _)) = merged.get(r.index) {
+            reranked.push((doc_id.clone(), f64::from(r.score)));
+        }
+    }
+    Ok(reranked)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::{PipelineConfig, evaluate};
+    use crate::embed::MockEmbedder;
+    use crate::eval::fixture::{EvalDocument, EvalQuery};
+    use crate::reranker::MockReranker;
+
+    /// Build an [`EvalDocument`] with stub title / source. The body carries
+    /// the surface text the FTS5 + vec wiring will see.
+    fn make_document(id: &str, body: &str) -> EvalDocument {
+        EvalDocument {
+            id: id.to_owned(),
+            title: format!("title for {id}"),
+            body: body.to_owned(),
+            category_hint: None,
+            source: "test fixture".to_owned(),
+        }
+    }
+
+    /// Build an [`EvalQuery`] with a single-doc relevance map and stub
+    /// category / annotation. Distribution validation is not exercised here.
+    fn make_query(id: &str, text: &str, relevant_doc: &str) -> EvalQuery {
+        let mut relevance_map = HashMap::new();
+        relevance_map.insert(relevant_doc.to_owned(), 1u8);
+        EvalQuery {
+            id: id.to_owned(),
+            text: text.to_owned(),
+            category: "C1".to_owned(),
+            relevance_map,
+            annotation: "test query".to_owned(),
+        }
+    }
+
+    // T-011: evaluate_with_mock_embedder_returns_one_result_with_hits
+    // FR-008: 5-doc corpus + 1 query + MockEmbedder + no reranker →
+    //         single QueryResult whose ranked_hits is non-empty.
+    // FR-009: pipeline must compose `prepare_match_query`, `rrf_merge`,
+    //         `Embed::embed_query`, optional `Rerank::rerank` (verified by
+    //         CI grep against this file in Phase 1d).
+    #[test]
+    fn evaluate_with_mock_embedder_returns_one_result_with_hits() {
+        let corpus = vec![
+            make_document("d1", "alpha document about retrieval"),
+            make_document("d2", "beta document about ranking"),
+            make_document("d3", "gamma document about indexing"),
+            make_document("d4", "delta document about scoring"),
+            make_document("d5", "epsilon document about evaluation"),
+        ];
+        let queries = vec![make_query("q1", "alpha retrieval", "d1")];
+        let embedder = MockEmbedder::default();
+        let reranker: Option<&MockReranker> = None;
+        let config = PipelineConfig { k: 5 };
+
+        let result = evaluate(&corpus, &queries, &embedder, reranker, &config)
+            .expect("pipeline must succeed with MockEmbedder + no reranker");
+
+        assert_eq!(
+            result.len(),
+            1,
+            "FR-008: one query in → exactly one QueryResult out, got {} results",
+            result.len()
+        );
+        assert!(
+            !result[0].ranked_hits.is_empty(),
+            "FR-008: indexed corpus + valid query → ranked_hits must be non-empty, got empty"
+        );
+    }
+}

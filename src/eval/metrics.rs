@@ -14,13 +14,14 @@ use std::collections::HashMap;
 
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
+use serde::{Deserialize, Serialize};
 
 /// Single metric outcome plus its bootstrap CI envelope.
 ///
 /// The `uninformative` flag is set when the CI half-width exceeds 0.10
 /// (BR-002 / FR-016). The flag is computed at serialization time, not
 /// inside the metric functions themselves.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MetricResult {
     /// Metric identifier, e.g. "recall@5", "ndcg@10".
     pub name: String,
