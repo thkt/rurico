@@ -1,6 +1,6 @@
 # ADR 0003: Search Quality Evaluation Methodology for `rurico`
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-04-25
 - Confidence: medium-high. Reference composition pattern is empirically established in `recall/src/hybrid.rs`; statistical significance via bootstrap CI on 140+ query fixtures is a well-known IR convention; the unknown is whether mlx inference f32 drift across machines / mlx-rs versions stays inside the regeneration tolerance already adopted by ADR 0002.
 
@@ -49,6 +49,8 @@ The reproducibility contract follows ADR 0002:
 - mlx inference f32 drift is bounded by `cosine_similarity ≥ 0.99999 ∧ max_abs_diff ≤ 1e-5` between regeneration runs.
 - `eval_harness capture-baseline` emits the canonical baseline; `eval_harness verify-baseline` re-runs and asserts the tolerance.
 - `baseline.json` carries `model_id`, `model_revision`, `mlx_rs_version`, `fixture_hash` to detect drift drivers explicitly.
+- `fixture_hash` is FNV-1a 64-bit over the three JSONL files (`documents.jsonl`, `queries.jsonl`, `known_answers.jsonl`); SHA-256 is intentionally avoided to keep the dependency graph small. Hash collisions are acceptable since the hash is a fixture-changed signal, not a security primitive.
+- The fixture corpus is synthetic paraphrase of publicly licensed source documentation (MIT / Apache 2.0 / BSD / MPL 2.0 / CC0 / CC-BY / W3C Software Notice / IETF Trust / Python license / PostgreSQL license / public domain). AS-005's enumeration of MIT / Apache / CC0 / CC-BY is read as a non-exhaustive permissive whitelist; equivalent permissive licenses are accepted under the same intent. `tests/fixtures/eval/LICENSES.md` records the per-source attribution and acknowledges share-alike upstream sources whose topics were authored independently.
 
 ## Options Considered
 
@@ -126,12 +128,12 @@ Negative:
 
 ## Migration Plan
 
-1. **Phase 1a**: implement `src/eval/metrics.rs` (Recall@k, MRR@k, nDCG@k, bootstrap CI). Pure functions, unit-tested without mlx.
-2. **Phase 1b**: implement `src/eval/fixture.rs` types and JSONL loaders. Author the in-repo fixture: 50+ documents, 140+ queries (7 categories × ≥20), 3 known-answer micro-fixtures.
-3. **Phase 1c**: implement `src/eval/pipeline.rs` (recall-inspired composition) and `src/eval/baseline.rs` (JSON + markdown serialisation).
-4. **Phase 1d**: implement `src/bin/eval_harness.rs` (mlx_smoke pattern, modes: `capture-baseline`, `verify-baseline`, `evaluate`) and `tests/eval_smoke.rs` (subprocess-driven assertions).
-5. **Phase 1e**: run `eval_harness capture-baseline` and `eval_harness capture-reverse-baseline`; commit `tests/fixtures/eval/baseline.json`, `tests/fixtures/eval/reverse_baseline.json`, and `docs/eval/baseline.md`.
-6. **Phase 1f**: gate behind `[features] eval-harness = []`. Default `cargo test` skips evaluation. `cargo test --features eval-harness -- --ignored` runs the full evaluation.
+1. **Phase 1a** (commit b8c761e): implement `src/eval/metrics.rs` (Recall@k, MRR@k, nDCG@k, bootstrap CI). Pure functions, unit-tested without mlx.
+2. **Phase 1b** (commit 3ad0766): implement `src/eval/fixture.rs` types and JSONL loaders. Author the in-repo fixture: 60 documents (7 domains), 147 queries (7 IR task categories × 21), 3 known-answer micro-fixtures, `LICENSES.md`.
+3. **Phase 1c** (commit 9088dbd): implement `src/eval/pipeline.rs` (recall-inspired composition) and `src/eval/baseline.rs` (JSON + markdown serialisation, `UNINFORMATIVE_HALF_WIDTH = 0.10`).
+4. **Phase 1d** (commit f2b3ce3): implement `src/bin/eval_harness.rs` (mlx_smoke pattern, modes: `evaluate`, `capture-baseline`, `capture-reverse-baseline`, `verify-baseline`) and `tests/eval_smoke.rs` (subprocess-driven assertions, T-013/014/015/016/017/019). Gate behind `[features] eval-harness = []` so default `cargo test` skips the evaluation module entirely (FR-018); opt-in via `cargo test --workspace --features eval-harness -- --ignored` (FR-019).
+5. **Phase 1e**: run `eval_harness capture-baseline` and `eval_harness capture-reverse-baseline` on Apple Silicon with `ruri-v3-310m` cached; commit `tests/fixtures/eval/baseline.json`, `tests/fixtures/eval/reverse_baseline.json`, and `docs/eval/baseline.md` (`## Methodology`, `## Per-category breakdown`, `## Reproducibility`).
+6. **Phase 1f**: finalise this ADR with implementation-confirmed details and add the corresponding row to `adr/README.md`.
 
 ## Reassessment Triggers
 
