@@ -16,7 +16,7 @@ use crate::embed::{EMBEDDING_DIMS, Embed, EmbedError};
 use crate::eval::fixture::{EvalDocument, EvalQuery};
 use crate::reranker::{Rerank, RerankerError};
 use crate::storage::{
-    SanitizeError, ensure_sqlite_vec, f32_as_bytes, prepare_match_query, rrf_merge,
+    MatchFtsQuery, SanitizeError, ensure_sqlite_vec, f32_as_bytes, prepare_match_query, rrf_merge,
 };
 
 /// FTS5 vocab table name used by [`prepare_match_query`].
@@ -201,11 +201,14 @@ fn retrieve_fts(
         }
         Err(e) => return Err(e.into()),
     };
+    let Some(fts_query) = clean_for_trigram(&matched) else {
+        return Ok(Vec::new());
+    };
     let limit_i64 = i64::try_from(limit).unwrap_or(i64::MAX);
     let mut stmt = conn.prepare(
         "SELECT doc_id, rank FROM docs_fts WHERE docs_fts MATCH ? ORDER BY rank LIMIT ?",
     )?;
-    let rows = stmt.query_map(params![matched.as_str(), limit_i64], |row| {
+    let rows = stmt.query_map(params![fts_query, limit_i64], |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?))
     })?;
     let mut hits = Vec::new();
@@ -213,6 +216,94 @@ fn retrieve_fts(
         hits.push(r?);
     }
     Ok(hits)
+}
+
+/// Adapt a [`MatchFtsQuery`] for an FTS5 `trigram` tokenizer.
+///
+/// The trigram tokenizer rejects `("a" OR "b") "c"` (a parenthesized OR-group
+/// followed by implicit AND). Distribute OR-groups into flat alternatives —
+/// `(A OR B) C` → `A C OR B C` — and drop sub-trigram (<3 char) terms inside
+/// OR-groups because the trigram tokenizer cannot index them. Returns `None`
+/// when no indexable terms remain (callers treat this as "no results").
+///
+/// Logic mirrors `amici::storage::fts::clean_for_trigram`; inlined here to
+/// avoid pulling `amici` into rurico's dependency graph.
+fn clean_for_trigram(query: &MatchFtsQuery) -> Option<String> {
+    let cleaned: String = query.as_str().chars().filter(|c| !c.is_control()).collect();
+    let (fixed, or_groups) = parse_fts_segments(&cleaned);
+    if or_groups.is_empty() {
+        if fixed.is_empty() {
+            return None;
+        }
+        return Some(fixed.join(" "));
+    }
+    let combos = cross_product(&or_groups);
+    Some(
+        combos
+            .iter()
+            .map(|combo| {
+                let mut parts = combo.clone();
+                parts.extend(fixed.iter().cloned());
+                parts.join(" ")
+            })
+            .collect::<Vec<_>>()
+            .join(" OR "),
+    )
+}
+
+fn parse_fts_segments(cleaned: &str) -> (Vec<String>, Vec<Vec<String>>) {
+    let mut fixed: Vec<String> = Vec::new();
+    let mut or_groups: Vec<Vec<String>> = Vec::new();
+    let mut chars = cleaned.chars();
+
+    while let Some(c) = chars.next() {
+        if c == '(' {
+            let mut group = String::new();
+            for gc in chars.by_ref() {
+                if gc == ')' {
+                    break;
+                }
+                group.push(gc);
+            }
+            let terms: Vec<String> = group
+                .split(" OR ")
+                .filter(|t| t.trim().trim_matches('"').chars().count() >= 3)
+                .map(|t| t.trim().to_owned())
+                .collect();
+            if !terms.is_empty() {
+                or_groups.push(terms);
+            }
+        } else if c == '"' {
+            let mut term = String::from('"');
+            for tc in chars.by_ref() {
+                term.push(tc);
+                if tc == '"' {
+                    break;
+                }
+            }
+            if term.trim_matches('"').chars().count() >= 3 {
+                fixed.push(term);
+            }
+        }
+    }
+
+    (fixed, or_groups)
+}
+
+fn cross_product(groups: &[Vec<String>]) -> Vec<Vec<String>> {
+    if groups.is_empty() {
+        return vec![vec![]];
+    }
+    let rest = cross_product(&groups[1..]);
+    let mut result = Vec::new();
+    for term in &groups[0] {
+        for combo in &rest {
+            let mut v = vec![term.clone()];
+            v.extend(combo.iter().cloned());
+            result.push(v);
+        }
+    }
+    result
 }
 
 /// Vector retrieval via the `vec0` virtual table's `MATCH` operator and
