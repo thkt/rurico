@@ -17,7 +17,8 @@ use crate::embed::{EMBEDDING_DIMS, Embed, EmbedError};
 use crate::eval::fixture::{EvalDocument, EvalQuery};
 use crate::reranker::{Rerank, RerankerError};
 use crate::retrieval::{
-    Aggregator, Candidate, CandidateSource, MergeStrategy, MergedHit, WeightedRrf,
+    Aggregator, Candidate, CandidateSource, HybridSearchConfig, MergeStrategy, MergedHit,
+    WeightedRrf,
 };
 use crate::storage::{
     MatchFtsQuery, SanitizeError, ensure_sqlite_vec, f32_as_bytes, prepare_match_query,
@@ -120,6 +121,7 @@ pub fn evaluate<E, R, A>(
     embedder: &E,
     reranker: Option<&R>,
     aggregator: &A,
+    merge_config: &HybridSearchConfig,
     config: &PipelineConfig,
 ) -> Result<Vec<QueryResult>, PipelineError>
 where
@@ -140,6 +142,10 @@ where
         .map(|d| (d.id.as_str(), d.body.as_str()))
         .collect();
 
+    // Build the merge strategy once outside the query loop — its config
+    // does not vary per query.
+    let merge_strategy = WeightedRrf::new(merge_config.clone());
+
     let mut results = Vec::with_capacity(queries.len());
     for query in queries {
         let started = Instant::now();
@@ -149,6 +155,7 @@ where
             embedder,
             reranker,
             aggregator,
+            &merge_strategy,
             &corpus_index,
             config,
         )?;
@@ -215,12 +222,14 @@ fn index_corpus<E: Embed>(
 
 /// Drive one `EvalQuery` through FTS + vec retrieval, RRF merge, Stage 3
 /// aggregation, and (when supplied) reranker rescoring.
-fn run_single_query<E, R, A>(
+#[allow(clippy::too_many_arguments)]
+fn run_single_query<E, R, A, M>(
     conn: &Connection,
     query: &EvalQuery,
     embedder: &E,
     reranker: Option<&R>,
     aggregator: &A,
+    merge_strategy: &M,
     corpus_index: &HashMap<&str, &str>,
     config: &PipelineConfig,
 ) -> Result<Vec<MergedHit>, PipelineError>
@@ -228,6 +237,7 @@ where
     E: Embed,
     R: Rerank,
     A: Aggregator,
+    M: MergeStrategy,
 {
     let candidate_limit = config.k * RRF_CANDIDATE_MULTIPLIER;
     let fts_hits = retrieve_fts(conn, &query.text, candidate_limit)?;
@@ -235,7 +245,7 @@ where
     let mut all_candidates = Vec::with_capacity(fts_hits.len() + vec_hits.len());
     all_candidates.extend(fts_hits);
     all_candidates.extend(vec_hits);
-    let merged_hits = WeightedRrf::default().merge(&all_candidates);
+    let merged_hits = merge_strategy.merge(&all_candidates);
 
     // Aggregator::aggregate guarantees score-descending output (see trait
     // doc), so truncate-then-rerank does not silently drop higher-scoring
@@ -471,6 +481,7 @@ mod tests {
     use crate::embed::MockEmbedder;
     use crate::eval::fixture::{EvalDocument, EvalQuery};
     use crate::reranker::MockReranker;
+    use crate::retrieval::HybridSearchConfig;
     use crate::retrieval::IdentityAggregator;
 
     /// Build an [`EvalDocument`] with stub title / source. The body carries
@@ -518,10 +529,19 @@ mod tests {
         let embedder = MockEmbedder::default();
         let reranker: Option<&MockReranker> = None;
         let aggregator = IdentityAggregator;
+        let merge_config = HybridSearchConfig::default();
         let config = PipelineConfig { k: 5 };
 
-        let result = evaluate(&corpus, &queries, &embedder, reranker, &aggregator, &config)
-            .expect("pipeline must succeed with MockEmbedder + no reranker");
+        let result = evaluate(
+            &corpus,
+            &queries,
+            &embedder,
+            reranker,
+            &aggregator,
+            &merge_config,
+            &config,
+        )
+        .expect("pipeline must succeed with MockEmbedder + no reranker");
 
         assert_eq!(
             result.len(),

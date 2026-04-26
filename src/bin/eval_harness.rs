@@ -46,7 +46,8 @@ use rurico::eval::pipeline::{
 };
 use rurico::reranker::Rerank;
 use rurico::retrieval::{
-    DedupeAggregator, IdentityAggregator, MaxChunkAggregator, TopKAverageAggregator,
+    DedupeAggregator, HybridSearchConfig, IdentityAggregator, MaxChunkAggregator,
+    TopKAverageAggregator,
 };
 use rurico::sandbox::exit_if_seatbelt;
 use rurico::{embed, model_probe, reranker};
@@ -212,6 +213,7 @@ fn dispatch_pipeline<E, R>(
     embedder: &E,
     reranker: Option<&R>,
     aggregation: AggregationKind,
+    merge_config: &HybridSearchConfig,
     config: &PipelineConfig,
 ) -> Result<Vec<QueryResult>, PipelineError>
 where
@@ -225,6 +227,7 @@ where
             embedder,
             reranker,
             &IdentityAggregator,
+            merge_config,
             config,
         ),
         AggregationKind::MaxChunk => run_pipeline(
@@ -233,6 +236,7 @@ where
             embedder,
             reranker,
             &MaxChunkAggregator,
+            merge_config,
             config,
         ),
         AggregationKind::Dedupe => run_pipeline(
@@ -241,6 +245,7 @@ where
             embedder,
             reranker,
             &DedupeAggregator,
+            merge_config,
             config,
         ),
         AggregationKind::TopKAverage(k) => run_pipeline(
@@ -249,6 +254,7 @@ where
             embedder,
             reranker,
             &TopKAverageAggregator::new(k),
+            merge_config,
             config,
         ),
     }
@@ -399,12 +405,14 @@ fn run_evaluate_with<E: Embed, R: Rerank>(
         }
     };
     let config = PipelineConfig { k: PIPELINE_K };
+    let merge_config = HybridSearchConfig::default();
     let mut results = match dispatch_pipeline(
         &corpus,
         &queries,
         &ctx.embedder,
         Some(&ctx.reranker),
         aggregation,
+        &merge_config,
         &config,
     ) {
         Ok(r) => r,
@@ -488,12 +496,14 @@ fn run_capture_baseline_with<E: Embed, R: Rerank>(
         }
     };
     let config = PipelineConfig { k: PIPELINE_K };
+    let merge_config = HybridSearchConfig::default();
     let results = match dispatch_pipeline(
         &corpus,
         &queries,
         &ctx.embedder,
         Some(&ctx.reranker),
         aggregation,
+        &merge_config,
         &config,
     ) {
         Ok(r) => r,
@@ -516,6 +526,7 @@ fn run_capture_baseline_with<E: Embed, R: Rerank>(
         mlx_rs_version: MLX_RS_VERSION.to_owned(),
         fixture_hash,
         aggregation: aggregation.name(),
+        merge_config: merge_config.clone(),
         global,
         per_category,
         latency_p50_ms,
@@ -567,6 +578,7 @@ fn run_capture_reverse_baseline_with<E: Embed, R: Rerank>(
         }
     };
     let config = PipelineConfig { k: PIPELINE_K };
+    let merge_config = HybridSearchConfig::default();
     // Reverse baseline measures the nDCG lower bound under a flipped ranking;
     // aggregation choice is irrelevant once `reverse_each_ranking` runs, so
     // pin to `Identity` to keep the lower-bound contract independent of #67.
@@ -576,6 +588,7 @@ fn run_capture_reverse_baseline_with<E: Embed, R: Rerank>(
         &ctx.embedder,
         Some(&ctx.reranker),
         AggregationKind::Identity,
+        &merge_config,
         &config,
     ) {
         Ok(r) => r,
@@ -699,6 +712,7 @@ fn run_verify_baseline_with<E: Embed, R: Rerank>(
         &ctx.embedder,
         Some(&ctx.reranker),
         aggregation,
+        &committed.merge_config,
         &config,
     ) {
         Ok(r) => r,
