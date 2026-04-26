@@ -22,6 +22,41 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+/// Source of a Stage 1 candidate hit (ADR 0004 Stage 1 output).
+///
+/// Closed enum: misspelled labels become compile errors. Phase 6 (#70) may
+/// add `PrefixEnsemble` variants when the prefix-fanout retrieval lands.
+///
+/// Used as a `HashMap` key in [`MergedHit::source_scores`] — `lowercase`
+/// rename-all keeps JSON round-trip stable (`"fts"`, `"vector"`).
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CandidateSource {
+    /// Full-text-search candidate (FTS5 / trigram).
+    Fts,
+    /// Vector-similarity candidate (sqlite-vec).
+    Vector,
+}
+
+/// Single Stage 1 retrieval candidate (ADR 0004 Stage 1).
+///
+/// Source-tagged so Stage 2 merge can apply per-source weighting and
+/// preserve `source_scores` into [`MergedHit`]. `rank` is 0-based (0 = best
+/// per source); `score` is the raw per-source score (BM25 for FTS, distance
+/// for vector — sign convention depends on source).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Candidate {
+    /// Originating retrieval source.
+    pub source: CandidateSource,
+    /// Document or chunk identifier.
+    pub doc_id: String,
+    /// Raw per-source score (BM25, distance, etc.). Sign convention is
+    /// source-specific — Stage 2 fuses by `rank`, not by `score`.
+    pub score: f64,
+    /// 0-based rank within the source's result list (0 = best).
+    pub rank: usize,
+}
+
 /// Single candidate after Stage 2 (RRF merge) — input/output for [`Aggregator`].
 ///
 /// Score sign is "higher is better" (post-RRF fused score). Stage 3 may
@@ -29,12 +64,22 @@ use serde::{Deserialize, Serialize};
 /// to Stage 4 (rerank). Also serves as the public ranked-hit type returned
 /// from `eval::pipeline::QueryResult` — Serialize/Deserialize keep the
 /// pipeline output JSON shape unchanged across the merge boundary.
+///
+/// `source_scores` records per-source contributions so downstream UIs can
+/// display score breakdown and debugging surfaces can attribute fusion
+/// outcomes. It is `serde(default)` for backward-compat with pre-Phase-4
+/// JSON fixtures that omit the field; an empty map represents "source
+/// information unavailable" rather than "no source contributed".
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MergedHit {
     /// Document or chunk identifier carried through Stage 1+2.
     pub doc_id: String,
     /// Aggregated relevance score (RRF score).
     pub score: f64,
+    /// Per-source contributions to the fused score. Empty when source
+    /// information is not preserved through the pipeline.
+    #[serde(default)]
+    pub source_scores: HashMap<CandidateSource, f64>,
 }
 
 /// Stage 3 hook: aggregate / dedupe / re-order [`MergedHit`]s before Stage 4.
@@ -76,20 +121,17 @@ pub struct MaxChunkAggregator;
 
 impl Aggregator for MaxChunkAggregator {
     fn aggregate(&self, hits: &[MergedHit]) -> Vec<MergedHit> {
-        let mut best: HashMap<&str, f64> = HashMap::new();
+        let mut best: HashMap<&str, &MergedHit> = HashMap::new();
         for hit in hits {
-            let entry = best.entry(hit.doc_id.as_str()).or_insert(f64::MIN);
-            if hit.score > *entry {
-                *entry = hit.score;
-            }
+            best.entry(hit.doc_id.as_str())
+                .and_modify(|cur| {
+                    if hit.score > cur.score {
+                        *cur = hit;
+                    }
+                })
+                .or_insert(hit);
         }
-        let mut output: Vec<MergedHit> = best
-            .into_iter()
-            .map(|(id, score)| MergedHit {
-                doc_id: id.to_owned(),
-                score,
-            })
-            .collect();
+        let mut output: Vec<MergedHit> = best.into_values().cloned().collect();
         output.sort_by(|a, b| {
             b.score
                 .total_cmp(&a.score)
@@ -145,23 +187,32 @@ impl Aggregator for TopKAverageAggregator {
         if self.k == 0 {
             return Vec::new();
         }
-        let mut buckets: HashMap<&str, Vec<f64>> = HashMap::new();
+        let mut buckets: HashMap<&str, Vec<&MergedHit>> = HashMap::new();
         for hit in hits {
-            buckets
-                .entry(hit.doc_id.as_str())
-                .or_default()
-                .push(hit.score);
+            buckets.entry(hit.doc_id.as_str()).or_default().push(hit);
         }
         let mut output: Vec<MergedHit> = buckets
             .into_iter()
-            .map(|(id, mut scores)| {
-                scores.sort_by(|a, b| b.total_cmp(a));
-                scores.truncate(self.k);
+            .map(|(id, mut bucket)| {
+                bucket.sort_by(|a, b| b.score.total_cmp(&a.score));
+                bucket.truncate(self.k);
                 #[allow(clippy::cast_precision_loss)]
-                let mean = scores.iter().sum::<f64>() / scores.len() as f64;
+                let len = bucket.len() as f64;
+                let mean = bucket.iter().map(|h| h.score).sum::<f64>() / len;
+                let mut source_scores: HashMap<CandidateSource, f64> = HashMap::new();
+                for hit in &bucket {
+                    for (src, val) in &hit.source_scores {
+                        *source_scores.entry(*src).or_default() += val;
+                    }
+                }
+                #[allow(clippy::cast_precision_loss)]
+                for value in source_scores.values_mut() {
+                    *value /= len;
+                }
                 MergedHit {
                     doc_id: id.to_owned(),
                     score: mean,
+                    source_scores,
                 }
             })
             .collect();
@@ -182,6 +233,15 @@ mod tests {
         MergedHit {
             doc_id: id.to_owned(),
             score,
+            source_scores: HashMap::new(),
+        }
+    }
+
+    fn hit_with_sources(id: &str, score: f64, sources: &[(CandidateSource, f64)]) -> MergedHit {
+        MergedHit {
+            doc_id: id.to_owned(),
+            score,
+            source_scores: sources.iter().copied().collect(),
         }
     }
 
@@ -279,6 +339,80 @@ mod tests {
         assert_eq!(
             output, input,
             "MaxChunk on already-unique input must equal input"
+        );
+    }
+
+    // T-068-001: identity_preserves_source_scores
+    #[test]
+    fn identity_preserves_source_scores() {
+        let aggregator = IdentityAggregator;
+        let input = vec![hit_with_sources(
+            "d1",
+            0.9,
+            &[(CandidateSource::Fts, 0.6), (CandidateSource::Vector, 0.3)],
+        )];
+        let output = aggregator.aggregate(&input);
+        assert_eq!(
+            output[0].source_scores, input[0].source_scores,
+            "Identity must preserve source_scores verbatim"
+        );
+    }
+
+    // T-068-002: max_chunk_keeps_max_scoring_hits_source_scores
+    #[test]
+    fn max_chunk_keeps_max_scoring_hits_source_scores() {
+        let aggregator = MaxChunkAggregator;
+        let input = vec![
+            hit_with_sources("d1", 0.5, &[(CandidateSource::Fts, 0.5)]),
+            hit_with_sources("d1", 0.9, &[(CandidateSource::Vector, 0.9)]),
+        ];
+        let output = aggregator.aggregate(&input);
+        assert_eq!(output.len(), 1);
+        assert_eq!(
+            output[0].source_scores.get(&CandidateSource::Vector),
+            Some(&0.9),
+            "MaxChunk must keep source_scores from the max-scoring hit (the Vector contribution)"
+        );
+        assert!(
+            !output[0].source_scores.contains_key(&CandidateSource::Fts),
+            "MaxChunk must drop source_scores from non-winning hits"
+        );
+    }
+
+    // T-068-003: dedupe_keeps_first_hits_source_scores
+    #[test]
+    fn dedupe_keeps_first_hits_source_scores() {
+        let aggregator = DedupeAggregator;
+        let input = vec![
+            hit_with_sources("d1", 0.9, &[(CandidateSource::Fts, 0.9)]),
+            hit_with_sources("d1", 0.5, &[(CandidateSource::Vector, 0.5)]),
+        ];
+        let output = aggregator.aggregate(&input);
+        assert_eq!(output.len(), 1);
+        assert_eq!(
+            output[0].source_scores.get(&CandidateSource::Fts),
+            Some(&0.9),
+            "Dedupe must keep first occurrence's source_scores"
+        );
+    }
+
+    // T-068-004: topk_average_averages_source_scores
+    //
+    // Uses dyadic fractions so the averaged source_scores compare bit-equal.
+    #[test]
+    fn topk_average_averages_source_scores() {
+        let aggregator = TopKAverageAggregator::new(2);
+        let input = vec![
+            hit_with_sources("d1", 1.0, &[(CandidateSource::Fts, 1.0)]),
+            hit_with_sources("d1", 0.5, &[(CandidateSource::Fts, 0.5)]),
+        ];
+        let output = aggregator.aggregate(&input);
+        assert_eq!(output.len(), 1);
+        // (1.0 + 0.5) / 2 = 0.75
+        assert_eq!(
+            output[0].source_scores.get(&CandidateSource::Fts),
+            Some(&0.75),
+            "TopKAverage must average source_scores across the top-k hits"
         );
     }
 }

@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use crate::embed::{EMBEDDING_DIMS, Embed, EmbedError};
 use crate::eval::fixture::{EvalDocument, EvalQuery};
 use crate::reranker::{Rerank, RerankerError};
-use crate::retrieval::{Aggregator, MergedHit};
+use crate::retrieval::{Aggregator, CandidateSource, MergedHit};
 use crate::storage::{
     MatchFtsQuery, SanitizeError, ensure_sqlite_vec, f32_as_bytes, prepare_match_query, rrf_merge,
 };
@@ -234,7 +234,11 @@ where
 
     let merged_hits: Vec<MergedHit> = merged
         .into_iter()
-        .map(|(doc_id, score)| MergedHit { doc_id, score })
+        .map(|(doc_id, score)| MergedHit {
+            doc_id,
+            score,
+            source_scores: HashMap::new(),
+        })
         .collect();
     // Aggregator::aggregate guarantees score-descending output (see trait
     // doc), so truncate-then-rerank does not silently drop higher-scoring
@@ -419,21 +423,23 @@ fn apply_reranker<R: Rerank>(
     merged: Vec<MergedHit>,
     corpus_index: &HashMap<&str, &str>,
 ) -> Result<Vec<MergedHit>, PipelineError> {
-    let (resolved_ids, bodies): (Vec<String>, Vec<&str>) = merged
+    let resolved: Vec<(String, &str, HashMap<CandidateSource, f64>)> = merged
         .into_iter()
         .filter_map(|h| {
             corpus_index
                 .get(h.doc_id.as_str())
-                .map(|body| (h.doc_id, *body))
+                .map(|body| (h.doc_id, *body, h.source_scores))
         })
-        .unzip();
+        .collect();
+    let bodies: Vec<&str> = resolved.iter().map(|(_, body, _)| *body).collect();
     let ranked_results = reranker.rerank(query, &bodies)?;
     let mut reranked = Vec::with_capacity(ranked_results.len());
     for r in ranked_results {
-        if let Some(doc_id) = resolved_ids.get(r.index) {
+        if let Some((doc_id, _, source_scores)) = resolved.get(r.index) {
             reranked.push(MergedHit {
                 doc_id: doc_id.clone(),
                 score: f64::from(r.score),
+                source_scores: source_scores.clone(),
             });
         }
     }
