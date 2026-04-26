@@ -16,9 +16,11 @@ use serde::{Deserialize, Serialize};
 use crate::embed::{EMBEDDING_DIMS, Embed, EmbedError};
 use crate::eval::fixture::{EvalDocument, EvalQuery};
 use crate::reranker::{Rerank, RerankerError};
-use crate::retrieval::{Aggregator, CandidateSource, MergedHit};
+use crate::retrieval::{
+    Aggregator, Candidate, CandidateSource, MergeStrategy, MergedHit, WeightedRrf,
+};
 use crate::storage::{
-    MatchFtsQuery, SanitizeError, ensure_sqlite_vec, f32_as_bytes, prepare_match_query, rrf_merge,
+    MatchFtsQuery, SanitizeError, ensure_sqlite_vec, f32_as_bytes, prepare_match_query,
 };
 
 /// FTS5 vocab table name used by [`prepare_match_query`].
@@ -230,16 +232,11 @@ where
     let candidate_limit = config.k * RRF_CANDIDATE_MULTIPLIER;
     let fts_hits = retrieve_fts(conn, &query.text, candidate_limit)?;
     let vec_hits = retrieve_vec(conn, embedder, &query.text, candidate_limit)?;
-    let merged = rrf_merge(&fts_hits, &vec_hits);
+    let mut all_candidates = Vec::with_capacity(fts_hits.len() + vec_hits.len());
+    all_candidates.extend(fts_hits);
+    all_candidates.extend(vec_hits);
+    let merged_hits = WeightedRrf::default().merge(&all_candidates);
 
-    let merged_hits: Vec<MergedHit> = merged
-        .into_iter()
-        .map(|(doc_id, score)| MergedHit {
-            doc_id,
-            score,
-            source_scores: HashMap::new(),
-        })
-        .collect();
     // Aggregator::aggregate guarantees score-descending output (see trait
     // doc), so truncate-then-rerank does not silently drop higher-scoring
     // hits.
@@ -255,11 +252,15 @@ where
 
 /// FTS5 retrieval. Empty / unsanitisable queries return an empty hit list
 /// (mirrors recall's early-return behavior on `SanitizeError::EmptyInput`).
+///
+/// Returns Stage 1 [`Candidate`]s tagged with [`CandidateSource::Fts`]. The
+/// `score` field carries SQLite FTS5's negative BM25 (lower magnitude is
+/// better) and `rank` is 0-based — fed verbatim to [`WeightedRrf`].
 fn retrieve_fts(
     conn: &Connection,
     query: &str,
     limit: usize,
-) -> Result<Vec<(String, f64)>, PipelineError> {
+) -> Result<Vec<Candidate>, PipelineError> {
     let matched = match prepare_match_query(conn, query, FTS_VOCAB_TABLE) {
         Ok(m) => m,
         Err(SanitizeError::EmptyInput | SanitizeError::NoSearchableTerms) => {
@@ -278,8 +279,14 @@ fn retrieve_fts(
         Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?))
     })?;
     let mut hits = Vec::new();
-    for r in rows {
-        hits.push(r?);
+    for (rank, row) in rows.enumerate() {
+        let (doc_id, score) = row?;
+        hits.push(Candidate {
+            source: CandidateSource::Fts,
+            doc_id,
+            score,
+            rank,
+        });
     }
     Ok(hits)
 }
@@ -387,12 +394,16 @@ fn cross_product(groups: &[Vec<String>]) -> Vec<Vec<String>> {
 ///
 /// Uses sqlite-vec's official `AND k = ?` syntax; rows already arrive in
 /// distance-ascending order, so no `ORDER BY` clause is needed.
+///
+/// Returns Stage 1 [`Candidate`]s tagged with [`CandidateSource::Vector`].
+/// The `score` field carries the raw distance (lower is better) and `rank`
+/// is 0-based — fed verbatim to [`WeightedRrf`].
 fn retrieve_vec<E: Embed>(
     conn: &Connection,
     embedder: &E,
     query: &str,
     limit: usize,
-) -> Result<Vec<(String, f64)>, PipelineError> {
+) -> Result<Vec<Candidate>, PipelineError> {
     let embedding = embedder.embed_query(query)?;
     let bytes = f32_as_bytes(&embedding);
     let k_i64 = i64::try_from(limit).unwrap_or(i64::MAX);
@@ -403,8 +414,14 @@ fn retrieve_vec<E: Embed>(
         Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?))
     })?;
     let mut hits = Vec::new();
-    for r in rows {
-        hits.push(r?);
+    for (rank, row) in rows.enumerate() {
+        let (doc_id, score) = row?;
+        hits.push(Candidate {
+            source: CandidateSource::Vector,
+            doc_id,
+            score,
+            rank,
+        });
     }
     Ok(hits)
 }
