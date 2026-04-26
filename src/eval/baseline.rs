@@ -19,6 +19,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::eval::metrics::MetricResult;
+use crate::retrieval::HybridSearchConfig;
 
 /// Half-width threshold above which a per-category metric is flagged
 /// `uninformative` (FR-016 / BR-002).
@@ -82,6 +83,13 @@ pub struct BaselineSnapshot {
     /// `verify-baseline` reads it back to dispatch the same aggregator.
     #[serde(default = "default_aggregation_kind")]
     pub aggregation: String,
+    /// Stage 2 hybrid scoring config used for capture (Issue #68 / Phase 4).
+    ///
+    /// Pre-Phase-4 baselines lack this field; `serde(default)` resolves it to
+    /// [`HybridSearchConfig::default`] (`rrf_k=60`, `fts/vector weights=1.0`)
+    /// so existing committed baselines round-trip bit-equal.
+    #[serde(default)]
+    pub merge_config: HybridSearchConfig,
     /// Global metric results (regression gate per BR-001).
     pub global: Vec<MetricResult>,
     /// Per-category metric breakdown for exploratory inspection.
@@ -272,6 +280,7 @@ mod tests {
             mlx_rs_version: "0.0.0".to_owned(),
             fixture_hash: "fnv1a64:0".to_owned(),
             aggregation: default_aggregation_kind(),
+            merge_config: HybridSearchConfig::default(),
             global: vec![],
             per_category: BTreeMap::new(),
             latency_p50_ms: 0.0,

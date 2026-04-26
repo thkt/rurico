@@ -46,7 +46,8 @@ use rurico::eval::pipeline::{
 };
 use rurico::reranker::Rerank;
 use rurico::retrieval::{
-    DedupeAggregator, IdentityAggregator, MaxChunkAggregator, TopKAverageAggregator,
+    CandidateSource, DedupeAggregator, HybridSearchConfig, IdentityAggregator, MaxChunkAggregator,
+    TopKAverageAggregator,
 };
 use rurico::sandbox::exit_if_seatbelt;
 use rurico::{embed, model_probe, reranker};
@@ -125,6 +126,37 @@ const RURI_V3_310M_REVISION: &str = "pinned-via-rurico-embed-cache";
 /// Accepts borrowed `&[&str]` of ranked doc ids — callers project from
 /// `MergedHit.doc_id: String` without cloning each id per metric per query.
 type MetricFn = fn(&[&str], &HashMap<String, u8>, usize) -> f64;
+
+/// Parse hybrid scoring overrides from argv kvs (Phase 4 / #68).
+///
+/// Recognised keys (all optional):
+/// - `rrf_k=<f64>` (default `60.0`)
+/// - `fts_weight=<f64>` (default `1.0`)
+/// - `vector_weight=<f64>` (default `1.0`)
+///
+/// Missing keys keep [`HybridSearchConfig::default`] semantics so capture
+/// runs without overrides reproduce pre-Phase-4 baseline.json bit-equal.
+fn parse_merge_config_from_kvs(
+    kvs: &HashMap<String, String>,
+) -> Result<HybridSearchConfig, String> {
+    let mut config = HybridSearchConfig::default();
+    if let Some(v) = kvs.get("rrf_k") {
+        config.rrf_k = v.parse().map_err(|e| format!("rrf_k= parse error: {e}"))?;
+    }
+    if let Some(v) = kvs.get("fts_weight") {
+        let w: f64 = v
+            .parse()
+            .map_err(|e| format!("fts_weight= parse error: {e}"))?;
+        config.source_weights.insert(CandidateSource::Fts, w);
+    }
+    if let Some(v) = kvs.get("vector_weight") {
+        let w: f64 = v
+            .parse()
+            .map_err(|e| format!("vector_weight= parse error: {e}"))?;
+        config.source_weights.insert(CandidateSource::Vector, w);
+    }
+    Ok(config)
+}
 
 /// Closed set of Stage 3 aggregation kinds. Anchors `aggregation=` argv
 /// validation, the JSON `aggregation` field on [`BaselineSnapshot`], and
@@ -212,6 +244,7 @@ fn dispatch_pipeline<E, R>(
     embedder: &E,
     reranker: Option<&R>,
     aggregation: AggregationKind,
+    merge_config: &HybridSearchConfig,
     config: &PipelineConfig,
 ) -> Result<Vec<QueryResult>, PipelineError>
 where
@@ -225,6 +258,7 @@ where
             embedder,
             reranker,
             &IdentityAggregator,
+            merge_config,
             config,
         ),
         AggregationKind::MaxChunk => run_pipeline(
@@ -233,6 +267,7 @@ where
             embedder,
             reranker,
             &MaxChunkAggregator,
+            merge_config,
             config,
         ),
         AggregationKind::Dedupe => run_pipeline(
@@ -241,6 +276,7 @@ where
             embedder,
             reranker,
             &DedupeAggregator,
+            merge_config,
             config,
         ),
         AggregationKind::TopKAverage(k) => run_pipeline(
@@ -249,6 +285,7 @@ where
             embedder,
             reranker,
             &TopKAverageAggregator::new(k),
+            merge_config,
             config,
         ),
     }
@@ -338,7 +375,7 @@ fn main() -> ExitCode {
     let Some(mode) = args.first() else {
         eprintln!(
             "usage: eval_harness <evaluate|capture-baseline|capture-reverse-baseline|\
-             verify-baseline> [key=value...]"
+             verify-baseline|compare-baselines> [key=value...]"
         );
         return ExitCode::from(EXIT_USAGE);
     };
@@ -352,6 +389,7 @@ fn main() -> ExitCode {
         "capture-baseline" => run_capture_baseline(&kvs),
         "capture-reverse-baseline" => run_capture_reverse_baseline(&kvs),
         "verify-baseline" => run_verify_baseline(&kvs),
+        "compare-baselines" => run_compare_baselines(&kvs),
         other => {
             eprintln!("unknown mode: {other}");
             ExitCode::from(EXIT_USAGE)
@@ -375,6 +413,13 @@ fn run_evaluate(kvs: &HashMap<String, String>) -> ExitCode {
             return ExitCode::from(EXIT_USAGE);
         }
     };
+    let merge_config = match parse_merge_config_from_kvs(kvs) {
+        Ok(c) => c,
+        Err(msg) => {
+            eprintln!("evaluate: {msg}");
+            return ExitCode::from(EXIT_USAGE);
+        }
+    };
     let ctx = match production_context() {
         Ok(c) => c,
         Err(msg) => {
@@ -383,13 +428,14 @@ fn run_evaluate(kvs: &HashMap<String, String>) -> ExitCode {
         }
     };
     log_run_context(&ctx, "evaluate", Some(kind), None);
-    run_evaluate_with(&ctx, kind, aggregation)
+    run_evaluate_with(&ctx, kind, aggregation, &merge_config)
 }
 
 fn run_evaluate_with<E: Embed, R: Rerank>(
     ctx: &EvalContext<E, R>,
     kind: &str,
     aggregation: AggregationKind,
+    merge_config: &HybridSearchConfig,
 ) -> ExitCode {
     let (corpus, queries) = match load_fixture_for_kind(&ctx.fixture_dir, kind) {
         Ok(v) => v,
@@ -405,6 +451,7 @@ fn run_evaluate_with<E: Embed, R: Rerank>(
         &ctx.embedder,
         Some(&ctx.reranker),
         aggregation,
+        merge_config,
         &config,
     ) {
         Ok(r) => r,
@@ -436,8 +483,10 @@ fn run_evaluate_with<E: Embed, R: Rerank>(
     }
 }
 
-/// `capture-baseline output=<path> [aggregation=<kind>]` — run full evaluation
-/// + bootstrap CI and write `BaselineSnapshot` to `output=`.
+/// `capture-baseline output=<path> [aggregation=<kind>] [rrf_k=N] [fts_weight=W]
+/// [vector_weight=W]` — run full evaluation + bootstrap CI and write
+/// `BaselineSnapshot` to `output=`. Hybrid weight overrides are recorded
+/// in `merge_config` so verify-baseline replays the same scoring.
 fn run_capture_baseline(kvs: &HashMap<String, String>) -> ExitCode {
     let Some(output_path_raw) = kvs.get("output") else {
         eprintln!("capture-baseline: output= argument required");
@@ -457,6 +506,13 @@ fn run_capture_baseline(kvs: &HashMap<String, String>) -> ExitCode {
             return ExitCode::from(EXIT_USAGE);
         }
     };
+    let merge_config = match parse_merge_config_from_kvs(kvs) {
+        Ok(c) => c,
+        Err(msg) => {
+            eprintln!("capture-baseline: {msg}");
+            return ExitCode::from(EXIT_USAGE);
+        }
+    };
     let ctx = match production_context() {
         Ok(c) => c,
         Err(msg) => {
@@ -465,13 +521,14 @@ fn run_capture_baseline(kvs: &HashMap<String, String>) -> ExitCode {
         }
     };
     log_run_context(&ctx, "capture-baseline", None, Some(&output_path));
-    run_capture_baseline_with(&ctx, &output_path, aggregation)
+    run_capture_baseline_with(&ctx, &output_path, aggregation, &merge_config)
 }
 
 fn run_capture_baseline_with<E: Embed, R: Rerank>(
     ctx: &EvalContext<E, R>,
     output_path: &Path,
     aggregation: AggregationKind,
+    merge_config: &HybridSearchConfig,
 ) -> ExitCode {
     let (corpus, queries) = match load_fixture_for_kind(&ctx.fixture_dir, "full") {
         Ok(v) => v,
@@ -494,6 +551,7 @@ fn run_capture_baseline_with<E: Embed, R: Rerank>(
         &ctx.embedder,
         Some(&ctx.reranker),
         aggregation,
+        merge_config,
         &config,
     ) {
         Ok(r) => r,
@@ -516,6 +574,7 @@ fn run_capture_baseline_with<E: Embed, R: Rerank>(
         mlx_rs_version: MLX_RS_VERSION.to_owned(),
         fixture_hash,
         aggregation: aggregation.name(),
+        merge_config: merge_config.clone(),
         global,
         per_category,
         latency_p50_ms,
@@ -567,6 +626,7 @@ fn run_capture_reverse_baseline_with<E: Embed, R: Rerank>(
         }
     };
     let config = PipelineConfig { k: PIPELINE_K };
+    let merge_config = HybridSearchConfig::default();
     // Reverse baseline measures the nDCG lower bound under a flipped ranking;
     // aggregation choice is irrelevant once `reverse_each_ranking` runs, so
     // pin to `Identity` to keep the lower-bound contract independent of #67.
@@ -576,6 +636,7 @@ fn run_capture_reverse_baseline_with<E: Embed, R: Rerank>(
         &ctx.embedder,
         Some(&ctx.reranker),
         AggregationKind::Identity,
+        &merge_config,
         &config,
     ) {
         Ok(r) => r,
@@ -699,6 +760,7 @@ fn run_verify_baseline_with<E: Embed, R: Rerank>(
         &ctx.embedder,
         Some(&ctx.reranker),
         aggregation,
+        &committed.merge_config,
         &config,
     ) {
         Ok(r) => r,
@@ -903,6 +965,92 @@ where
     }
 }
 
+/// `compare-baselines paths=p1,p2,...` — read each forward baseline JSON
+/// and emit a markdown comparison table to stdout (Phase 4 / #68).
+///
+/// Each row reports the captured aggregation, hybrid-config knobs
+/// (`rrf_k`, FTS / Vector weights), and the four global metrics
+/// (`recall@5`, `recall@10`, `mrr@10`, `ndcg@10`). Output is markdown so
+/// it pastes directly into PR descriptions or comparison.md fixtures.
+fn run_compare_baselines(kvs: &HashMap<String, String>) -> ExitCode {
+    let Some(paths_raw) = kvs.get("paths") else {
+        eprintln!("compare-baselines: paths= argument required (comma-separated)");
+        return ExitCode::from(EXIT_USAGE);
+    };
+    let paths: Vec<&str> = paths_raw.split(',').filter(|s| !s.is_empty()).collect();
+    if paths.is_empty() {
+        eprintln!("compare-baselines: paths= must contain at least one path");
+        return ExitCode::from(EXIT_USAGE);
+    }
+    let mut snapshots: Vec<(String, BaselineSnapshot)> = Vec::with_capacity(paths.len());
+    for path in &paths {
+        let text = match fs::read_to_string(path) {
+            Ok(t) => t,
+            Err(e) => {
+                eprintln!("compare-baselines: failed to read {path}: {e}");
+                return ExitCode::from(EXIT_INFRA);
+            }
+        };
+        let snapshot: BaselineSnapshot = match serde_json::from_str(&text) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("compare-baselines: failed to parse {path}: {e}");
+                return ExitCode::from(EXIT_INFRA);
+            }
+        };
+        if snapshot.kind != BaselineKind::Forward {
+            eprintln!(
+                "compare-baselines: {path} is not a forward baseline (kind={:?})",
+                snapshot.kind
+            );
+            return ExitCode::from(EXIT_USAGE);
+        }
+        snapshots.push(((*path).to_owned(), snapshot));
+    }
+    print_comparison_table(&snapshots);
+    ExitCode::SUCCESS
+}
+
+/// Format `snapshots` as a markdown comparison table on stdout.
+fn print_comparison_table(snapshots: &[(String, BaselineSnapshot)]) {
+    println!(
+        "| Path | aggregation | rrf_k | fts | vector | recall@5 | recall@10 | mrr@10 | ndcg@10 |"
+    );
+    println!("| --- | --- | --- | --- | --- | --- | --- | --- | --- |");
+    for (path, snap) in snapshots {
+        let fts = snap
+            .merge_config
+            .source_weights
+            .get(&CandidateSource::Fts)
+            .copied()
+            .unwrap_or(0.0);
+        let vector = snap
+            .merge_config
+            .source_weights
+            .get(&CandidateSource::Vector)
+            .copied()
+            .unwrap_or(0.0);
+        let metric = |name: &str| {
+            snap.global
+                .iter()
+                .find(|m| m.name == name)
+                .map_or_else(|| "—".to_owned(), |m| format!("{:.4}", m.point_estimate))
+        };
+        println!(
+            "| {} | {} | {:.1} | {:.2} | {:.2} | {} | {} | {} | {} |",
+            path,
+            snap.aggregation,
+            snap.merge_config.rrf_k,
+            fts,
+            vector,
+            metric("recall@5"),
+            metric("recall@10"),
+            metric("mrr@10"),
+            metric("ndcg@10"),
+        );
+    }
+}
+
 /// `[recall@5, recall@10, mrr@10, ndcg@10]` with bootstrap CI applied per metric.
 fn build_global_metrics(results: &[QueryResult], queries: &[EvalQuery]) -> Vec<MetricResult> {
     MetricSpec::ALL
@@ -1059,5 +1207,57 @@ mod tests {
                 AggregationKind::from_name(&name).expect("simple variant name must round-trip");
             assert_eq!(parsed, original, "round-trip mismatch for {original:?}");
         }
+    }
+
+    // T-068-012: parse_merge_config_empty_kvs_returns_default
+    #[test]
+    fn parse_merge_config_empty_kvs_returns_default() {
+        let kvs: HashMap<String, String> = HashMap::new();
+        let parsed = parse_merge_config_from_kvs(&kvs).expect("empty kvs must parse");
+        assert_eq!(parsed, HybridSearchConfig::default());
+    }
+
+    // T-068-013: parse_merge_config_all_overrides_applied
+    #[test]
+    fn parse_merge_config_all_overrides_applied() {
+        let mut kvs: HashMap<String, String> = HashMap::new();
+        kvs.insert("rrf_k".to_owned(), "30".to_owned());
+        kvs.insert("fts_weight".to_owned(), "2.5".to_owned());
+        kvs.insert("vector_weight".to_owned(), "0.5".to_owned());
+        let parsed = parse_merge_config_from_kvs(&kvs).expect("override kvs must parse");
+        assert!((parsed.rrf_k - 30.0).abs() < f64::EPSILON);
+        assert!(
+            (parsed.source_weights[&CandidateSource::Fts] - 2.5).abs() < f64::EPSILON,
+            "fts_weight override must be applied"
+        );
+        assert!(
+            (parsed.source_weights[&CandidateSource::Vector] - 0.5).abs() < f64::EPSILON,
+            "vector_weight override must be applied"
+        );
+    }
+
+    // T-068-014: parse_merge_config_invalid_value_returns_err
+    #[test]
+    fn parse_merge_config_invalid_value_returns_err() {
+        let mut kvs: HashMap<String, String> = HashMap::new();
+        kvs.insert("rrf_k".to_owned(), "not-a-number".to_owned());
+        let result = parse_merge_config_from_kvs(&kvs);
+        assert!(
+            result.is_err(),
+            "non-numeric rrf_k must surface a parse error"
+        );
+    }
+
+    // T-068-015: parse_merge_config_partial_keeps_other_defaults
+    #[test]
+    fn parse_merge_config_partial_keeps_other_defaults() {
+        let mut kvs: HashMap<String, String> = HashMap::new();
+        kvs.insert("fts_weight".to_owned(), "3.0".to_owned());
+        let parsed = parse_merge_config_from_kvs(&kvs).expect("partial kvs must parse");
+        // fts overridden
+        assert!((parsed.source_weights[&CandidateSource::Fts] - 3.0).abs() < f64::EPSILON);
+        // others stay at default
+        assert!((parsed.rrf_k - 60.0).abs() < f64::EPSILON);
+        assert!((parsed.source_weights[&CandidateSource::Vector] - 1.0).abs() < f64::EPSILON);
     }
 }

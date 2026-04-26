@@ -16,9 +16,12 @@ use serde::{Deserialize, Serialize};
 use crate::embed::{EMBEDDING_DIMS, Embed, EmbedError};
 use crate::eval::fixture::{EvalDocument, EvalQuery};
 use crate::reranker::{Rerank, RerankerError};
-use crate::retrieval::{Aggregator, MergedHit};
+use crate::retrieval::{
+    Aggregator, Candidate, CandidateSource, HybridSearchConfig, MergeStrategy, MergedHit,
+    WeightedRrf,
+};
 use crate::storage::{
-    MatchFtsQuery, SanitizeError, ensure_sqlite_vec, f32_as_bytes, prepare_match_query, rrf_merge,
+    MatchFtsQuery, SanitizeError, ensure_sqlite_vec, f32_as_bytes, prepare_match_query,
 };
 
 /// FTS5 vocab table name used by [`prepare_match_query`].
@@ -118,6 +121,7 @@ pub fn evaluate<E, R, A>(
     embedder: &E,
     reranker: Option<&R>,
     aggregator: &A,
+    merge_config: &HybridSearchConfig,
     config: &PipelineConfig,
 ) -> Result<Vec<QueryResult>, PipelineError>
 where
@@ -138,6 +142,10 @@ where
         .map(|d| (d.id.as_str(), d.body.as_str()))
         .collect();
 
+    // Build the merge strategy once outside the query loop — its config
+    // does not vary per query.
+    let merge_strategy = WeightedRrf::new(merge_config.clone());
+
     let mut results = Vec::with_capacity(queries.len());
     for query in queries {
         let started = Instant::now();
@@ -147,6 +155,7 @@ where
             embedder,
             reranker,
             aggregator,
+            &merge_strategy,
             &corpus_index,
             config,
         )?;
@@ -213,12 +222,14 @@ fn index_corpus<E: Embed>(
 
 /// Drive one `EvalQuery` through FTS + vec retrieval, RRF merge, Stage 3
 /// aggregation, and (when supplied) reranker rescoring.
-fn run_single_query<E, R, A>(
+#[allow(clippy::too_many_arguments)]
+fn run_single_query<E, R, A, M>(
     conn: &Connection,
     query: &EvalQuery,
     embedder: &E,
     reranker: Option<&R>,
     aggregator: &A,
+    merge_strategy: &M,
     corpus_index: &HashMap<&str, &str>,
     config: &PipelineConfig,
 ) -> Result<Vec<MergedHit>, PipelineError>
@@ -226,16 +237,16 @@ where
     E: Embed,
     R: Rerank,
     A: Aggregator,
+    M: MergeStrategy,
 {
     let candidate_limit = config.k * RRF_CANDIDATE_MULTIPLIER;
     let fts_hits = retrieve_fts(conn, &query.text, candidate_limit)?;
     let vec_hits = retrieve_vec(conn, embedder, &query.text, candidate_limit)?;
-    let merged = rrf_merge(&fts_hits, &vec_hits);
+    let mut all_candidates = Vec::with_capacity(fts_hits.len() + vec_hits.len());
+    all_candidates.extend(fts_hits);
+    all_candidates.extend(vec_hits);
+    let merged_hits = merge_strategy.merge(&all_candidates);
 
-    let merged_hits: Vec<MergedHit> = merged
-        .into_iter()
-        .map(|(doc_id, score)| MergedHit { doc_id, score })
-        .collect();
     // Aggregator::aggregate guarantees score-descending output (see trait
     // doc), so truncate-then-rerank does not silently drop higher-scoring
     // hits.
@@ -251,11 +262,15 @@ where
 
 /// FTS5 retrieval. Empty / unsanitisable queries return an empty hit list
 /// (mirrors recall's early-return behavior on `SanitizeError::EmptyInput`).
+///
+/// Returns Stage 1 [`Candidate`]s tagged with [`CandidateSource::Fts`]. The
+/// `score` field carries SQLite FTS5's negative BM25 (lower magnitude is
+/// better) and `rank` is 0-based — fed verbatim to [`WeightedRrf`].
 fn retrieve_fts(
     conn: &Connection,
     query: &str,
     limit: usize,
-) -> Result<Vec<(String, f64)>, PipelineError> {
+) -> Result<Vec<Candidate>, PipelineError> {
     let matched = match prepare_match_query(conn, query, FTS_VOCAB_TABLE) {
         Ok(m) => m,
         Err(SanitizeError::EmptyInput | SanitizeError::NoSearchableTerms) => {
@@ -274,8 +289,14 @@ fn retrieve_fts(
         Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?))
     })?;
     let mut hits = Vec::new();
-    for r in rows {
-        hits.push(r?);
+    for (rank, row) in rows.enumerate() {
+        let (doc_id, score) = row?;
+        hits.push(Candidate {
+            source: CandidateSource::Fts,
+            doc_id,
+            score,
+            rank,
+        });
     }
     Ok(hits)
 }
@@ -383,12 +404,16 @@ fn cross_product(groups: &[Vec<String>]) -> Vec<Vec<String>> {
 ///
 /// Uses sqlite-vec's official `AND k = ?` syntax; rows already arrive in
 /// distance-ascending order, so no `ORDER BY` clause is needed.
+///
+/// Returns Stage 1 [`Candidate`]s tagged with [`CandidateSource::Vector`].
+/// The `score` field carries the raw distance (lower is better) and `rank`
+/// is 0-based — fed verbatim to [`WeightedRrf`].
 fn retrieve_vec<E: Embed>(
     conn: &Connection,
     embedder: &E,
     query: &str,
     limit: usize,
-) -> Result<Vec<(String, f64)>, PipelineError> {
+) -> Result<Vec<Candidate>, PipelineError> {
     let embedding = embedder.embed_query(query)?;
     let bytes = f32_as_bytes(&embedding);
     let k_i64 = i64::try_from(limit).unwrap_or(i64::MAX);
@@ -399,8 +424,14 @@ fn retrieve_vec<E: Embed>(
         Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?))
     })?;
     let mut hits = Vec::new();
-    for r in rows {
-        hits.push(r?);
+    for (rank, row) in rows.enumerate() {
+        let (doc_id, score) = row?;
+        hits.push(Candidate {
+            source: CandidateSource::Vector,
+            doc_id,
+            score,
+            rank,
+        });
     }
     Ok(hits)
 }
@@ -419,21 +450,29 @@ fn apply_reranker<R: Rerank>(
     merged: Vec<MergedHit>,
     corpus_index: &HashMap<&str, &str>,
 ) -> Result<Vec<MergedHit>, PipelineError> {
-    let (resolved_ids, bodies): (Vec<String>, Vec<&str>) = merged
+    type ResolvedSlot<'a> = Option<(String, &'a str, HashMap<CandidateSource, f64>)>;
+    let mut resolved: Vec<ResolvedSlot<'_>> = merged
         .into_iter()
         .filter_map(|h| {
             corpus_index
                 .get(h.doc_id.as_str())
-                .map(|body| (h.doc_id, *body))
+                .map(|body| Some((h.doc_id, *body, h.source_scores)))
         })
-        .unzip();
+        .collect();
+    let bodies: Vec<&str> = resolved
+        .iter()
+        .map(|slot| slot.as_ref().map(|(_, body, _)| *body).unwrap_or(""))
+        .collect();
     let ranked_results = reranker.rerank(query, &bodies)?;
     let mut reranked = Vec::with_capacity(ranked_results.len());
     for r in ranked_results {
-        if let Some(doc_id) = resolved_ids.get(r.index) {
+        if let Some(slot) = resolved.get_mut(r.index)
+            && let Some((doc_id, _, source_scores)) = slot.take()
+        {
             reranked.push(MergedHit {
-                doc_id: doc_id.clone(),
+                doc_id,
                 score: f64::from(r.score),
+                source_scores,
             });
         }
     }
@@ -448,6 +487,7 @@ mod tests {
     use crate::embed::MockEmbedder;
     use crate::eval::fixture::{EvalDocument, EvalQuery};
     use crate::reranker::MockReranker;
+    use crate::retrieval::HybridSearchConfig;
     use crate::retrieval::IdentityAggregator;
 
     /// Build an [`EvalDocument`] with stub title / source. The body carries
@@ -495,10 +535,19 @@ mod tests {
         let embedder = MockEmbedder::default();
         let reranker: Option<&MockReranker> = None;
         let aggregator = IdentityAggregator;
+        let merge_config = HybridSearchConfig::default();
         let config = PipelineConfig { k: 5 };
 
-        let result = evaluate(&corpus, &queries, &embedder, reranker, &aggregator, &config)
-            .expect("pipeline must succeed with MockEmbedder + no reranker");
+        let result = evaluate(
+            &corpus,
+            &queries,
+            &embedder,
+            reranker,
+            &aggregator,
+            &merge_config,
+            &config,
+        )
+        .expect("pipeline must succeed with MockEmbedder + no reranker");
 
         assert_eq!(
             result.len(),
