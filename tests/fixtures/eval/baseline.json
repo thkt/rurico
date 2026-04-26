@@ -7,6 +7,7 @@
   "model_revision": "pinned-via-rurico-embed-cache",
   "mlx_rs_version": "0.25",
   "fixture_hash": "fnv1a64:187f5bea7336300c",
+  "aggregation": "identity",
   "global": [
     {
       "name": "recall@5",

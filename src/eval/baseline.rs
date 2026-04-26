@@ -75,6 +75,13 @@ pub struct BaselineSnapshot {
     pub mlx_rs_version: String,
     /// Content hash over `documents.jsonl + queries.jsonl + known_answers.jsonl`.
     pub fixture_hash: String,
+    /// Stage 3 aggregation strategy used for capture (Issue #67 / Phase 3).
+    ///
+    /// Pre-Phase-3 baselines lack this field; `serde(default)` resolves it to
+    /// `"identity"` so the existing committed `baseline.json` round-trips.
+    /// `verify-baseline` reads it back to dispatch the same aggregator.
+    #[serde(default = "default_aggregation_kind")]
+    pub aggregation: String,
     /// Global metric results (regression gate per BR-001).
     pub global: Vec<MetricResult>,
     /// Per-category metric breakdown for exploratory inspection.
@@ -83,6 +90,10 @@ pub struct BaselineSnapshot {
     pub latency_p50_ms: f64,
     /// 95th percentile per-query latency in milliseconds.
     pub latency_p95_ms: f64,
+}
+
+fn default_aggregation_kind() -> String {
+    "identity".to_owned()
 }
 
 /// Errors surfaced when writing a [`BaselineSnapshot`].
@@ -260,6 +271,7 @@ mod tests {
             model_revision: "rev".to_owned(),
             mlx_rs_version: "0.0.0".to_owned(),
             fixture_hash: "fnv1a64:0".to_owned(),
+            aggregation: default_aggregation_kind(),
             global: vec![],
             per_category: BTreeMap::new(),
             latency_p50_ms: 0.0,

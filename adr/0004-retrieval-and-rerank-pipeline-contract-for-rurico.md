@@ -175,15 +175,15 @@ Negative:
 
 ## Migration Plan
 
-This ADR ships in a docs-only PR. No source code changes in this PR.
-
-1. **Phase 2 (this ADR)**: commit `adr/0004-retrieval-and-rerank-pipeline-contract-for-rurico.md`, append the row to `adr/README.md`. No changes to `src/`.
-2. **Phase 3a** (Issue #67 prerequisite, may bundle into #67 first PR): rename `src/eval/pipeline.rs` → `src/retrieval.rs`. Move the `Hit`/`QueryResult`/`PipelineConfig`/`PipelineError` types and `evaluate` function. Drop `#[cfg(feature = "eval-harness")]` from items in the new module; keep eval-only fixture/baseline/metrics modules behind the feature. Update `src/lib.rs` and `src/bin/eval_harness.rs` to use the new module path. Tests T-011 (and any smoke tests touching `eval::pipeline`) repoint imports.
-3. **Phase 3b** (Issue #67): introduce `Aggregator` trait at the position fixed in Stage 3, with the identity default. Add at least one non-identity strategy (max-chunk-score is the simplest baseline) and re-run the eval baseline.
-4. **Phase 4** (Issue #68): expand Stage 2 with `MergeConfig`/`MergeStrategy`. Tune weights against the eval harness, commit a new `baseline.json`.
-5. **Phase 5** (Issue #69): insert query normalization at Stage 1 entry. Default off; opt-in via config to preserve current behaviour.
-6. **Phase 6** (Issue #70): add `CandidateSource::PrefixEnsemble` variants and the embedding-side fan-out logic.
-7. **Cross-repo follow-ups**: file individual issues against `recall`, `sae`, `yomu` after the first `rurico` bump that exposes `src/retrieval.rs`. Each downstream adopts at its own pace; `rurico` does not change `recall`/`sae`/`yomu` directly (cross-repo issue rule, ADR 0001 migration pattern).
+1. **Phase 2 (this ADR)**: commit `adr/0004-retrieval-and-rerank-pipeline-contract-for-rurico.md`, append the row to `adr/README.md`. No changes to `src/`. **Done 2026-04-26 (PR #74).**
+2. **Phase 3** (Issue #67, **implemented 2026-04-26**): introduce `MergedHit` and the `Aggregator` trait at the position fixed in Stage 3, plus four impls (`IdentityAggregator`, `MaxChunkAggregator`, `DedupeAggregator`, `TopKAverageAggregator`). New surface lives in `src/retrieval.rs` with no feature gate. `eval/pipeline.rs::evaluate` takes an `&impl Aggregator` parameter; the harness dispatches by `aggregation=identity|max-chunk|dedupe|topk-average` argv. `BaselineSnapshot` gains `aggregation: String` (serde-default `"identity"` so pre-Phase-3 files round-trip).
+   - **Pipeline-shape finding**: `rrf_merge` (`src/storage/search.rs:154`) fuses on `doc_id` via `HashMap`, so its output is already unique. Combined with one-chunk-per-`EvalDocument` indexing, every non-identity aggregator is **structurally identical** to identity on the current eval baseline. Strategy correctness is validated via synthetic multi-hit unit tests in `src/retrieval.rs`; non-vacuous baseline evaluation arrives once chunk-level retrieval lands (item 7 below).
+   - **Deferred from this ADR's wording**: full `eval/pipeline.rs` → `src/retrieval.rs` rename. The Aggregator surface is what Phase 3+ needs; the reference composition stays in `eval/pipeline.rs` until a downstream consumer needs to share more of the wiring.
+3. **Phase 4** (Issue #68): expand Stage 2 with `MergeConfig`/`MergeStrategy`. Tune weights against the eval harness, commit a new `baseline.json`.
+4. **Phase 5** (Issue #69): insert query normalization at Stage 1 entry. Default off; opt-in via config to preserve current behaviour.
+5. **Phase 6** (Issue #70): add `CandidateSource::PrefixEnsemble` variants and the embedding-side fan-out logic.
+6. **Cross-repo follow-ups**: file individual issues against `recall`, `sae`, `yomu` after the first `rurico` bump that exposes `src/retrieval.rs`. Each downstream adopts at its own pace; `rurico` does not change `recall`/`sae`/`yomu` directly (cross-repo issue rule, ADR 0001 migration pattern).
+7. **Chunk-level retrieval follow-up** (separate issue, prerequisite for non-vacuous aggregation evaluation): extend `ChunkedEmbedding` with `chunk_id` metadata, switch the reference pipeline to chunk-level indexing, add the parent-child helper, and capture per-strategy baselines that reflect actual ranking changes. Touches `recall`/`sae`/`yomu` schema, so it ships under its own issue rather than #67.
 
 ## Reassessment Triggers
 

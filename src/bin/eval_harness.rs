@@ -41,8 +41,13 @@ use rurico::eval::fixture::{
     EvalDocument, EvalQuery, load_documents, load_known_answers, load_queries,
 };
 use rurico::eval::metrics::{MetricResult, bootstrap_ci, mrr_at_k, ndcg_at_k, recall_at_k};
-use rurico::eval::pipeline::{PipelineConfig, QueryResult, evaluate as run_pipeline};
+use rurico::eval::pipeline::{
+    PipelineConfig, PipelineError, QueryResult, evaluate as run_pipeline,
+};
 use rurico::reranker::Rerank;
+use rurico::retrieval::{
+    DedupeAggregator, IdentityAggregator, MaxChunkAggregator, TopKAverageAggregator,
+};
 use rurico::sandbox::exit_if_seatbelt;
 use rurico::{embed, model_probe, reranker};
 
@@ -88,6 +93,16 @@ const BOOTSTRAP_SEED: u64 = 42;
 /// argv validation in `run_evaluate` and the dispatch in `load_fixture_for_kind`.
 const VALID_EVALUATE_KINDS: &[&str] = &["full", "shuffled", "identity", "reverse", "single_doc"];
 
+/// Closed set of Stage 3 aggregation kinds accepted by `aggregation=...`.
+/// Anchors argv validation and round-tripping with the `aggregation` field on
+/// [`BaselineSnapshot`] (Issue #67 / Phase 3).
+const VALID_AGGREGATION_KINDS: &[&str] = &["identity", "max-chunk", "dedupe", "topk-average"];
+
+/// Default `k` for the `topk-average` strategy when no `topk_k=` override is
+/// supplied. `k = 3` matches the issue body's "top-k average over the top
+/// chunks per document" framing without needing a flag for first capture.
+const DEFAULT_TOPK_AVERAGE_K: usize = 3;
+
 /// Exit code for a metric regression detected by `verify-baseline`. Reserved
 /// for *expected* failure modes — the gate fired because numbers moved.
 const EXIT_REGRESSION: u8 = 1;
@@ -110,6 +125,126 @@ const RURI_V3_310M_REVISION: &str = "pinned-via-rurico-embed-cache";
 /// Accepts borrowed `&[&str]` of ranked doc ids — callers project from
 /// `Hit.doc_id: String` without cloning each id per metric per query.
 type MetricFn = fn(&[&str], &HashMap<String, u8>, usize) -> f64;
+
+/// Closed set of Stage 3 aggregation kinds. Anchors `aggregation=` argv
+/// validation, the JSON `aggregation` field on [`BaselineSnapshot`], and
+/// [`run_verify_baseline`]'s reverse lookup of which strategy to dispatch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AggregationKind {
+    Identity,
+    MaxChunk,
+    Dedupe,
+    TopKAverage(usize),
+}
+
+impl AggregationKind {
+    /// Stable label written to `BaselineSnapshot.aggregation`. The
+    /// `TopKAverage` discriminator drops `k` so the field round-trips against
+    /// the canonical name in [`VALID_AGGREGATION_KINDS`].
+    const fn name(self) -> &'static str {
+        match self {
+            Self::Identity => "identity",
+            Self::MaxChunk => "max-chunk",
+            Self::Dedupe => "dedupe",
+            Self::TopKAverage(_) => "topk-average",
+        }
+    }
+
+    /// Parse `aggregation=<kind>` (and optional `topk_k=<n>`) from argv `kvs`.
+    /// Returns `Self::Identity` when the key is absent so callers that don't
+    /// pass the flag preserve the pre-Phase-3 behaviour.
+    fn from_kvs(kvs: &HashMap<String, String>) -> Result<Self, String> {
+        let raw = kvs
+            .get("aggregation")
+            .map(String::as_str)
+            .unwrap_or("identity");
+        match raw {
+            "identity" => Ok(Self::Identity),
+            "max-chunk" => Ok(Self::MaxChunk),
+            "dedupe" => Ok(Self::Dedupe),
+            "topk-average" => {
+                let k = match kvs.get("topk_k") {
+                    Some(v) => v
+                        .parse::<usize>()
+                        .map_err(|e| format!("topk_k= parse error: {e}"))?,
+                    None => DEFAULT_TOPK_AVERAGE_K,
+                };
+                Ok(Self::TopKAverage(k))
+            }
+            other => Err(format!(
+                "unknown aggregation: {other:?}; expected one of {VALID_AGGREGATION_KINDS:?}"
+            )),
+        }
+    }
+
+    /// Resolve `BaselineSnapshot.aggregation` back to a dispatchable kind for
+    /// `verify-baseline`. `topk-average` uses [`DEFAULT_TOPK_AVERAGE_K`] —
+    /// future work that varies `k` per-baseline can extend the schema.
+    fn from_name(name: &str) -> Result<Self, String> {
+        match name {
+            "identity" => Ok(Self::Identity),
+            "max-chunk" => Ok(Self::MaxChunk),
+            "dedupe" => Ok(Self::Dedupe),
+            "topk-average" => Ok(Self::TopKAverage(DEFAULT_TOPK_AVERAGE_K)),
+            other => Err(format!(
+                "unknown aggregation in baseline: {other:?}; expected one of {VALID_AGGREGATION_KINDS:?}"
+            )),
+        }
+    }
+}
+
+/// Run [`run_pipeline`] with the concrete aggregator selected by `aggregation`.
+///
+/// Centralises the trait-object-vs-generic dispatch so the four mode handlers
+/// (`evaluate`, `capture-baseline`, `capture-reverse-baseline`,
+/// `verify-baseline`) share the same fan-out.
+fn dispatch_pipeline<E, R>(
+    corpus: &[EvalDocument],
+    queries: &[EvalQuery],
+    embedder: &E,
+    reranker: Option<&R>,
+    aggregation: AggregationKind,
+    config: &PipelineConfig,
+) -> Result<Vec<QueryResult>, PipelineError>
+where
+    E: Embed,
+    R: Rerank,
+{
+    match aggregation {
+        AggregationKind::Identity => run_pipeline(
+            corpus,
+            queries,
+            embedder,
+            reranker,
+            &IdentityAggregator,
+            config,
+        ),
+        AggregationKind::MaxChunk => run_pipeline(
+            corpus,
+            queries,
+            embedder,
+            reranker,
+            &MaxChunkAggregator,
+            config,
+        ),
+        AggregationKind::Dedupe => run_pipeline(
+            corpus,
+            queries,
+            embedder,
+            reranker,
+            &DedupeAggregator,
+            config,
+        ),
+        AggregationKind::TopKAverage(k) => run_pipeline(
+            corpus,
+            queries,
+            embedder,
+            reranker,
+            &TopKAverageAggregator::new(k),
+            config,
+        ),
+    }
+}
 
 /// Closed set of metrics the harness emits in `BaselineSnapshot.global` and
 /// verifies via `verify-baseline`.
@@ -216,14 +351,22 @@ fn main() -> ExitCode {
     }
 }
 
-/// `evaluate kind=...` — run the reference pipeline against the chosen
-/// fixture slice and print metric JSON to stdout.
+/// `evaluate kind=... aggregation=...` — run the reference pipeline against
+/// the chosen fixture slice with the chosen aggregation strategy and print
+/// metric JSON to stdout.
 fn run_evaluate(kvs: &HashMap<String, String>) -> ExitCode {
     let kind = kvs.get("kind").map_or("full", String::as_str);
     if !VALID_EVALUATE_KINDS.contains(&kind) {
         eprintln!("evaluate: unknown kind {kind:?}; expected one of {VALID_EVALUATE_KINDS:?}");
         return ExitCode::from(EXIT_USAGE);
     }
+    let aggregation = match AggregationKind::from_kvs(kvs) {
+        Ok(a) => a,
+        Err(msg) => {
+            eprintln!("evaluate: {msg}");
+            return ExitCode::from(EXIT_USAGE);
+        }
+    };
     let ctx = match production_context() {
         Ok(c) => c,
         Err(msg) => {
@@ -232,10 +375,14 @@ fn run_evaluate(kvs: &HashMap<String, String>) -> ExitCode {
         }
     };
     log_run_context(&ctx, "evaluate", Some(kind), None);
-    run_evaluate_with(&ctx, kind)
+    run_evaluate_with(&ctx, kind, aggregation)
 }
 
-fn run_evaluate_with<E: Embed, R: Rerank>(ctx: &EvalContext<E, R>, kind: &str) -> ExitCode {
+fn run_evaluate_with<E: Embed, R: Rerank>(
+    ctx: &EvalContext<E, R>,
+    kind: &str,
+    aggregation: AggregationKind,
+) -> ExitCode {
     let (corpus, queries) = match load_fixture_for_kind(&ctx.fixture_dir, kind) {
         Ok(v) => v,
         Err(msg) => {
@@ -244,11 +391,12 @@ fn run_evaluate_with<E: Embed, R: Rerank>(ctx: &EvalContext<E, R>, kind: &str) -
         }
     };
     let config = PipelineConfig { k: PIPELINE_K };
-    let mut results = match run_pipeline(
+    let mut results = match dispatch_pipeline(
         &corpus,
         &queries,
         &ctx.embedder,
         Some(&ctx.reranker),
+        aggregation,
         &config,
     ) {
         Ok(r) => r,
@@ -280,8 +428,8 @@ fn run_evaluate_with<E: Embed, R: Rerank>(ctx: &EvalContext<E, R>, kind: &str) -
     }
 }
 
-/// `capture-baseline output=<path>` — run full evaluation + bootstrap CI and
-/// write `BaselineSnapshot` to `output=`.
+/// `capture-baseline output=<path> [aggregation=<kind>]` — run full evaluation
+/// + bootstrap CI and write `BaselineSnapshot` to `output=`.
 fn run_capture_baseline(kvs: &HashMap<String, String>) -> ExitCode {
     let Some(output_path_raw) = kvs.get("output") else {
         eprintln!("capture-baseline: output= argument required");
@@ -289,6 +437,13 @@ fn run_capture_baseline(kvs: &HashMap<String, String>) -> ExitCode {
     };
     let output_path = match validate_output_path(output_path_raw) {
         Ok(p) => p,
+        Err(msg) => {
+            eprintln!("capture-baseline: {msg}");
+            return ExitCode::from(EXIT_USAGE);
+        }
+    };
+    let aggregation = match AggregationKind::from_kvs(kvs) {
+        Ok(a) => a,
         Err(msg) => {
             eprintln!("capture-baseline: {msg}");
             return ExitCode::from(EXIT_USAGE);
@@ -302,12 +457,13 @@ fn run_capture_baseline(kvs: &HashMap<String, String>) -> ExitCode {
         }
     };
     log_run_context(&ctx, "capture-baseline", None, Some(&output_path));
-    run_capture_baseline_with(&ctx, &output_path)
+    run_capture_baseline_with(&ctx, &output_path, aggregation)
 }
 
 fn run_capture_baseline_with<E: Embed, R: Rerank>(
     ctx: &EvalContext<E, R>,
     output_path: &Path,
+    aggregation: AggregationKind,
 ) -> ExitCode {
     let (corpus, queries) = match load_fixture_for_kind(&ctx.fixture_dir, "full") {
         Ok(v) => v,
@@ -324,11 +480,12 @@ fn run_capture_baseline_with<E: Embed, R: Rerank>(
         }
     };
     let config = PipelineConfig { k: PIPELINE_K };
-    let results = match run_pipeline(
+    let results = match dispatch_pipeline(
         &corpus,
         &queries,
         &ctx.embedder,
         Some(&ctx.reranker),
+        aggregation,
         &config,
     ) {
         Ok(r) => r,
@@ -350,6 +507,7 @@ fn run_capture_baseline_with<E: Embed, R: Rerank>(
         model_revision: RURI_V3_310M_REVISION.to_owned(),
         mlx_rs_version: MLX_RS_VERSION.to_owned(),
         fixture_hash,
+        aggregation: aggregation.name().to_owned(),
         global,
         per_category,
         latency_p50_ms,
@@ -401,11 +559,15 @@ fn run_capture_reverse_baseline_with<E: Embed, R: Rerank>(
         }
     };
     let config = PipelineConfig { k: PIPELINE_K };
-    let mut results = match run_pipeline(
+    // Reverse baseline measures the nDCG lower bound under a flipped ranking;
+    // aggregation choice is irrelevant once `reverse_each_ranking` runs, so
+    // pin to `Identity` to keep the lower-bound contract independent of #67.
+    let mut results = match dispatch_pipeline(
         &corpus,
         &queries,
         &ctx.embedder,
         Some(&ctx.reranker),
+        AggregationKind::Identity,
         &config,
     ) {
         Ok(r) => r,
@@ -508,6 +670,13 @@ fn run_verify_baseline_with<E: Embed, R: Rerank>(
     ctx: &EvalContext<E, R>,
     committed: &BaselineSnapshot,
 ) -> ExitCode {
+    let aggregation = match AggregationKind::from_name(&committed.aggregation) {
+        Ok(a) => a,
+        Err(msg) => {
+            eprintln!("verify-baseline: {msg}");
+            return ExitCode::from(EXIT_INFRA);
+        }
+    };
     let (corpus, queries) = match load_fixture_for_kind(&ctx.fixture_dir, "full") {
         Ok(v) => v,
         Err(msg) => {
@@ -516,11 +685,12 @@ fn run_verify_baseline_with<E: Embed, R: Rerank>(
         }
     };
     let config = PipelineConfig { k: PIPELINE_K };
-    let results = match run_pipeline(
+    let results = match dispatch_pipeline(
         &corpus,
         &queries,
         &ctx.embedder,
         Some(&ctx.reranker),
+        aggregation,
         &config,
     ) {
         Ok(r) => r,

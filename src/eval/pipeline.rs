@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use crate::embed::{EMBEDDING_DIMS, Embed, EmbedError};
 use crate::eval::fixture::{EvalDocument, EvalQuery};
 use crate::reranker::{Rerank, RerankerError};
+use crate::retrieval::{Aggregator, MergedHit};
 use crate::storage::{
     MatchFtsQuery, SanitizeError, ensure_sqlite_vec, f32_as_bytes, prepare_match_query, rrf_merge,
 };
@@ -115,16 +116,18 @@ pub enum PipelineError {
 /// See [`PipelineError`] variants. Sqlite, embed, rerank, and sanitize errors
 /// each surface their respective source via `#[from]`; sqlite-vec load
 /// failure surfaces as [`PipelineError::SqliteVec`].
-pub fn evaluate<E, R>(
+pub fn evaluate<E, R, A>(
     corpus: &[EvalDocument],
     queries: &[EvalQuery],
     embedder: &E,
     reranker: Option<&R>,
+    aggregator: &A,
     config: &PipelineConfig,
 ) -> Result<Vec<QueryResult>, PipelineError>
 where
     E: Embed,
     R: Rerank,
+    A: Aggregator,
 {
     ensure_sqlite_vec().map_err(PipelineError::SqliteVec)?;
     let conn = Connection::open_in_memory()?;
@@ -142,8 +145,15 @@ where
     let mut results = Vec::with_capacity(queries.len());
     for query in queries {
         let started = Instant::now();
-        let ranked_hits =
-            run_single_query(&conn, query, embedder, reranker, &corpus_index, config)?;
+        let ranked_hits = run_single_query(
+            &conn,
+            query,
+            embedder,
+            reranker,
+            aggregator,
+            &corpus_index,
+            config,
+        )?;
         let latency_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         results.push(QueryResult {
             query_id: query.id.clone(),
@@ -205,31 +215,44 @@ fn index_corpus<E: Embed>(
     Ok(())
 }
 
-/// Drive one `EvalQuery` through FTS + vec retrieval, RRF merge, and (when
-/// supplied) reranker rescoring.
-fn run_single_query<E, R>(
+/// Drive one `EvalQuery` through FTS + vec retrieval, RRF merge, Stage 3
+/// aggregation, and (when supplied) reranker rescoring.
+fn run_single_query<E, R, A>(
     conn: &Connection,
     query: &EvalQuery,
     embedder: &E,
     reranker: Option<&R>,
+    aggregator: &A,
     corpus_index: &HashMap<&str, &str>,
     config: &PipelineConfig,
 ) -> Result<Vec<Hit>, PipelineError>
 where
     E: Embed,
     R: Rerank,
+    A: Aggregator,
 {
     let candidate_limit = config.k * RRF_CANDIDATE_MULTIPLIER;
     let fts_hits = retrieve_fts(conn, &query.text, candidate_limit)?;
     let vec_hits = retrieve_vec(conn, embedder, &query.text, candidate_limit)?;
-    let mut merged = rrf_merge(&fts_hits, &vec_hits);
-    merged.truncate(config.k);
+    let merged = rrf_merge(&fts_hits, &vec_hits);
+
+    let merged_hits: Vec<MergedHit> = merged
+        .into_iter()
+        .map(|(doc_id, score)| MergedHit { doc_id, score })
+        .collect();
+    let aggregated = aggregator.aggregate(&merged_hits);
+    let mut after_aggregation: Vec<(String, f64)> = aggregated
+        .into_iter()
+        .map(|h| (h.doc_id, h.score))
+        .collect();
+    after_aggregation.truncate(config.k);
 
     if let Some(reranker) = reranker {
-        merged = apply_reranker(reranker, &query.text, &merged, corpus_index)?;
+        after_aggregation =
+            apply_reranker(reranker, &query.text, &after_aggregation, corpus_index)?;
     }
 
-    Ok(merged
+    Ok(after_aggregation
         .into_iter()
         .map(|(doc_id, score)| Hit { doc_id, score })
         .collect())
@@ -427,6 +450,7 @@ mod tests {
     use crate::embed::MockEmbedder;
     use crate::eval::fixture::{EvalDocument, EvalQuery};
     use crate::reranker::MockReranker;
+    use crate::retrieval::IdentityAggregator;
 
     /// Build an [`EvalDocument`] with stub title / source. The body carries
     /// the surface text the FTS5 + vec wiring will see.
@@ -472,9 +496,10 @@ mod tests {
         let queries = vec![make_query("q1", "alpha retrieval", "d1")];
         let embedder = MockEmbedder::default();
         let reranker: Option<&MockReranker> = None;
+        let aggregator = IdentityAggregator;
         let config = PipelineConfig { k: 5 };
 
-        let result = evaluate(&corpus, &queries, &embedder, reranker, &config)
+        let result = evaluate(&corpus, &queries, &embedder, reranker, &aggregator, &config)
             .expect("pipeline must succeed with MockEmbedder + no reranker");
 
         assert_eq!(

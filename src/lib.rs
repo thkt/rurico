@@ -18,6 +18,8 @@ pub mod model_probe;
 pub mod modernbert;
 /// Cross-encoder reranker for query-document relevance scoring.
 pub mod reranker;
+/// Retrieval pipeline contract: Stage 3 [`Aggregator`](retrieval::Aggregator) hook (ADR 0004, Issue #67).
+pub mod retrieval;
 /// Codex seatbelt sandbox detection for MLX runtime gating.
 ///
 /// Internal support API used by smoke binaries and integration tests. Exposed
