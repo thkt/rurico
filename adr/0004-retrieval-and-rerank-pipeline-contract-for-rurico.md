@@ -183,7 +183,7 @@ Negative:
 4. **Phase 5** (Issue #69): insert query normalization at Stage 1 entry. Default off; opt-in via config to preserve current behaviour.
 5. **Phase 6** (Issue #70): add `CandidateSource::PrefixEnsemble` variants and the embedding-side fan-out logic.
 6. **Cross-repo follow-ups**: file individual issues against `recall`, `sae`, `yomu` after the first `rurico` bump that exposes `src/retrieval.rs`. Each downstream adopts at its own pace; `rurico` does not change `recall`/`sae`/`yomu` directly (cross-repo issue rule, ADR 0001 migration pattern).
-7. **Chunk-level retrieval follow-up** (separate issue, prerequisite for non-vacuous aggregation evaluation): extend `ChunkedEmbedding` with `chunk_id` metadata, switch the reference pipeline to chunk-level indexing, add the parent-child helper, and capture per-strategy baselines that reflect actual ranking changes. Touches `recall`/`sae`/`yomu` schema, so it ships under its own issue rather than #67.
+7. **Chunk-level retrieval follow-up** (Issue #76, prerequisite for non-vacuous aggregation evaluation): extend `ChunkedEmbedding` with `chunk_id` metadata, switch the reference pipeline to chunk-level indexing, add the parent-child helper, and capture per-strategy baselines that reflect actual ranking changes. Touches `recall`/`sae`/`yomu` schema, so it ships under its own issue rather than #67.
 
 ## Reassessment Triggers
 
