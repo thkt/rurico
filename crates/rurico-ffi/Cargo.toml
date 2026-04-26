@@ -13,4 +13,4 @@ unsafe_code = "deny"
 [dependencies]
 mlx-sys = "0.2"
 rusqlite = { version = "0.39", features = ["bundled"] }
-sqlite-vec = "0.1.6"
+sqlite-vec = "0.1.9"
