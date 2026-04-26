@@ -44,10 +44,19 @@ The reverse fixture cannot use a hand-picked threshold because the true lower bo
 - The 5% slack absorbs mlx f32 reduction drift (bounded by NFR-001) and the small numerical difference between the harness pipeline (with embedder + reranker) and the pure-relevance reverse ranking.
 - If the smoke assertion ever exceeds the slack on a clean run, that is a Reassessment Trigger: the reverse fixture is regenerated and `reverse_baseline.json` is overwritten in a dedicated PR; the trigger condition is logged in the PR description so the protocol stays auditable.
 
-The reproducibility contract follows ADR 0002:
+The reproducibility contract layers two distinct tolerances:
 
-- mlx inference f32 drift is bounded by `cosine_similarity ≥ 0.99999 ∧ max_abs_diff ≤ 1e-5` between regeneration runs.
-- `eval_harness capture-baseline` emits the canonical baseline; `eval_harness verify-baseline` re-runs and asserts the tolerance.
+**Vector-level (ADR 0002, FR-010 / NFR-001)** — embedder forward output between regeneration runs:
+
+- `cosine_similarity ≥ 0.99999 ∧ max_abs_diff ≤ 1e-5` per workload.
+- Verified by `mlx_smoke verify-fixture` (workloads w1 / w2 / w3); empirically holds at `max_abs_diff = 0.0` cross-process on Apple Silicon for the embedder path.
+
+**Metric-level (FR-017)** — `verify-baseline` gate over committed `baseline.json`:
+
+- Per-metric drift envelope set empirically (`src/bin/eval_harness.rs::VERIFY_TOLERANCE_BY_METRIC`), keyed by metric name.
+- Reranker forward (cross-encoder) exhibits residual cross-process f32 non-determinism inherent to Apple Silicon Metal — the noise propagates into score-sensitive metrics (`recall@5`, `ndcg@10`) while presence-sensitive metrics (`recall@10`, `mrr@10`) remain bit-identical for the current fixture. Bisect with reranker disabled produces bit-identical metrics, confirming all downstream stages (RRF merge, sort, metric calc) are deterministic.
+- Bound chosen ≥ 2× observed max drift over N=10 captures + historical session max so >1% regression stays detectable.
+- `eval_harness capture-baseline` emits the canonical baseline; `eval_harness verify-baseline` re-runs and asserts the per-metric tolerance.
 - `baseline.json` carries `model_id`, `model_revision`, `mlx_rs_version`, `fixture_hash` to detect drift drivers explicitly.
 - `fixture_hash` is FNV-1a 64-bit over the three JSONL files (`documents.jsonl`, `queries.jsonl`, `known_answers.jsonl`); SHA-256 is intentionally avoided to keep the dependency graph small. Hash collisions are acceptable since the hash is a fixture-changed signal, not a security primitive.
 - The fixture corpus is synthetic paraphrase of publicly licensed source documentation (MIT / Apache 2.0 / BSD / MPL 2.0 / CC0 / CC-BY / W3C Software Notice / IETF Trust / Python license / PostgreSQL license / public domain). AS-005's enumeration of MIT / Apache / CC0 / CC-BY is read as a non-exhaustive permissive whitelist; equivalent permissive licenses are accepted under the same intent. `tests/fixtures/eval/LICENSES.md` records the per-source attribution and acknowledges share-alike upstream sources whose topics were authored independently.
@@ -116,7 +125,7 @@ Positive:
 - Phase 1 produces a baseline whose meaning is explicit: `rurico` primitives composed in a `recall`-shape pipeline against a fixed in-repo fixture.
 - Phase 3〜6 changes are gated on a statistically meaningful global metric improvement (CI non-overlap with baseline), not on point-estimate movement.
 - Wiring bugs in the harness are caught by the three known-answer fixtures before they corrupt the committed baseline values.
-- Reproducibility across machines is bounded by the same f32 tolerance ADR 0002 already uses.
+- Reproducibility is split: vector-level (embedder) follows ADR 0002's f32 tolerance, while metric-level (`verify-baseline`) uses an empirically-bounded per-metric envelope to absorb reranker cross-process drift.
 - Per-category breakdown remains available for exploratory analysis without polluting the gate decision.
 
 Negative:
@@ -140,7 +149,8 @@ Negative:
 - `recall/src/hybrid.rs` changes its public shape (signature change of `hybrid_search` / equivalent) → re-evaluate whether the inline composition still tracks recall closely enough.
 - Phase 4 weight tuning produces statistically significant improvement on the harness composition but no perceived improvement when downstream users (`recall`, `sae`, `yomu`) deploy a `rurico` bump → introduce per-component evaluation alongside the composition baseline.
 - Disagreement on any individual fixture's relevance map between two annotators exceeds 20% (kappa < 0.6) → re-author the fixture with explicit relevance-judgment guidelines and add a second annotator for new queries.
-- mlx-rs major version bump → regenerate baseline; if `cosine_similarity < 0.99999` the tolerance must be re-evaluated.
+- mlx-rs major version bump → regenerate baseline; if `cosine_similarity < 0.99999` the vector-level tolerance must be re-evaluated.
+- Cross-process metric drift exceeds the per-metric envelope on a clean run → re-characterize drift with N≥10 captures and update `VERIFY_TOLERANCE_BY_METRIC`; record the new bound and the trigger condition in a dedicated PR.
 - A new fixture category becomes necessary (e.g. multilingual, code-only) and existing 7 categories no longer cover Phase 3〜6 evaluation needs → add via fixture extension; bump `fixture_hash` to invalidate prior baselines.
 - The reverse fixture smoke assertion (T-014) exceeds `observed_lower_bound × 1.05` on a clean run → regenerate the reverse fixture and overwrite `reverse_baseline.json` in a dedicated PR; log the cause (algorithm change, fixture rebalance, etc.) in the PR description.
 

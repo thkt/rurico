@@ -43,7 +43,29 @@ use rurico::{embed, model_probe, reranker};
 
 const PIPELINE_K: usize = 10;
 const SHUFFLE_SEED: u64 = 42;
-const VERIFY_TOLERANCE: f64 = 1e-5;
+/// Per-metric drift tolerance for `verify-baseline` (FR-017).
+///
+/// Cross-process MLX reranker forward exhibits f32 non-determinism that
+/// propagates to score-sensitive metrics. Embedder forward is bit-identical
+/// (proven by `mlx_smoke verify-fixture`); the bound below absorbs the
+/// reranker-side noise. See ADR 0003 § Reproducibility.
+///
+/// Bounds set to ≥ 2× empirically observed max drift (N=10 + historical
+/// session max), keeping >1% regression detectable while accepting
+/// non-determinism inherent to Apple Silicon Metal f32 ops.
+const VERIFY_TOLERANCE_BY_METRIC: &[(&str, f64)] = &[
+    ("recall@5", 1e-2),
+    ("recall@10", 1e-3),
+    ("mrr@10", 1e-3),
+    ("ndcg@10", 1e-3),
+];
+
+fn tolerance_for(metric: &str) -> f64 {
+    VERIFY_TOLERANCE_BY_METRIC
+        .iter()
+        .find_map(|(name, t)| (*name == metric).then_some(*t))
+        .unwrap_or(1e-2)
+}
 const BOOTSTRAP_RESAMPLES: usize = 1000;
 const BOOTSTRAP_SEED: u64 = 42;
 const MLX_RS_VERSION: &str = "0.25";
@@ -329,9 +351,11 @@ fn run_verify_baseline(kvs: &HashMap<String, String>) -> ExitCode {
             return ExitCode::from(1);
         };
         let diff = (committed_m.point_estimate - current_m.point_estimate).abs();
-        if diff > VERIFY_TOLERANCE {
+        let tol = tolerance_for(&committed_m.name);
+        if diff > tol {
             eprintln!(
-                "verify-baseline: failed — {} drifted by {diff:.6} (committed {:.6} vs current {:.6})",
+                "verify-baseline: failed — {} drifted by {diff:.6} > {tol:.6} \
+                 (committed {:.6} vs current {:.6})",
                 committed_m.name, committed_m.point_estimate, current_m.point_estimate
             );
             return ExitCode::from(1);
