@@ -22,6 +22,8 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::storage::recency_decay;
+
 /// Source of a Stage 1 candidate hit (ADR 0004 Stage 1 output).
 ///
 /// Closed enum: misspelled labels become compile errors. Phase 6 (#70) may
@@ -127,6 +129,24 @@ impl Default for HybridSearchConfig {
     }
 }
 
+/// Recency boost configuration applied at Stage 2 (Phase 4 / #68).
+///
+/// Recency is an additive boost layered on top of [`WeightedRrf`]'s fused
+/// score: `score += weight * recency_decay(age_days, half_life_days)`. The
+/// decay is exponential — `1.0` at `age_days = 0`, halving every
+/// `half_life_days`. `weight = 0.0` makes the boost a no-op.
+///
+/// Recency requires per-doc `updated_at` metadata supplied by the caller
+/// via the `age_days_for` closure of [`WeightedRrf::merge_with_recency`];
+/// the strategy itself does not query any storage.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RecencyConfig {
+    /// Recency boost magnitude. `0.0` disables the boost.
+    pub weight: f64,
+    /// Half-life in days controlling the exponential decay.
+    pub half_life_days: f64,
+}
+
 /// Default Stage 2 strategy: weighted Reciprocal Rank Fusion.
 ///
 /// Each candidate contributes `weight / (rrf_k + rank)` to its `doc_id`'s
@@ -144,6 +164,43 @@ impl WeightedRrf {
     /// Construct with the given config.
     pub fn new(config: HybridSearchConfig) -> Self {
         Self { config }
+    }
+
+    /// Stage 2 merge plus an additive recency boost.
+    ///
+    /// Calls [`Self::merge`] first, then layers `recency.weight *
+    /// recency_decay(age, recency.half_life_days)` onto each hit whose
+    /// `age_days_for` lookup returns `Some(age)`. Hits with `None` age are
+    /// left at their RRF score. Output is re-sorted after the boost.
+    ///
+    /// `source_scores` continues to record only per-source RRF
+    /// contributions — the recency component lives in `score` only, since
+    /// it is not attributable to a single retrieval source.
+    pub fn merge_with_recency<F>(
+        &self,
+        candidates: &[Candidate],
+        recency: &RecencyConfig,
+        age_days_for: F,
+    ) -> Vec<MergedHit>
+    where
+        F: Fn(&str) -> Option<f64>,
+    {
+        let mut hits = self.merge(candidates);
+        if recency.weight == 0.0 {
+            return hits;
+        }
+        for hit in &mut hits {
+            if let Some(age) = age_days_for(hit.doc_id.as_str()) {
+                let decay = recency_decay(age, recency.half_life_days);
+                hit.score += recency.weight * decay;
+            }
+        }
+        hits.sort_by(|a, b| {
+            b.score
+                .total_cmp(&a.score)
+                .then_with(|| a.doc_id.cmp(&b.doc_id))
+        });
+        hits
     }
 }
 
@@ -586,6 +643,78 @@ mod tests {
             .copied();
         assert!((fts.unwrap() - 1.0 / 60.0).abs() < f64::EPSILON);
         assert!((vec.unwrap() - 1.0 / 62.0).abs() < f64::EPSILON);
+    }
+
+    // T-068-009: weighted_rrf_recency_zero_weight_is_noop
+    #[test]
+    fn weighted_rrf_recency_zero_weight_is_noop() {
+        let strategy = WeightedRrf::default();
+        let candidates = vec![
+            candidate(CandidateSource::Fts, "d1", 0),
+            candidate(CandidateSource::Fts, "d2", 1),
+        ];
+        let recency = RecencyConfig {
+            weight: 0.0,
+            half_life_days: 30.0,
+        };
+        let with_recency = strategy.merge_with_recency(&candidates, &recency, |_| Some(0.0));
+        let without = strategy.merge(&candidates);
+        assert_eq!(
+            with_recency, without,
+            "recency weight=0 must produce identical output to merge()"
+        );
+    }
+
+    // T-068-010: weighted_rrf_recency_boosts_recent_hits
+    #[test]
+    fn weighted_rrf_recency_boosts_recent_hits() {
+        let strategy = WeightedRrf::default();
+        let candidates = vec![
+            // d_old: best RRF rank but old
+            candidate(CandidateSource::Fts, "d_old", 0),
+            // d_new: worse RRF rank but recent
+            candidate(CandidateSource::Fts, "d_new", 1),
+        ];
+        let recency = RecencyConfig {
+            weight: 1.0,
+            half_life_days: 30.0,
+        };
+        let ages = |id: &str| match id {
+            "d_old" => Some(365.0), // very old → near-zero decay
+            "d_new" => Some(0.0),   // brand new → decay 1.0 → +1.0 boost
+            _ => None,
+        };
+        let output = strategy.merge_with_recency(&candidates, &recency, ages);
+        // d_new RRF score 1/61 + recency 1.0 ≈ 1.016 > d_old's 1/60 + ε ≈ 0.0167
+        assert_eq!(
+            output[0].doc_id, "d_new",
+            "Heavy recency boost must reorder a recent hit above an old hit with better RRF rank"
+        );
+    }
+
+    // T-068-011: weighted_rrf_recency_skips_missing_age
+    #[test]
+    fn weighted_rrf_recency_skips_missing_age() {
+        let strategy = WeightedRrf::default();
+        let candidates = vec![
+            candidate(CandidateSource::Fts, "d1", 0),
+            candidate(CandidateSource::Fts, "d2", 1),
+        ];
+        let recency = RecencyConfig {
+            weight: 1.0,
+            half_life_days: 30.0,
+        };
+        // d1 has age, d2 has no metadata
+        let ages = |id: &str| match id {
+            "d1" => Some(0.0),
+            _ => None,
+        };
+        let output = strategy.merge_with_recency(&candidates, &recency, ages);
+        let d1 = output.iter().find(|h| h.doc_id == "d1").unwrap();
+        let d2 = output.iter().find(|h| h.doc_id == "d2").unwrap();
+        // d1 boosted by 1.0; d2 only has RRF
+        assert!((d1.score - (1.0 / 60.0 + 1.0)).abs() < f64::EPSILON);
+        assert!((d2.score - 1.0 / 61.0).abs() < f64::EPSILON);
     }
 
     // T-068-008: weighted_rrf_fts_heavy_weight_reorders
