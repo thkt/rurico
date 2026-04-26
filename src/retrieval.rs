@@ -204,33 +204,57 @@ impl WeightedRrf {
     }
 }
 
+/// Per-doc accumulator for [`WeightedRrf::merge`].
+///
+/// One `entry()` lookup per candidate fills both the fused score and the
+/// per-source breakdown — replaces a parallel pair of HashMaps that
+/// otherwise required matched updates and a second-pass `remove` per hit.
+#[derive(Default)]
+struct WeightedRrfAcc {
+    score: f64,
+    source_scores: HashMap<CandidateSource, f64>,
+}
+
 impl MergeStrategy for WeightedRrf {
     fn merge(&self, candidates: &[Candidate]) -> Vec<MergedHit> {
-        let mut scores: HashMap<&str, f64> = HashMap::new();
-        let mut sources_per_doc: HashMap<&str, HashMap<CandidateSource, f64>> = HashMap::new();
+        let fts_w = self
+            .config
+            .source_weights
+            .get(&CandidateSource::Fts)
+            .copied()
+            .unwrap_or(0.0);
+        let vec_w = self
+            .config
+            .source_weights
+            .get(&CandidateSource::Vector)
+            .copied()
+            .unwrap_or(0.0);
+        let mut acc: HashMap<&str, WeightedRrfAcc> = HashMap::new();
         for cand in candidates {
-            let weight = self
-                .config
-                .source_weights
-                .get(&cand.source)
-                .copied()
-                .unwrap_or(0.0);
+            let weight = match cand.source {
+                CandidateSource::Fts => fts_w,
+                CandidateSource::Vector => vec_w,
+            };
+            // Zero-weight sources are disabled: skipping prevents docs that only
+            // hit the disabled source from leaking into the merged set with a
+            // score of 0.0, which would otherwise survive truncate-to-k and
+            // reach the reranker as if they were valid candidates.
+            if weight == 0.0 {
+                continue;
+            }
             #[allow(clippy::cast_precision_loss)]
             let rank_f = cand.rank as f64;
             let contribution = weight / (self.config.rrf_k + rank_f);
-            *scores.entry(cand.doc_id.as_str()).or_default() += contribution;
-            *sources_per_doc
-                .entry(cand.doc_id.as_str())
-                .or_default()
-                .entry(cand.source)
-                .or_default() += contribution;
+            let entry = acc.entry(cand.doc_id.as_str()).or_default();
+            entry.score += contribution;
+            *entry.source_scores.entry(cand.source).or_default() += contribution;
         }
-        let mut hits: Vec<MergedHit> = scores
+        let mut hits: Vec<MergedHit> = acc
             .into_iter()
-            .map(|(doc_id, score)| MergedHit {
+            .map(|(doc_id, a)| MergedHit {
                 doc_id: doc_id.to_owned(),
-                score,
-                source_scores: sources_per_doc.remove(doc_id).unwrap_or_default(),
+                score: a.score,
+                source_scores: a.source_scores,
             })
             .collect();
         hits.sort_by(|a, b| {
@@ -608,6 +632,12 @@ mod tests {
     }
 
     // T-068-006: weighted_rrf_zero_weight_drops_source
+    //
+    // Disabled-source candidates must NOT leak into the merged set. If a doc
+    // has only a contribution from the zero-weight source, it must be absent
+    // from the output entirely — otherwise it would survive truncate-to-k and
+    // reach the reranker as a valid candidate, undermining single-source
+    // weight-tuning comparisons.
     #[test]
     fn weighted_rrf_zero_weight_drops_source() {
         let mut config = HybridSearchConfig::default();
@@ -618,12 +648,9 @@ mod tests {
             candidate(CandidateSource::Vector, "d2", 0),
         ];
         let output = strategy.merge(&candidates);
-        // d2 only has Vector contribution which is weighted 0 → score 0
-        // d1 has Fts contribution at weight 1 → 1/60
+        assert_eq!(output.len(), 1, "vector-only d2 must be dropped");
         assert_eq!(output[0].doc_id, "d1");
         assert!((output[0].score - 1.0 / 60.0).abs() < f64::EPSILON);
-        assert_eq!(output[1].doc_id, "d2");
-        assert_eq!(output[1].score, 0.0);
     }
 
     // T-068-007: weighted_rrf_records_per_source_contributions

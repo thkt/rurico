@@ -450,23 +450,29 @@ fn apply_reranker<R: Rerank>(
     merged: Vec<MergedHit>,
     corpus_index: &HashMap<&str, &str>,
 ) -> Result<Vec<MergedHit>, PipelineError> {
-    let resolved: Vec<(String, &str, HashMap<CandidateSource, f64>)> = merged
+    type ResolvedSlot<'a> = Option<(String, &'a str, HashMap<CandidateSource, f64>)>;
+    let mut resolved: Vec<ResolvedSlot<'_>> = merged
         .into_iter()
         .filter_map(|h| {
             corpus_index
                 .get(h.doc_id.as_str())
-                .map(|body| (h.doc_id, *body, h.source_scores))
+                .map(|body| Some((h.doc_id, *body, h.source_scores)))
         })
         .collect();
-    let bodies: Vec<&str> = resolved.iter().map(|(_, body, _)| *body).collect();
+    let bodies: Vec<&str> = resolved
+        .iter()
+        .map(|slot| slot.as_ref().map(|(_, body, _)| *body).unwrap_or(""))
+        .collect();
     let ranked_results = reranker.rerank(query, &bodies)?;
     let mut reranked = Vec::with_capacity(ranked_results.len());
     for r in ranked_results {
-        if let Some((doc_id, _, source_scores)) = resolved.get(r.index) {
+        if let Some(slot) = resolved.get_mut(r.index)
+            && let Some((doc_id, _, source_scores)) = slot.take()
+        {
             reranked.push(MergedHit {
-                doc_id: doc_id.clone(),
+                doc_id,
                 score: f64::from(r.score),
-                source_scores: source_scores.clone(),
+                source_scores,
             });
         }
     }
