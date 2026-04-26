@@ -43,7 +43,7 @@ pub struct MetricResult {
 /// (`grade ≥ 1`), since recall is undefined without a positive class.
 #[must_use]
 #[allow(clippy::cast_precision_loss)]
-pub fn recall_at_k(ranked: &[String], relevance: &HashMap<String, u8>, k: usize) -> f64 {
+pub fn recall_at_k(ranked: &[&str], relevance: &HashMap<String, u8>, k: usize) -> f64 {
     let relevant_total = relevance.values().filter(|&&g| g >= 1).count();
     if relevant_total == 0 {
         return 0.0;
@@ -51,7 +51,7 @@ pub fn recall_at_k(ranked: &[String], relevance: &HashMap<String, u8>, k: usize)
     let intersect = ranked
         .iter()
         .take(k)
-        .filter(|id| relevance.get(*id).is_some_and(|&g| g >= 1))
+        .filter(|id| relevance.get(**id).is_some_and(|&g| g >= 1))
         .count();
     intersect as f64 / relevant_total as f64
 }
@@ -61,9 +61,9 @@ pub fn recall_at_k(ranked: &[String], relevance: &HashMap<String, u8>, k: usize)
 /// Returns `0.0` when the top-k window contains no relevant document.
 #[must_use]
 #[allow(clippy::cast_precision_loss)]
-pub fn mrr_at_k(ranked: &[String], relevance: &HashMap<String, u8>, k: usize) -> f64 {
+pub fn mrr_at_k(ranked: &[&str], relevance: &HashMap<String, u8>, k: usize) -> f64 {
     for (idx, id) in ranked.iter().take(k).enumerate() {
-        if relevance.get(id).is_some_and(|&g| g >= 1) {
+        if relevance.get(*id).is_some_and(|&g| g >= 1) {
             return 1.0 / (idx + 1) as f64;
         }
     }
@@ -77,13 +77,13 @@ pub fn mrr_at_k(ranked: &[String], relevance: &HashMap<String, u8>, k: usize) ->
 /// 1-indexed (i.e. position 1 yields denominator `log_2(2) = 1`).
 #[must_use]
 #[allow(clippy::cast_precision_loss)]
-pub fn ndcg_at_k(ranked: &[String], relevance: &HashMap<String, u8>, k: usize) -> f64 {
+pub fn ndcg_at_k(ranked: &[&str], relevance: &HashMap<String, u8>, k: usize) -> f64 {
     let dcg: f64 = ranked
         .iter()
         .take(k)
         .enumerate()
         .map(|(idx, id)| {
-            let rel = f64::from(relevance.get(id).copied().unwrap_or(0));
+            let rel = f64::from(relevance.get(*id).copied().unwrap_or(0));
             let denom = ((idx + 2) as f64).log2();
             (rel.exp2() - 1.0) / denom
         })
@@ -122,12 +122,18 @@ where
     }
     let len = values.len();
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
-    let mut samples: Vec<f64> = (0..n_resamples)
-        .map(|_| {
-            let resample: Vec<f64> = (0..len).map(|_| values[rng.random_range(0..len)]).collect();
-            metric(&resample)
-        })
-        .collect();
+    // Reuse a single scratch buffer across resamples instead of allocating a
+    // fresh `Vec<f64>` per iteration. For 1000 resamples × N queries × 4
+    // metrics this drops ~560k Vec allocations to one.
+    let mut scratch: Vec<f64> = Vec::with_capacity(len);
+    let mut samples: Vec<f64> = Vec::with_capacity(n_resamples);
+    for _ in 0..n_resamples {
+        scratch.clear();
+        for _ in 0..len {
+            scratch.push(values[rng.random_range(0..len)]);
+        }
+        samples.push(metric(&scratch));
+    }
     samples.sort_by(f64::total_cmp);
     let lower_idx = (n_resamples * 25) / 1000;
     let upper_idx = ((n_resamples * 975) / 1000).min(n_resamples - 1);
@@ -146,10 +152,9 @@ mod tests {
             .collect()
     }
 
-    /// Convert a slice of `&str` into the owned `Vec<String>` shape the
-    /// metric APIs accept.
-    fn ranked(ids: &[&str]) -> Vec<String> {
-        ids.iter().map(|s| (*s).to_owned()).collect()
+    /// Adopt a slice literal into the borrowed shape the metric APIs accept.
+    fn ranked<'a>(ids: &[&'a str]) -> Vec<&'a str> {
+        ids.to_vec()
     }
 
     // T-001: recall_at_k_all_relevant_in_top_k_returns_one

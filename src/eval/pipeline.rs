@@ -7,6 +7,7 @@
 //! Phase 1c RED — `evaluate` is a stub. Tests use `MockEmbedder` to drive
 //! the wiring; Phase 1d wires the real mlx embedder via the harness binary.
 
+use std::collections::HashMap;
 use std::time::Instant;
 
 use rusqlite::{Connection, params};
@@ -84,6 +85,22 @@ pub enum PipelineError {
     /// `sqlite_vec` extension registration failed at process level.
     #[error("pipeline sqlite-vec load failed: {0}")]
     SqliteVec(String),
+    /// Embedder returned a chunk count that does not match the corpus.
+    #[error(
+        "pipeline embed batch size mismatch: corpus has {corpus} docs, embedder returned {chunked}"
+    )]
+    ChunkCountMismatch {
+        /// Number of documents in the corpus passed to the embedder.
+        corpus: usize,
+        /// Number of [`crate::embed::ChunkedEmbedding`] entries returned.
+        chunked: usize,
+    },
+    /// Embedder produced zero chunks for a corpus document.
+    #[error("pipeline empty embedding for doc {doc_id:?}")]
+    EmptyEmbedding {
+        /// Identifier of the corpus document with no chunks.
+        doc_id: String,
+    },
 }
 
 /// Run the reference pipeline on `corpus` for every query in `queries`.
@@ -114,10 +131,19 @@ where
     create_schema(&conn)?;
     index_corpus(&conn, corpus, embedder)?;
 
+    // Build (doc_id → body) lookup once before the query loop. apply_reranker
+    // does O(1) hits against this map instead of an O(N) corpus.iter().find()
+    // per merged hit per query.
+    let corpus_index: HashMap<&str, &str> = corpus
+        .iter()
+        .map(|d| (d.id.as_str(), d.body.as_str()))
+        .collect();
+
     let mut results = Vec::with_capacity(queries.len());
     for query in queries {
         let started = Instant::now();
-        let ranked_hits = run_single_query(&conn, query, embedder, reranker, corpus, config)?;
+        let ranked_hits =
+            run_single_query(&conn, query, embedder, reranker, &corpus_index, config)?;
         let latency_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         results.push(QueryResult {
             query_id: query.id.clone(),
@@ -142,7 +168,11 @@ fn create_schema(conn: &Connection) -> Result<(), PipelineError> {
 /// Encode each document body with `embedder` and insert into all three tables.
 ///
 /// `EvalDocument` is treated as a single chunk; the first chunk vector from
-/// [`Embed::embed_documents_batch`] is what lands in `vec_docs`.
+/// [`Embed::embed_documents_batch`] is what lands in `vec_docs`. Returns
+/// [`PipelineError::ChunkCountMismatch`] when the embedder's output length
+/// does not match the corpus and [`PipelineError::EmptyEmbedding`] when a
+/// document yields no chunks — silent truncation of the vec index would
+/// degrade recall without a visible error.
 fn index_corpus<E: Embed>(
     conn: &Connection,
     corpus: &[EvalDocument],
@@ -150,6 +180,12 @@ fn index_corpus<E: Embed>(
 ) -> Result<(), PipelineError> {
     let bodies: Vec<&str> = corpus.iter().map(|d| d.body.as_str()).collect();
     let chunked = embedder.embed_documents_batch(&bodies)?;
+    if chunked.len() != corpus.len() {
+        return Err(PipelineError::ChunkCountMismatch {
+            corpus: corpus.len(),
+            chunked: chunked.len(),
+        });
+    }
     let mut insert_doc = conn.prepare_cached("INSERT INTO documents(id, body) VALUES (?, ?)")?;
     let mut insert_fts = conn.prepare_cached("INSERT INTO docs_fts(doc_id, body) VALUES (?, ?)")?;
     let mut insert_vec =
@@ -157,9 +193,14 @@ fn index_corpus<E: Embed>(
     for (doc, chunked_embedding) in corpus.iter().zip(chunked.iter()) {
         insert_doc.execute(params![&doc.id, &doc.body])?;
         insert_fts.execute(params![&doc.id, &doc.body])?;
-        if let Some(vector) = chunked_embedding.chunks.first() {
-            insert_vec.execute(params![f32_as_bytes(vector), &doc.id])?;
-        }
+        let vector =
+            chunked_embedding
+                .chunks
+                .first()
+                .ok_or_else(|| PipelineError::EmptyEmbedding {
+                    doc_id: doc.id.clone(),
+                })?;
+        insert_vec.execute(params![f32_as_bytes(vector), &doc.id])?;
     }
     Ok(())
 }
@@ -171,7 +212,7 @@ fn run_single_query<E, R>(
     query: &EvalQuery,
     embedder: &E,
     reranker: Option<&R>,
-    corpus: &[EvalDocument],
+    corpus_index: &HashMap<&str, &str>,
     config: &PipelineConfig,
 ) -> Result<Vec<Hit>, PipelineError>
 where
@@ -185,7 +226,7 @@ where
     merged.truncate(config.k);
 
     if let Some(reranker) = reranker {
-        merged = apply_reranker(reranker, &query.text, &merged, corpus)?;
+        merged = apply_reranker(reranker, &query.text, &merged, corpus_index)?;
     }
 
     Ok(merged
@@ -352,23 +393,27 @@ fn retrieve_vec<E: Embed>(
 
 /// Rescore `merged` via `reranker.rerank(query, doc_bodies)`.
 ///
-/// Output preserves only docs the reranker still indexed; rerank score
-/// (`f32`) widens to `f64` to keep the merged list type consistent.
+/// Builds a parallel `(doc_id, body)` slice from `merged` filtered by
+/// `corpus_index` membership, then feeds the body slice to the reranker. The
+/// reranker's returned `index` maps back to the same filtered slice — so a
+/// missing-from-corpus entry never causes a misalignment between
+/// reranker output and merged identity. Rerank score (`f32`) widens
+/// to `f64` to keep the merged list type consistent.
 fn apply_reranker<R: Rerank>(
     reranker: &R,
     query: &str,
     merged: &[(String, f64)],
-    corpus: &[EvalDocument],
+    corpus_index: &HashMap<&str, &str>,
 ) -> Result<Vec<(String, f64)>, PipelineError> {
-    let bodies: Vec<&str> = merged
+    let (resolved_ids, bodies): (Vec<&String>, Vec<&str>) = merged
         .iter()
-        .filter_map(|(id, _)| corpus.iter().find(|d| &d.id == id).map(|d| d.body.as_str()))
-        .collect();
+        .filter_map(|(id, _)| corpus_index.get(id.as_str()).map(|body| (id, *body)))
+        .unzip();
     let ranked_results = reranker.rerank(query, &bodies)?;
     let mut reranked = Vec::with_capacity(ranked_results.len());
     for r in ranked_results {
-        if let Some((doc_id, _)) = merged.get(r.index) {
-            reranked.push((doc_id.clone(), f64::from(r.score)));
+        if let Some(doc_id) = resolved_ids.get(r.index) {
+            reranked.push(((*doc_id).clone(), f64::from(r.score)));
         }
     }
     Ok(reranked)

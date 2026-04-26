@@ -53,11 +53,11 @@ The reproducibility contract layers two distinct tolerances:
 
 **Metric-level (FR-017)** — `verify-baseline` gate over committed `baseline.json`:
 
-- Per-metric drift envelope set empirically (`src/bin/eval_harness.rs::VERIFY_TOLERANCE_BY_METRIC`), keyed by metric name.
+- Per-metric drift envelope set empirically (`src/bin/eval_harness.rs::MetricSpec::tolerance`), keyed by `MetricSpec` variant. The closed enum makes a misspelled metric label a compile error rather than a silent fall-through to a default tolerance.
 - Reranker forward (cross-encoder) exhibits residual cross-process f32 non-determinism inherent to Apple Silicon Metal — the noise propagates into score-sensitive metrics (`recall@5`, `ndcg@10`) while presence-sensitive metrics (`recall@10`, `mrr@10`) remain bit-identical for the current fixture. Bisect with reranker disabled produces bit-identical metrics, confirming all downstream stages (RRF merge, sort, metric calc) are deterministic.
 - Bound chosen ≥ 2× observed max drift over N=10 captures + historical session max so >1% regression stays detectable.
 - `eval_harness capture-baseline` emits the canonical baseline; `eval_harness verify-baseline` re-runs and asserts the per-metric tolerance.
-- `baseline.json` carries `model_id`, `model_revision`, `mlx_rs_version`, `fixture_hash` to detect drift drivers explicitly.
+- `baseline.json` carries `schema_version`, `kind`, `model_id`, `model_revision`, `mlx_rs_version`, `fixture_hash`, and `captured_with` to detect drift drivers explicitly. `kind` distinguishes forward (`capture-baseline`) from reverse (`capture-reverse-baseline`); `schema_version` is bumped on a breaking schema change so consumers can refuse silently-incompatible files.
 - `fixture_hash` is FNV-1a 64-bit over the three JSONL files (`documents.jsonl`, `queries.jsonl`, `known_answers.jsonl`); SHA-256 is intentionally avoided to keep the dependency graph small. Hash collisions are acceptable since the hash is a fixture-changed signal, not a security primitive.
 - The fixture corpus is synthetic paraphrase of publicly licensed source documentation (MIT / Apache 2.0 / BSD / MPL 2.0 / CC0 / CC-BY / W3C Software Notice / IETF Trust / Python license / PostgreSQL license / public domain). AS-005's enumeration of MIT / Apache / CC0 / CC-BY is read as a non-exhaustive permissive whitelist; equivalent permissive licenses are accepted under the same intent. `tests/fixtures/eval/LICENSES.md` records the per-source attribution and acknowledges share-alike upstream sources whose topics were authored independently.
 
@@ -150,7 +150,7 @@ Negative:
 - Phase 4 weight tuning produces statistically significant improvement on the harness composition but no perceived improvement when downstream users (`recall`, `sae`, `yomu`) deploy a `rurico` bump → introduce per-component evaluation alongside the composition baseline.
 - Disagreement on any individual fixture's relevance map between two annotators exceeds 20% (kappa < 0.6) → re-author the fixture with explicit relevance-judgment guidelines and add a second annotator for new queries.
 - mlx-rs major version bump → regenerate baseline; if `cosine_similarity < 0.99999` the vector-level tolerance must be re-evaluated.
-- Cross-process metric drift exceeds the per-metric envelope on a clean run → re-characterize drift with N≥10 captures and update `VERIFY_TOLERANCE_BY_METRIC`; record the new bound and the trigger condition in a dedicated PR.
+- Cross-process metric drift exceeds the per-metric envelope on a clean run → re-characterize drift with N≥10 captures and update the `MetricSpec::tolerance` arm for the affected metric; record the new bound and the trigger condition in a dedicated PR.
 - A new fixture category becomes necessary (e.g. multilingual, code-only) and existing 7 categories no longer cover Phase 3〜6 evaluation needs → add via fixture extension; bump `fixture_hash` to invalidate prior baselines.
 - The reverse fixture smoke assertion (T-014) exceeds `observed_lower_bound × 1.05` on a clean run → regenerate the reverse fixture and overwrite `reverse_baseline.json` in a dedicated PR; log the cause (algorithm change, fixture rebalance, etc.) in the PR description.
 

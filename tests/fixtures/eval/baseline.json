@@ -1,4 +1,7 @@
 {
+  "schema_version": "1.0",
+  "kind": "forward",
+  "captured_with": "eval_harness capture-baseline",
   "timestamp": "epoch:1777185001",
   "model_id": "cl-nagoya/ruri-v3-310m",
   "model_revision": "pinned-via-rurico-embed-cache",

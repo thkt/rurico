@@ -12,7 +12,7 @@
 //! [`BaselineSnapshot`] composes it directly so its own derive is sufficient.
 
 use std::collections::BTreeMap;
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::Path;
 
@@ -24,11 +24,48 @@ use crate::eval::metrics::MetricResult;
 /// `uninformative` (FR-016 / BR-002).
 pub const UNINFORMATIVE_HALF_WIDTH: f64 = 0.10;
 
+/// Current schema version stamped into every emitted baseline file.
+///
+/// Bump on a breaking change (renamed/removed fields, semantic shift) so
+/// downstream consumers can refuse silently-incompatible files.
+pub const BASELINE_SCHEMA_VERSION: &str = "1.0";
+
+/// Discriminator distinguishing forward (`capture-baseline`) from reverse
+/// (`capture-reverse-baseline`) baseline files.
+///
+/// Both files share the [`BASELINE_SCHEMA_VERSION`] envelope; consumers read
+/// `kind` first to pick the right body shape rather than inferring from the
+/// presence of fields.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BaselineKind {
+    /// Forward baseline produced by `capture-baseline`. Body matches
+    /// [`BaselineSnapshot`].
+    Forward,
+    /// Reverse-ranker lower-bound baseline produced by
+    /// `capture-reverse-baseline`. Body shape lives in the binary
+    /// (`observed_lower_bound`, `k`, `captured_with`).
+    Reverse,
+}
+
 /// Frozen baseline produced by `eval_harness capture-baseline` and verified
 /// later by `eval_harness verify-baseline`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BaselineSnapshot {
-    /// ISO-8601 capture timestamp.
+    /// Schema version envelope. See [`BASELINE_SCHEMA_VERSION`].
+    pub schema_version: String,
+    /// File-type discriminator. Forward baselines fix this to
+    /// [`BaselineKind::Forward`]; reverse baselines live in a separate file
+    /// keyed `Reverse`.
+    pub kind: BaselineKind,
+    /// Subcommand that produced this file (e.g.
+    /// `"eval_harness capture-baseline"`). Mirrors the `captured_with` field
+    /// already carried by `reverse_baseline.json` so both artifacts share a
+    /// symmetric provenance schema.
+    pub captured_with: String,
+    /// Capture-time label in `epoch:N` form (Unix seconds since UNIX_EPOCH).
+    /// Phase 1d trades strict ISO-8601 for keeping `chrono` out of the
+    /// dependency tree.
     pub timestamp: String,
     /// Hugging Face repo id of the embed model used.
     pub model_id: String,
@@ -86,21 +123,54 @@ pub fn build_metric_result(
     }
 }
 
-/// Serialise `snapshot` as pretty JSON to `path`.
+/// Atomically write `bytes` to `path` via temp-file + `fs::rename`.
+///
+/// Writes to a sibling `.{file_name}.tmp` first, fsyncs, then renames over the
+/// destination. A SIGTERM, panic, or disk-full mid-write cannot leave the
+/// destination in a partial state — either the prior contents survive or the
+/// new contents replace them in one atomic POSIX rename.
+///
+/// # Errors
+///
+/// Returns the underlying [`io::Error`] when the temp file cannot be created,
+/// written, fsynced, or renamed into place. Surfaces [`io::ErrorKind::InvalidInput`]
+/// when `path` has no file name component (caller bug).
+pub fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let file_name = path.file_name().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("atomic_write: path has no file name: {}", path.display()),
+        )
+    })?;
+    let tmp_path = parent.join(format!(".{}.tmp", file_name.to_string_lossy()));
+    {
+        let mut file = File::create(&tmp_path)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+    }
+    fs::rename(&tmp_path, path).inspect_err(|_| {
+        let _ = fs::remove_file(&tmp_path);
+    })
+}
+
+/// Serialise `snapshot` as pretty JSON to `path` (atomic write).
+///
+/// Uses [`atomic_write`] so a partial write never corrupts a committed
+/// baseline file in the git tree.
 ///
 /// # Errors
 ///
 /// Returns [`BaselineError::Io`] when the destination cannot be created and
 /// [`BaselineError::Serialise`] when JSON encoding fails.
 pub fn write_json(snapshot: &BaselineSnapshot, path: &Path) -> Result<(), BaselineError> {
-    let json = serde_json::to_string_pretty(snapshot)?;
-    let mut file = File::create(path)?;
-    file.write_all(json.as_bytes())?;
-    file.write_all(b"\n")?;
+    let mut json = serde_json::to_string_pretty(snapshot)?;
+    json.push('\n');
+    atomic_write(path, json.as_bytes())?;
     Ok(())
 }
 
-/// Render `snapshot` as a human-readable markdown report at `path`.
+/// Render `snapshot` as a human-readable markdown report at `path` (atomic write).
 ///
 /// # Errors
 ///
@@ -126,8 +196,7 @@ pub fn write_markdown(snapshot: &BaselineSnapshot, path: &Path) -> Result<(), Ba
         output.push_str(&format!("\n### {category}\n\n"));
         write_metric_lines(&mut output, metrics);
     }
-    let mut file = File::create(path)?;
-    file.write_all(output.as_bytes())?;
+    atomic_write(path, output.as_bytes())?;
     Ok(())
 }
 
@@ -147,7 +216,7 @@ fn write_metric_lines(buf: &mut String, metrics: &[MetricResult]) {
 
 #[cfg(test)]
 mod tests {
-    use super::build_metric_result;
+    use super::*;
 
     // T-018: build_metric_result_wide_ci_flags_uninformative
     // FR-016 / BR-002: half-width = (0.65 - 0.35) / 2 = 0.15 > 0.10 →
@@ -174,6 +243,78 @@ mod tests {
             !result.uninformative,
             "FR-016: half-width 0.05 < threshold 0.10 → uninformative must be false, \
              got result = {result:?}"
+        );
+    }
+
+    // T-020: baseline_snapshot_round_trips_with_schema_version_and_kind
+    // Pins the schema_version + kind envelope so a future migration that
+    // drops or renames either field fails this round-trip explicitly.
+    #[test]
+    fn baseline_snapshot_round_trips_with_schema_version_and_kind() {
+        let snap = BaselineSnapshot {
+            schema_version: BASELINE_SCHEMA_VERSION.to_owned(),
+            kind: BaselineKind::Forward,
+            captured_with: "test".to_owned(),
+            timestamp: "epoch:42".to_owned(),
+            model_id: "test/model".to_owned(),
+            model_revision: "rev".to_owned(),
+            mlx_rs_version: "0.0.0".to_owned(),
+            fixture_hash: "fnv1a64:0".to_owned(),
+            global: vec![],
+            per_category: BTreeMap::new(),
+            latency_p50_ms: 0.0,
+            latency_p95_ms: 0.0,
+        };
+        let json = serde_json::to_string(&snap).expect("serialise");
+        let parsed: BaselineSnapshot = serde_json::from_str(&json).expect("round-trip");
+        assert_eq!(parsed.schema_version, BASELINE_SCHEMA_VERSION);
+        assert_eq!(parsed.kind, BaselineKind::Forward);
+        assert_eq!(parsed.timestamp, "epoch:42");
+    }
+
+    // T-021: committed_baseline_json_deserialises_under_new_schema
+    // Default-lane guard: MLX-gated T-019 won't catch a schema migration
+    // that drops the committed fixture's parseability. This test runs in
+    // the default `cargo test` lane (no feature flag, no #[ignore]) so a
+    // stale fixture fails CI immediately.
+    #[test]
+    fn committed_baseline_json_deserialises_under_new_schema() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/eval/baseline.json");
+        let text =
+            fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+        let parsed: BaselineSnapshot = serde_json::from_str(&text).unwrap_or_else(|e| {
+            panic!(
+                "committed baseline.json must deserialise under the current schema ({e}); \
+                 update the fixture when bumping {BASELINE_SCHEMA_VERSION:?}. content head: {}",
+                &text.chars().take(200).collect::<String>()
+            )
+        });
+        assert_eq!(
+            parsed.schema_version, BASELINE_SCHEMA_VERSION,
+            "schema_version mismatch — fixture must match {BASELINE_SCHEMA_VERSION:?}"
+        );
+        assert_eq!(
+            parsed.kind,
+            BaselineKind::Forward,
+            "committed baseline.json must declare kind=forward"
+        );
+    }
+
+    // T-022: atomic_write_replaces_destination_on_each_call
+    // Verifies the temp-file + rename path overwrites cleanly across
+    // consecutive writes (no leftover .tmp files) and that the final
+    // destination matches the most recent write.
+    #[test]
+    fn atomic_write_replaces_destination_on_each_call() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("artifact.json");
+        atomic_write(&path, b"first\n").expect("first write");
+        atomic_write(&path, b"second\n").expect("second write");
+        let content = fs::read_to_string(&path).expect("read");
+        assert_eq!(content, "second\n", "atomic_write must replace contents");
+        assert!(
+            !dir.path().join(".artifact.json.tmp").exists(),
+            "temp file must be renamed away"
         );
     }
 }

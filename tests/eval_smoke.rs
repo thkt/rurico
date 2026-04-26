@@ -45,18 +45,8 @@ fn t013_identity_fixture_perfect_metrics() {
         .expect("spawn eval_harness evaluate kind=identity");
     assert_smoke_success(&output);
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let json: serde_json::Value = serde_json::from_str(&stdout)
-        .unwrap_or_else(|e| panic!("[T-013] stdout must be JSON ({e}), got: {stdout}"));
-
-    let recall_at_1 = json
-        .get("recall_at_1")
-        .and_then(serde_json::Value::as_f64)
-        .unwrap_or_else(|| panic!("[T-013] missing recall_at_1: {stdout}"));
-    let ndcg_at_10 = json
-        .get("ndcg_at_10")
-        .and_then(serde_json::Value::as_f64)
-        .unwrap_or_else(|| panic!("[T-013] missing ndcg_at_10: {stdout}"));
+    let recall_at_1 = parse_metric_field("T-013", &output, "recall_at_1");
+    let ndcg_at_10 = parse_metric_field("T-013", &output, "ndcg_at_10");
 
     assert!(
         (recall_at_1 - 1.0).abs() < f64::EPSILON,
@@ -102,13 +92,7 @@ fn t014_reverse_fixture_below_lower_bound() {
         .expect("spawn eval_harness evaluate kind=reverse");
     assert_smoke_success(&output);
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let json: serde_json::Value = serde_json::from_str(&stdout)
-        .unwrap_or_else(|e| panic!("[T-014] stdout must be JSON ({e}), got: {stdout}"));
-    let ndcg_at_10 = json
-        .get("ndcg_at_10")
-        .and_then(serde_json::Value::as_f64)
-        .unwrap_or_else(|| panic!("[T-014] missing ndcg_at_10: {stdout}"));
+    let ndcg_at_10 = parse_metric_field("T-014", &output, "ndcg_at_10");
 
     let upper = observed_lower_bound * 1.05;
     assert!(
@@ -130,18 +114,8 @@ fn t015_single_doc_fixture_perfect_metrics() {
         .expect("spawn eval_harness evaluate kind=single_doc");
     assert_smoke_success(&output);
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let json: serde_json::Value = serde_json::from_str(&stdout)
-        .unwrap_or_else(|e| panic!("[T-015] stdout must be JSON ({e}), got: {stdout}"));
-
-    let recall_at_1 = json
-        .get("recall_at_1")
-        .and_then(serde_json::Value::as_f64)
-        .unwrap_or_else(|| panic!("[T-015] missing recall_at_1: {stdout}"));
-    let mrr = json
-        .get("mrr")
-        .and_then(serde_json::Value::as_f64)
-        .unwrap_or_else(|| panic!("[T-015] missing mrr: {stdout}"));
+    let recall_at_1 = parse_metric_field("T-015", &output, "recall_at_1");
+    let mrr = parse_metric_field("T-015", &output, "mrr");
 
     assert!(
         (recall_at_1 - 1.0).abs() < f64::EPSILON,
@@ -164,30 +138,14 @@ fn t016_shuffled_ndcg_below_baseline() {
         .output()
         .expect("spawn eval_harness evaluate kind=full");
     assert_smoke_success(&baseline);
-    let baseline_stdout = String::from_utf8_lossy(&baseline.stdout);
-    let baseline_json: serde_json::Value =
-        serde_json::from_str(&baseline_stdout).unwrap_or_else(|e| {
-            panic!("[T-016] baseline stdout must be JSON ({e}), got: {baseline_stdout}")
-        });
-    let baseline_ndcg = baseline_json
-        .get("ndcg_at_10")
-        .and_then(serde_json::Value::as_f64)
-        .unwrap_or_else(|| panic!("[T-016] baseline missing ndcg_at_10: {baseline_stdout}"));
+    let baseline_ndcg = parse_metric_field("T-016 baseline", &baseline, "ndcg_at_10");
 
     let shuffled = Command::new(env!("CARGO_BIN_EXE_eval_harness"))
         .args(["evaluate", "kind=shuffled"])
         .output()
         .expect("spawn eval_harness evaluate kind=shuffled");
     assert_smoke_success(&shuffled);
-    let shuffled_stdout = String::from_utf8_lossy(&shuffled.stdout);
-    let shuffled_json: serde_json::Value =
-        serde_json::from_str(&shuffled_stdout).unwrap_or_else(|e| {
-            panic!("[T-016] shuffled stdout must be JSON ({e}), got: {shuffled_stdout}")
-        });
-    let shuffled_ndcg = shuffled_json
-        .get("ndcg_at_10")
-        .and_then(serde_json::Value::as_f64)
-        .unwrap_or_else(|| panic!("[T-016] shuffled missing ndcg_at_10: {shuffled_stdout}"));
+    let shuffled_ndcg = parse_metric_field("T-016 shuffled", &shuffled, "ndcg_at_10");
 
     assert!(
         shuffled_ndcg < baseline_ndcg,
@@ -283,6 +241,19 @@ fn t019_verify_baseline_passes_against_committed_snapshot() {
         stderr.contains("verify-baseline: passed"),
         "[T-019] FR-017: stderr must contain `verify-baseline: passed`, got: {stderr}"
     );
+}
+
+/// Parse the stdout JSON of an `eval_harness evaluate` invocation and extract
+/// the `f64` value at `field`. Centralised so T-013/T-014/T-015/T-016 share a
+/// single error-reporting style instead of repeating the same parse-and-extract
+/// dance in every test.
+fn parse_metric_field(label: &str, output: &Output, field: &str) -> f64 {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout)
+        .unwrap_or_else(|e| panic!("[{label}] stdout must be JSON ({e}), got: {stdout}"));
+    json.get(field)
+        .and_then(serde_json::Value::as_f64)
+        .unwrap_or_else(|| panic!("[{label}] missing {field}: {stdout}"))
 }
 
 // Subprocess success assertion mirroring `tests/mlx_smoke.rs::assert_smoke_success`.
