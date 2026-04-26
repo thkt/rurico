@@ -40,22 +40,18 @@ const RRF_CANDIDATE_MULTIPLIER: usize = 3;
 /// (mrr / ndcg_at_10 unchanged versus a 10,000-combo cap).
 const MAX_COMBOS: usize = 100;
 
-/// Single ranked hit from the pipeline.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Hit {
-    /// Document identifier (matches `EvalDocument::id`).
-    pub doc_id: String,
-    /// Aggregated relevance score after RRF merge and optional rerank.
-    pub score: f64,
-}
-
 /// One query's pipeline output: ordered hits + wall-clock latency.
+///
+/// `ranked_hits` reuses [`MergedHit`] — the same type passed across the Stage
+/// 3 boundary — so the rerank tail no longer round-trips through a separate
+/// `Hit` shape. Downstream callers should still treat the slice as sorted by
+/// descending `score`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryResult {
     /// Identifier of the input [`EvalQuery`].
     pub query_id: String,
-    /// Hits sorted by descending [`Hit::score`].
-    pub ranked_hits: Vec<Hit>,
+    /// Hits sorted by descending [`MergedHit::score`].
+    pub ranked_hits: Vec<MergedHit>,
     /// Wall-clock latency for this single query in milliseconds.
     pub latency_ms: u64,
 }
@@ -225,7 +221,7 @@ fn run_single_query<E, R, A>(
     aggregator: &A,
     corpus_index: &HashMap<&str, &str>,
     config: &PipelineConfig,
-) -> Result<Vec<Hit>, PipelineError>
+) -> Result<Vec<MergedHit>, PipelineError>
 where
     E: Embed,
     R: Rerank,
@@ -240,22 +236,17 @@ where
         .into_iter()
         .map(|(doc_id, score)| MergedHit { doc_id, score })
         .collect();
-    let aggregated = aggregator.aggregate(&merged_hits);
-    let mut after_aggregation: Vec<(String, f64)> = aggregated
-        .into_iter()
-        .map(|h| (h.doc_id, h.score))
-        .collect();
-    after_aggregation.truncate(config.k);
+    // Aggregator::aggregate guarantees score-descending output (see trait
+    // doc), so truncate-then-rerank does not silently drop higher-scoring
+    // hits.
+    let mut aggregated = aggregator.aggregate(&merged_hits);
+    aggregated.truncate(config.k);
 
     if let Some(reranker) = reranker {
-        after_aggregation =
-            apply_reranker(reranker, &query.text, &after_aggregation, corpus_index)?;
+        aggregated = apply_reranker(reranker, &query.text, aggregated, corpus_index)?;
     }
 
-    Ok(after_aggregation
-        .into_iter()
-        .map(|(doc_id, score)| Hit { doc_id, score })
-        .collect())
+    Ok(aggregated)
 }
 
 /// FTS5 retrieval. Empty / unsanitisable queries return an empty hit list
@@ -416,27 +407,34 @@ fn retrieve_vec<E: Embed>(
 
 /// Rescore `merged` via `reranker.rerank(query, doc_bodies)`.
 ///
-/// Builds a parallel `(doc_id, body)` slice from `merged` filtered by
-/// `corpus_index` membership, then feeds the body slice to the reranker. The
-/// reranker's returned `index` maps back to the same filtered slice — so a
-/// missing-from-corpus entry never causes a misalignment between
-/// reranker output and merged identity. Rerank score (`f32`) widens
-/// to `f64` to keep the merged list type consistent.
+/// Consumes `merged` and yields a fresh `Vec<MergedHit>` with rerank scores
+/// in place of RRF scores. Filters by `corpus_index` membership before
+/// scoring, so the reranker's returned `index` aligns with the same filtered
+/// slice and no missing-from-corpus entry can misalign rerank output with
+/// merged identity. Rerank score (`f32`) widens to `f64` to keep the merged
+/// list type consistent.
 fn apply_reranker<R: Rerank>(
     reranker: &R,
     query: &str,
-    merged: &[(String, f64)],
+    merged: Vec<MergedHit>,
     corpus_index: &HashMap<&str, &str>,
-) -> Result<Vec<(String, f64)>, PipelineError> {
-    let (resolved_ids, bodies): (Vec<&String>, Vec<&str>) = merged
-        .iter()
-        .filter_map(|(id, _)| corpus_index.get(id.as_str()).map(|body| (id, *body)))
+) -> Result<Vec<MergedHit>, PipelineError> {
+    let (resolved_ids, bodies): (Vec<String>, Vec<&str>) = merged
+        .into_iter()
+        .filter_map(|h| {
+            corpus_index
+                .get(h.doc_id.as_str())
+                .map(|body| (h.doc_id, *body))
+        })
         .unzip();
     let ranked_results = reranker.rerank(query, &bodies)?;
     let mut reranked = Vec::with_capacity(ranked_results.len());
     for r in ranked_results {
         if let Some(doc_id) = resolved_ids.get(r.index) {
-            reranked.push(((*doc_id).clone(), f64::from(r.score)));
+            reranked.push(MergedHit {
+                doc_id: doc_id.clone(),
+                score: f64::from(r.score),
+            });
         }
     }
     Ok(reranked)

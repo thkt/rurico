@@ -20,12 +20,16 @@
 
 use std::collections::HashMap;
 
+use serde::{Deserialize, Serialize};
+
 /// Single candidate after Stage 2 (RRF merge) — input/output for [`Aggregator`].
 ///
 /// Score sign is "higher is better" (post-RRF fused score). Stage 3 may
 /// rewrite, drop, or re-order entries; the resulting `Vec` becomes the input
-/// to Stage 4 (rerank).
-#[derive(Debug, Clone, PartialEq)]
+/// to Stage 4 (rerank). Also serves as the public ranked-hit type returned
+/// from `eval::pipeline::QueryResult` — Serialize/Deserialize keep the
+/// pipeline output JSON shape unchanged across the merge boundary.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MergedHit {
     /// Document or chunk identifier carried through Stage 1+2.
     pub doc_id: String,
@@ -37,21 +41,25 @@ pub struct MergedHit {
 ///
 /// ADR 0004 fixes the position (between Stage 2 merge and Stage 4 rerank) and
 /// the surface; this trait is the only stable extension point. Granularity
-/// (chunk vs document) and ordering guarantees are strategy-specific —
-/// implementations document their own contract.
+/// (chunk vs document) is strategy-specific — implementations document their
+/// own dedupe / collapse contract.
 pub trait Aggregator {
     /// Aggregate `hits` into the form Stage 4 expects.
     ///
-    /// Output ordering should be score-descending unless the strategy
-    /// explicitly preserves rank order. Output length may be ≤ input length
-    /// (dedupe / max-chunk collapse duplicates).
+    /// **Output MUST be sorted by `score` descending** (with deterministic
+    /// tiebreaking by `doc_id` when scores are equal). The pipeline truncates
+    /// the result to `config.k` after this call, so non-sorted output would
+    /// silently drop higher-scoring hits. Output length may be ≤ input
+    /// length (dedupe / max-chunk collapse duplicates).
     fn aggregate(&self, hits: &[MergedHit]) -> Vec<MergedHit>;
 }
 
 /// Identity aggregator — returns the input unchanged.
 ///
 /// Default for the reference pipeline composition; preserves the pre-Phase-3
-/// behaviour where each `EvalDocument` produces exactly one hit.
+/// behaviour where each `EvalDocument` produces exactly one hit. The sort
+/// invariant is upheld by pass-through because Stage 2 RRF merge already
+/// emits score-descending output.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct IdentityAggregator;
 
@@ -96,7 +104,9 @@ impl Aggregator for MaxChunkAggregator {
 ///
 /// Unlike [`MaxChunkAggregator`] this keeps the first hit's score (typically
 /// the higher rank from RRF), making it a structural dedupe rather than a
-/// score-aware collapse.
+/// score-aware collapse. The sort invariant is upheld because Stage 2 RRF
+/// merge already emits score-descending output and dedupe drops later
+/// duplicates without re-ordering.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct DedupeAggregator;
 
@@ -256,7 +266,7 @@ mod tests {
         assert!(output.is_empty(), "k=0 should return empty");
     }
 
-    // T-067-006: max_chunk_handles_unique_input_unchanged_in_descending_order
+    // T-067-006: max_chunk_unique_input_only_resorts
     //
     // Documents the structural-identity fact called out in the module doc:
     // when input doc_ids are already unique (current pipeline shape), the

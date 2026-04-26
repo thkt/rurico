@@ -123,7 +123,7 @@ const RURI_V3_310M_REVISION: &str = "pinned-via-rurico-embed-cache";
 /// [`build_one_metric`]; aliased to silence `clippy::type_complexity`.
 ///
 /// Accepts borrowed `&[&str]` of ranked doc ids — callers project from
-/// `Hit.doc_id: String` without cloning each id per metric per query.
+/// `MergedHit.doc_id: String` without cloning each id per metric per query.
 type MetricFn = fn(&[&str], &HashMap<String, u8>, usize) -> f64;
 
 /// Closed set of Stage 3 aggregation kinds. Anchors `aggregation=` argv
@@ -138,15 +138,16 @@ enum AggregationKind {
 }
 
 impl AggregationKind {
-    /// Stable label written to `BaselineSnapshot.aggregation`. The
-    /// `TopKAverage` discriminator drops `k` so the field round-trips against
-    /// the canonical name in [`VALID_AGGREGATION_KINDS`].
-    const fn name(self) -> &'static str {
+    /// Stable label written to `BaselineSnapshot.aggregation`. `TopKAverage`
+    /// encodes `k` as `"topk-average:K"` so a baseline captured with a
+    /// non-default `k` round-trips through [`Self::from_name`] without
+    /// silently falling back to [`DEFAULT_TOPK_AVERAGE_K`] at verify time.
+    fn name(self) -> String {
         match self {
-            Self::Identity => "identity",
-            Self::MaxChunk => "max-chunk",
-            Self::Dedupe => "dedupe",
-            Self::TopKAverage(_) => "topk-average",
+            Self::Identity => "identity".to_owned(),
+            Self::MaxChunk => "max-chunk".to_owned(),
+            Self::Dedupe => "dedupe".to_owned(),
+            Self::TopKAverage(k) => format!("topk-average:{k}"),
         }
     }
 
@@ -178,17 +179,24 @@ impl AggregationKind {
     }
 
     /// Resolve `BaselineSnapshot.aggregation` back to a dispatchable kind for
-    /// `verify-baseline`. `topk-average` uses [`DEFAULT_TOPK_AVERAGE_K`] —
-    /// future work that varies `k` per-baseline can extend the schema.
+    /// `verify-baseline`. Recognises both the encoded `"topk-average:K"` form
+    /// (post-fix) and the legacy bare `"topk-average"` form (pre-fix
+    /// baselines fall back to [`DEFAULT_TOPK_AVERAGE_K`]).
     fn from_name(name: &str) -> Result<Self, String> {
         match name {
             "identity" => Ok(Self::Identity),
             "max-chunk" => Ok(Self::MaxChunk),
             "dedupe" => Ok(Self::Dedupe),
             "topk-average" => Ok(Self::TopKAverage(DEFAULT_TOPK_AVERAGE_K)),
-            other => Err(format!(
-                "unknown aggregation in baseline: {other:?}; expected one of {VALID_AGGREGATION_KINDS:?}"
-            )),
+            other => match other.strip_prefix("topk-average:") {
+                Some(k_str) => k_str
+                    .parse::<usize>()
+                    .map(Self::TopKAverage)
+                    .map_err(|e| format!("topk-average:K parse error in baseline: {e}")),
+                None => Err(format!(
+                    "unknown aggregation in baseline: {other:?}; expected one of {VALID_AGGREGATION_KINDS:?}"
+                )),
+            },
         }
     }
 }
@@ -507,7 +515,7 @@ fn run_capture_baseline_with<E: Embed, R: Rerank>(
         model_revision: RURI_V3_310M_REVISION.to_owned(),
         mlx_rs_version: MLX_RS_VERSION.to_owned(),
         fixture_hash,
-        aggregation: aggregation.name().to_owned(),
+        aggregation: aggregation.name(),
         global,
         per_category,
         latency_p50_ms,
@@ -991,4 +999,65 @@ fn hash_fixture_dir(fixture_dir: &Path) -> Result<String, String> {
         }
     }
     Ok(format!("fnv1a64:{hash:016x}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // T-067-007: aggregation_kind_topk_average_roundtrips_through_name
+    //
+    // Codex P2 / CodeRabbit minor (PR #75): a non-default `topk_k=` passed at
+    // capture time used to be silently downgraded to DEFAULT_TOPK_AVERAGE_K
+    // by `from_name` at verify time. Encode `k` in the serialised name and
+    // round-trip to keep the strategy bit-identical across capture/verify.
+    #[test]
+    fn aggregation_kind_topk_average_roundtrips_through_name() {
+        for k in [1, 3, 5, 100] {
+            let original = AggregationKind::TopKAverage(k);
+            let name = original.name();
+            assert_eq!(
+                name,
+                format!("topk-average:{k}"),
+                "TopKAverage({k}) must encode k in name"
+            );
+            let parsed =
+                AggregationKind::from_name(&name).expect("encoded topk-average must parse back");
+            assert_eq!(
+                parsed, original,
+                "round-trip lost k for TopKAverage({k}): {parsed:?}"
+            );
+        }
+    }
+
+    // T-067-008: aggregation_kind_legacy_topk_average_falls_back_to_default
+    //
+    // Pre-fix baselines wrote bare "topk-average" without `k`. Verify-baseline
+    // must continue to parse those, falling back to DEFAULT_TOPK_AVERAGE_K so
+    // operators with committed snapshots aren't forced to recapture.
+    #[test]
+    fn aggregation_kind_legacy_topk_average_falls_back_to_default() {
+        let parsed = AggregationKind::from_name("topk-average")
+            .expect("legacy bare topk-average must still parse");
+        assert_eq!(parsed, AggregationKind::TopKAverage(DEFAULT_TOPK_AVERAGE_K));
+    }
+
+    // T-067-009: aggregation_kind_simple_variants_roundtrip
+    //
+    // Identity / MaxChunk / Dedupe carry no `k` payload, but they share the
+    // round-trip contract — `name()` → `from_name()` must yield the original
+    // variant.
+    #[test]
+    fn aggregation_kind_simple_variants_roundtrip() {
+        for original in [
+            AggregationKind::Identity,
+            AggregationKind::MaxChunk,
+            AggregationKind::Dedupe,
+        ] {
+            let name = original.name();
+            let parsed =
+                AggregationKind::from_name(&name).expect("simple variant name must round-trip");
+            assert_eq!(parsed, original, "round-trip mismatch for {original:?}");
+        }
+    }
 }
