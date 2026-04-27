@@ -10,15 +10,19 @@ Apple Silicon (MLX) 上で日本語テキストのembedding・reranking・類似
 
 ## モジュール構成
 
-| モジュール    | 役割                                                                                 |
-| ------------- | ------------------------------------------------------------------------------------ |
-| `embed`       | embedding 生成（MLX 推論、tokenization、pooling、probe）                             |
-| `reranker`    | 検索結果の reranking（cross-encoder スコアリング、probe）                            |
-| `modernbert`  | ModernBERT モデル定義と config                                                       |
-| `storage`     | SQLite + sqlite-vec のベクトル検索ユーティリティ（FTS、RRF merge、recency decay）    |
-| `text`        | テキスト分割（段落 > 行 > 文字境界で UTF-8 安全に分割）                              |
-| `artifacts`   | モデルファイルの型付き検証パイプライン（`CandidateArtifacts` → `VerifiedArtifacts`） |
-| `model_probe` | サブプロセス probe 基盤（`handle_probe_if_needed`、`ProbeStatus`）                   |
+| モジュール    | 役割                                                                                                                                  |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `embed`       | embedding 生成（MLX 推論、tokenization、pooling、probe）                                                                              |
+| `reranker`    | 検索結果の reranking（cross-encoder スコアリング、probe）                                                                             |
+| `modernbert`  | ModernBERT モデル定義と config                                                                                                        |
+| `storage`     | SQLite + sqlite-vec のベクトル検索プリミティブ（FTS sanitize / `MatchFtsQuery`、`rrf_merge`、`recency_decay`、`QueryNormalizationConfig`） |
+| `retrieval`   | 5-stage retrieval pipeline contract（ADR 0004）— `Candidate` / `MergedHit` / `MergeStrategy` / `Aggregator` / `HybridSearchConfig` / `RecencyConfig` |
+| `eval` ※     | 検索評価ハーネス（Recall@k / MRR@k / nDCG@k、`tests/fixtures/eval/baseline.json`）。ADR 0003 / Issue #65                              |
+| `text`        | テキスト分割（段落 > 行 > 文字境界で UTF-8 安全に分割）                                                                               |
+| `artifacts`   | モデルファイルの型付き検証パイプライン（`CandidateArtifacts` → `VerifiedArtifacts`）                                                  |
+| `model_probe` | サブプロセス probe 基盤（`handle_probe_if_needed`、`ProbeStatus`）                                                                    |
+
+※ `eval` モジュールと `eval_harness` バイナリは `eval-harness` feature で gate されている。詳細は [テスト](#テスト) と [検索評価ハーネス](#検索評価ハーネス) を参照。
 
 ## 要件
 
@@ -135,12 +139,14 @@ let conn = Connection::open("my.db")?;
 
 ### FTS クエリパイプライン
 
-ユーザー入力をFTS5 `MATCH` に安全に渡すには `prepare_match_query` を使う。内部でsanitize → expandの2段階を経て、全トークンを引用符で囲んだ `MatchFtsQuery` を返す。
+ユーザー入力をFTS5 `MATCH` に安全に渡すには `prepare_match_query` を使う。内部で normalize → sanitize → expand の3段階を経て、全トークンを引用符で囲んだ `MatchFtsQuery` を返す。
 
 ```rust
-use rurico::storage::{prepare_match_query, SanitizeError};
+use rurico::storage::{prepare_match_query, QueryNormalizationConfig, SanitizeError};
 
-match prepare_match_query(&conn, user_input, "fts_chunks_vocab") {
+let normalization = QueryNormalizationConfig::default(); // 全 step ON（推奨）
+
+match prepare_match_query(&conn, user_input, "fts_chunks_vocab", &normalization) {
     Ok(matched) => {
         // matched.as_str() を MATCH に渡す
         stmt.query_map([matched.as_str()], |row| { /* ... */ })?;
@@ -164,11 +170,35 @@ match prepare_match_query(&conn, user_input, "fts_chunks_vocab") {
 
 第3引数の `vocab_table` は `fts5vocab` 仮想テーブル名を受け取る。呼び出し側のスキーマ規約に応じて `"fts_chunks_vocab"` や `"messages_vocab"` などを指定する。`row` または `col` 型の vocabulary のみ対応する（`instance` 型には `cnt` カラムが無いため）。値はSQLにエスケープなしで埋め込まれるため、SQL identifier として妥当な文字列（先頭が ASCII 英字または `_`、以降 ASCII 英数字または `_`）のみ許容され、違反した場合は `SanitizeError::InvalidVocabTable` を返す。
 
+第4引数の `normalization` は Phase 5 (#69) で追加。runtime default は NFKC + ASCII lowercase + 連続空白の collapse がすべて ON で、indexing 側 (`docs_fts.body`) と querying 側で folding が一致するよう設計されている。明示的に旧挙動が必要な呼び出しは `pre_phase_5_disabled()` を渡す（pre-#69 のスナップショットも `BaselineSnapshot.normalization` の serde-default としてこの値を参照する）。
+
 `NEAR()` グループ、`^`/`+`/`-` プレフィックス、コロン、不均衡な引用符は内部で無害化される。`AND`/`OR`/`NOT` のようなoperator-like keywordは、前後に非operatorの語がある場合のみliteral termとして引用符で囲まれる。前後が欠けたdangling operator（例: 先頭の `NOT`、NEAR除去後に孤立した `OR`）は除去される。短い語（1-2文字）は指定した vocab テーブルがあればprefix展開される。vocab テーブルが存在しない場合だけはそのまま引用に劣化し、それ以外の SQLite 障害は `SanitizeError::VocabLookupFailed` を返す。
 
-### ハイブリッド検索ユーティリティ
+### query normalization 単体利用
 
-FTS5とベクトル検索の結果をReciprocal Rank Fusionでマージする。
+`prepare_match_query` を経由せずに同じ folding を適用したい場合（例: indexing 側の body 正規化）は `normalize_for_fts` を直接呼ぶ。
+
+```rust
+use rurico::storage::{QueryNormalizationConfig, normalize_for_fts, pre_phase_5_disabled};
+
+let config = QueryNormalizationConfig::default();
+let folded = normalize_for_fts("ＡＢＣ\u{3000}DEF", &config);
+assert_eq!(folded, "abc def");
+
+// step 単位の選択（NFKC のみ ON など）も可
+let nfkc_only = QueryNormalizationConfig {
+    nfkc: true,
+    ascii_lowercase: false,
+    collapse_whitespace: false,
+};
+
+// 旧挙動への opt-out
+let off = pre_phase_5_disabled();
+```
+
+### ハイブリッド検索プリミティブ — `rrf_merge`
+
+FTS5 とベクトル検索の結果を Reciprocal Rank Fusion で統合する低レベル関数。スコア値を無視してランク位置のみで折りたたむ。weight 調整・recency 加味・複数 source 対応を扱いたい場合は [Retrieval Pipeline](#retrieval-pipeline5-stage-contract) の `WeightedRrf` / `merge_with_recency` を使う。
 
 ```rust
 use rurico::storage::rrf_merge;
@@ -176,18 +206,78 @@ use rurico::storage::rrf_merge;
 let fts_hits = vec![(1, 0.9), (2, 0.7), (3, 0.5)];
 let vec_hits = vec![(2, 0.95), (4, 0.8), (1, 0.6)];
 let merged = rrf_merge(&fts_hits, &vec_hits);
-// ランク位置のみで統合 — スコア値は無視される
 ```
 
-### recency decay
+### recency decay プリミティブ
 
-時間経過による減衰スコアを計算する。age=0で1.0、半減期で0.5。
+時間経過による減衰スコアを計算する。age=0 で 1.0、半減期で 0.5。fusion に組み込みたい場合は `RecencyConfig` + `merge_with_recency` を参照（次節）。
 
 ```rust
 use rurico::storage::recency_decay;
 
 let score = recency_decay(7.0, 30.0); // 7日経過、半減期30日
 ```
+
+### Retrieval Pipeline（5-stage contract）
+
+`retrieval` モジュールは ADR 0004 が固定する 5 ステージ pipeline contract を提供する。`storage` のプリミティブ（`prepare_match_query` / `rrf_merge` / `recency_decay`）を組み合わせる際の標準配線で、Phase 3 (#67) で aggregation hook、Phase 4 (#68) で hybrid weight/recency、#76 で chunk-level retrieval が揃った。
+
+| Stage | 入力 → 出力                              | 提供型・関数                                                                                                                                                |
+| ----- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | `&str` → `Vec<Candidate>`                | `Candidate { source, doc_id, chunk_id, score, rank }`、`CandidateSource` 閉enum (`Fts` / `Vector`)                                                          |
+| 2     | `&[Candidate]` → `Vec<MergedHit>`        | `MergeStrategy` trait、default impl `WeightedRrf`、設定 `HybridSearchConfig { rrf_k, source_weights }`、`merge_with_recency` + `RecencyConfig`              |
+| 3     | `&[MergedHit]` → `Vec<MergedHit>`        | `Aggregator` trait + 4 impl (`IdentityAggregator` / `MaxChunkAggregator` / `DedupeAggregator` / `TopKAverageAggregator { k }`)、`group_by_parent` helper |
+| 4     | `(&str, &[MergedHit], corpus)` → 並べ替え | 既存の `Rerank` trait に corpus lookup を組み合わせて呼ぶ                                                                                                   |
+| 5     | rerank 結果 → top_k                      | downstream の表示層が責任を持つ                                                                                                                             |
+
+```rust
+use std::collections::HashMap;
+use rurico::retrieval::{
+    Aggregator, Candidate, CandidateSource, HybridSearchConfig, MaxChunkAggregator,
+    MergeStrategy, RecencyConfig, WeightedRrf,
+};
+
+// Stage 1: 呼び出し側が FTS / vector の各 source から Candidate を集める
+let candidates: Vec<Candidate> = /* ... */;
+
+// Stage 2: weighted RRF（default は FTS / Vector が等しい重み、rrf_k = 60）
+let mut weights = HashMap::new();
+weights.insert(CandidateSource::Fts, 0.6);
+weights.insert(CandidateSource::Vector, 1.4);
+let merger = WeightedRrf::new(HybridSearchConfig {
+    rrf_k: 60.0,
+    source_weights: weights,
+});
+let merged = merger.merge(&candidates);
+
+// 任意: recency boost を畳み込む（age_lookup は呼び出し側の corpus schema 依存）
+let recency = RecencyConfig { weight: 0.3, half_life_days: 30.0 };
+let merged_with_recency = merger.merge_with_recency(
+    &candidates,
+    &recency,
+    |doc_id| { /* Option<f64>: 経過日数を返す。None なら recency を skip */ None },
+);
+
+// Stage 3: chunk-level retrieval なら parent に集約
+let aggregator = MaxChunkAggregator;
+let aggregated = aggregator.aggregate(&merged);
+
+// Stage 4: 既存の Rerank trait を呼んで並べ替え
+// Stage 5: top_k cutoff
+```
+
+#### Aggregator の使い分け
+
+`MergedHit.chunk_id` が `Some(_)` のとき（chunk-level retrieval）に意味のある集約を提供する。`None` のままだと Stage 2 fusion が `doc_id` だけで折りたたんでいるため、すべての aggregator が identity と等価になる。
+
+| Aggregator                       | 振る舞い                                                                                  |
+| -------------------------------- | ----------------------------------------------------------------------------------------- |
+| `IdentityAggregator`             | パススルー。chunk-level identity を Stage 4 に届ける。default                             |
+| `MaxChunkAggregator`             | parent ごとに最高スコアの chunk を残し、`chunk_id = None` で parent 単位に折りたたむ      |
+| `DedupeAggregator`               | parent ごとに先頭 1 件のみ残す（順序保持の dedupe）                                       |
+| `TopKAverageAggregator { k }`    | parent ごとに上位 `k` chunk スコアの平均を採用（`TopKAverageAggregator::new(k)` も可）   |
+
+独自の `Aggregator` を実装する場合は `group_by_parent(&merged) -> HashMap<&str, Vec<&MergedHit>>` で parent 単位にバケットできる。
 
 ### ベクトルのバイト変換
 
@@ -266,13 +356,48 @@ assert_eq!(v.len(), 768);
 ## テスト
 
 ```sh
-cargo test --workspace                    # MLX ランタイム不要のテスト
-cargo test --workspace --features test-mlx -- --ignored  # MLX ランタイムテスト（通常 Terminal 推奨）
+cargo test --workspace                                          # MLX ランタイム不要のテスト
+cargo test --workspace --features test-mlx -- --ignored         # MLX ランタイムテスト（通常 Terminal 推奨）
+cargo test --workspace --features eval-harness                  # 検索評価ハーネスの単体テスト
 ```
 
 Codex Desktop の `CODEX_SANDBOX=seatbelt` 環境では、MLX / Metal 初期化が abort することがあるため、
 smoke binary は専用 exit code で停止し、`test-mlx` は ignored のままにしている。
 実検証は通常の Terminal か、sandbox 外の実行環境で行う。
+
+## 検索評価ハーネス
+
+`eval-harness` feature を有効にすると、検索品質を **Recall@k / MRR@k / nDCG@k** （95% bootstrap CI、`n = 1000`、`seed = 42`）で計測できる。Issue #53 (Phase 1〜6 + chunk-level retrieval #76) で構築した。
+
+- Fixture: `tests/fixtures/eval/`（60 docs × 7 ドメイン、147 queries × 7 IR categories、graded relevance `{0, 1, 2, 3}`、表記ゆれを含む `variant_notation` 21 件を含む）
+- Baseline スナップショット: `tests/fixtures/eval/baseline.json`（`schema_version: "1.1"`、`fnv1a64:` fixture hash 付き）
+- Methodology: ADR 0003、再現手順は `docs/eval/baseline.md`
+- Pipeline 設計: ADR 0004（5-stage contract）
+
+```sh
+# ベースラインを再生成（MLX 必要、Apple Silicon）
+cargo run --release --features eval-harness --bin eval_harness -- \
+    capture-baseline output=tests/fixtures/eval/baseline.json
+
+# 既存スナップショットからのドリフトを検証（exit 0 = pass、1 = regression、2 = usage、3 = infra）
+cargo run --release --features eval-harness --bin eval_harness -- \
+    verify-baseline baseline=tests/fixtures/eval/baseline.json
+
+# 複数 baseline のメトリクス差分を markdown matrix で比較（Phase 4 #68）
+cargo run --release --features eval-harness --bin eval_harness -- \
+    compare-baselines paths=baselines/default.json,baselines/fts-heavy.json
+```
+
+`capture-baseline` で受けるチューニング flag:
+
+| flag                                              | 効果                                              |
+| ------------------------------------------------- | ------------------------------------------------- |
+| `aggregation=identity\|max-chunk\|dedupe\|topk-average` | Stage 3 aggregator を切り替える                   |
+| `rrf_k=`                                          | RRF の k 値（default 60.0）                       |
+| `fts_weight=` / `vector_weight=`                  | Stage 2 の per-source weight                      |
+| `normalize_nfkc=` / `normalize_lowercase=` / `normalize_collapse_whitespace=` | Stage 1 の query normalization step を個別 on/off |
+
+なお、Phase 6 prefix-ensemble（Issue #70）は ADR 0005 で **Not Adopted** と結論済みのため、`CandidateSource` は `{ Fts, Vector }` の閉 enum に固定されている。
 
 ## ライセンス
 
