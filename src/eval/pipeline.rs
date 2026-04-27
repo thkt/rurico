@@ -21,7 +21,8 @@ use crate::retrieval::{
     WeightedRrf,
 };
 use crate::storage::{
-    MatchFtsQuery, SanitizeError, ensure_sqlite_vec, f32_as_bytes, prepare_match_query,
+    MatchFtsQuery, QueryNormalizationConfig, SanitizeError, ensure_sqlite_vec, f32_as_bytes,
+    normalize_for_fts, prepare_match_query,
 };
 
 /// FTS5 vocab table name used by [`prepare_match_query`].
@@ -115,6 +116,7 @@ pub enum PipelineError {
 /// See [`PipelineError`] variants. Sqlite, embed, rerank, and sanitize errors
 /// each surface their respective source via `#[from]`; sqlite-vec load
 /// failure surfaces as [`PipelineError::SqliteVec`].
+#[allow(clippy::too_many_arguments)]
 pub fn evaluate<E, R, A>(
     corpus: &[EvalDocument],
     queries: &[EvalQuery],
@@ -122,6 +124,7 @@ pub fn evaluate<E, R, A>(
     reranker: Option<&R>,
     aggregator: &A,
     merge_config: &HybridSearchConfig,
+    normalization: &QueryNormalizationConfig,
     config: &PipelineConfig,
 ) -> Result<Vec<QueryResult>, PipelineError>
 where
@@ -132,7 +135,7 @@ where
     ensure_sqlite_vec().map_err(PipelineError::SqliteVec)?;
     let conn = Connection::open_in_memory()?;
     create_schema(&conn)?;
-    index_corpus(&conn, corpus, embedder)?;
+    index_corpus(&conn, corpus, embedder, normalization)?;
 
     // Build (doc_id → body) lookup once before the query loop. apply_reranker
     // does O(1) hits against this map instead of an O(N) corpus.iter().find()
@@ -157,6 +160,7 @@ where
             aggregator,
             &merge_strategy,
             &corpus_index,
+            normalization,
             config,
         )?;
         let latency_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -188,10 +192,17 @@ fn create_schema(conn: &Connection) -> Result<(), PipelineError> {
 /// does not match the corpus and [`PipelineError::EmptyEmbedding`] when a
 /// document yields no chunks — silent truncation of the vec index would
 /// degrade recall without a visible error.
+///
+/// `normalization` is applied to the **FTS-indexed body only** (Phase 5,
+/// `#69`). The `documents` table keeps the original body so display surfaces
+/// see un-normalized text; the embedder receives the original body because
+/// SentencePiece performs NFKC internally and double application would only
+/// add allocator pressure.
 fn index_corpus<E: Embed>(
     conn: &Connection,
     corpus: &[EvalDocument],
     embedder: &E,
+    normalization: &QueryNormalizationConfig,
 ) -> Result<(), PipelineError> {
     let bodies: Vec<&str> = corpus.iter().map(|d| d.body.as_str()).collect();
     let chunked = embedder.embed_documents_batch(&bodies)?;
@@ -207,7 +218,8 @@ fn index_corpus<E: Embed>(
         conn.prepare_cached("INSERT INTO vec_docs(embedding, doc_id) VALUES (?, ?)")?;
     for (doc, chunked_embedding) in corpus.iter().zip(chunked.iter()) {
         insert_doc.execute(params![&doc.id, &doc.body])?;
-        insert_fts.execute(params![&doc.id, &doc.body])?;
+        let fts_body = normalize_for_fts(&doc.body, normalization);
+        insert_fts.execute(params![&doc.id, &fts_body])?;
         let vector =
             chunked_embedding
                 .chunks
@@ -231,6 +243,7 @@ fn run_single_query<E, R, A, M>(
     aggregator: &A,
     merge_strategy: &M,
     corpus_index: &HashMap<&str, &str>,
+    normalization: &QueryNormalizationConfig,
     config: &PipelineConfig,
 ) -> Result<Vec<MergedHit>, PipelineError>
 where
@@ -240,7 +253,7 @@ where
     M: MergeStrategy,
 {
     let candidate_limit = config.k * RRF_CANDIDATE_MULTIPLIER;
-    let fts_hits = retrieve_fts(conn, &query.text, candidate_limit)?;
+    let fts_hits = retrieve_fts(conn, &query.text, candidate_limit, normalization)?;
     let vec_hits = retrieve_vec(conn, embedder, &query.text, candidate_limit)?;
     let mut all_candidates = Vec::with_capacity(fts_hits.len() + vec_hits.len());
     all_candidates.extend(fts_hits);
@@ -270,8 +283,9 @@ fn retrieve_fts(
     conn: &Connection,
     query: &str,
     limit: usize,
+    normalization: &QueryNormalizationConfig,
 ) -> Result<Vec<Candidate>, PipelineError> {
-    let matched = match prepare_match_query(conn, query, FTS_VOCAB_TABLE) {
+    let matched = match prepare_match_query(conn, query, FTS_VOCAB_TABLE, normalization) {
         Ok(m) => m,
         Err(SanitizeError::EmptyInput | SanitizeError::NoSearchableTerms) => {
             return Ok(Vec::new());
@@ -489,6 +503,7 @@ mod tests {
     use crate::reranker::MockReranker;
     use crate::retrieval::HybridSearchConfig;
     use crate::retrieval::IdentityAggregator;
+    use crate::storage::QueryNormalizationConfig;
 
     /// Build an [`EvalDocument`] with stub title / source. The body carries
     /// the surface text the FTS5 + vec wiring will see.
@@ -516,6 +531,40 @@ mod tests {
         }
     }
 
+    // T-069-001: fts5_trigram_does_not_fold_fullwidth_latin
+    //
+    // Phase 5 (#69) variant_notation fixture validity rests on FTS5's trigram
+    // tokenizer NOT folding fullwidth Latin to ASCII on its own. Otherwise
+    // the eval AC "baseline 以上" passes vacuously: queries hit with
+    // normalization OFF and the metrics never move.
+    //
+    // Pinned via `tests/fixtures/eval/queries.jsonl` q-variant-notation-* —
+    // if this test starts failing (SQLite upgrades the trigram tokenizer to
+    // do Unicode case folding), the fixture must be reauthored.
+    #[test]
+    fn fts5_trigram_does_not_fold_fullwidth_latin() {
+        use rusqlite::Connection;
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE VIRTUAL TABLE t USING fts5(body, tokenize='trigram');
+             INSERT INTO t(body) VALUES ('rust ownership and borrow checker');",
+        )
+        .unwrap();
+        let count: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM t WHERE t MATCH ?",
+                ["Ｒｕｓｔ"],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        assert_eq!(
+            count, 0,
+            "FTS5 trigram tokenizer folded fullwidth Latin Ｒｕｓｔ to ASCII rust; \
+             variant_notation fixture queries now match without normalization, \
+             so Phase 5 AC (baseline 以上) passes vacuously. Reauthor the fixture."
+        );
+    }
+
     // T-011: evaluate_with_mock_embedder_returns_one_result_with_hits
     // FR-008: 5-doc corpus + 1 query + MockEmbedder + no reranker →
     //         single QueryResult whose ranked_hits is non-empty.
@@ -536,6 +585,7 @@ mod tests {
         let reranker: Option<&MockReranker> = None;
         let aggregator = IdentityAggregator;
         let merge_config = HybridSearchConfig::default();
+        let normalization = QueryNormalizationConfig::default();
         let config = PipelineConfig { k: 5 };
 
         let result = evaluate(
@@ -545,6 +595,7 @@ mod tests {
             reranker,
             &aggregator,
             &merge_config,
+            &normalization,
             &config,
         )
         .expect("pipeline must succeed with MockEmbedder + no reranker");

@@ -50,6 +50,7 @@ use rurico::retrieval::{
     TopKAverageAggregator,
 };
 use rurico::sandbox::exit_if_seatbelt;
+use rurico::storage::QueryNormalizationConfig;
 use rurico::{embed, model_probe, reranker};
 
 /// Mock-friendly bundle of every external seam the four mode handlers touch.
@@ -238,6 +239,7 @@ impl AggregationKind {
 /// Centralises the trait-object-vs-generic dispatch so the four mode handlers
 /// (`evaluate`, `capture-baseline`, `capture-reverse-baseline`,
 /// `verify-baseline`) share the same fan-out.
+#[allow(clippy::too_many_arguments)]
 fn dispatch_pipeline<E, R>(
     corpus: &[EvalDocument],
     queries: &[EvalQuery],
@@ -245,6 +247,7 @@ fn dispatch_pipeline<E, R>(
     reranker: Option<&R>,
     aggregation: AggregationKind,
     merge_config: &HybridSearchConfig,
+    normalization: &QueryNormalizationConfig,
     config: &PipelineConfig,
 ) -> Result<Vec<QueryResult>, PipelineError>
 where
@@ -259,6 +262,7 @@ where
             reranker,
             &IdentityAggregator,
             merge_config,
+            normalization,
             config,
         ),
         AggregationKind::MaxChunk => run_pipeline(
@@ -268,6 +272,7 @@ where
             reranker,
             &MaxChunkAggregator,
             merge_config,
+            normalization,
             config,
         ),
         AggregationKind::Dedupe => run_pipeline(
@@ -277,6 +282,7 @@ where
             reranker,
             &DedupeAggregator,
             merge_config,
+            normalization,
             config,
         ),
         AggregationKind::TopKAverage(k) => run_pipeline(
@@ -286,9 +292,45 @@ where
             reranker,
             &TopKAverageAggregator::new(k),
             merge_config,
+            normalization,
             config,
         ),
     }
+}
+
+/// Parse Phase 5 query-normalization overrides from argv kvs (`#69`).
+///
+/// Recognised keys (all optional, all boolean):
+/// - `normalize_nfkc=<true|false>` (runtime default `true`)
+/// - `normalize_lowercase=<true|false>` (runtime default `true`)
+/// - `normalize_collapse_whitespace=<true|false>` (runtime default `true`)
+///
+/// Missing keys keep the [`QueryNormalizationConfig::default`] runtime
+/// posture (all on). Operators verifying a pre-Phase-5 baseline pass
+/// `normalize_nfkc=false normalize_lowercase=false
+/// normalize_collapse_whitespace=false`, or rely on
+/// [`BaselineSnapshot::normalization`] which serde-defaults to all-off for
+/// historical files.
+fn parse_normalization_from_kvs(
+    kvs: &HashMap<String, String>,
+) -> Result<QueryNormalizationConfig, String> {
+    let mut config = QueryNormalizationConfig::default();
+    if let Some(v) = kvs.get("normalize_nfkc") {
+        config.nfkc = v
+            .parse()
+            .map_err(|e| format!("normalize_nfkc= parse error: {e}"))?;
+    }
+    if let Some(v) = kvs.get("normalize_lowercase") {
+        config.ascii_lowercase = v
+            .parse()
+            .map_err(|e| format!("normalize_lowercase= parse error: {e}"))?;
+    }
+    if let Some(v) = kvs.get("normalize_collapse_whitespace") {
+        config.collapse_whitespace = v
+            .parse()
+            .map_err(|e| format!("normalize_collapse_whitespace= parse error: {e}"))?;
+    }
+    Ok(config)
 }
 
 /// Closed set of metrics the harness emits in `BaselineSnapshot.global` and
@@ -420,6 +462,13 @@ fn run_evaluate(kvs: &HashMap<String, String>) -> ExitCode {
             return ExitCode::from(EXIT_USAGE);
         }
     };
+    let normalization = match parse_normalization_from_kvs(kvs) {
+        Ok(c) => c,
+        Err(msg) => {
+            eprintln!("evaluate: {msg}");
+            return ExitCode::from(EXIT_USAGE);
+        }
+    };
     let ctx = match production_context() {
         Ok(c) => c,
         Err(msg) => {
@@ -428,7 +477,7 @@ fn run_evaluate(kvs: &HashMap<String, String>) -> ExitCode {
         }
     };
     log_run_context(&ctx, "evaluate", Some(kind), None);
-    run_evaluate_with(&ctx, kind, aggregation, &merge_config)
+    run_evaluate_with(&ctx, kind, aggregation, &merge_config, &normalization)
 }
 
 fn run_evaluate_with<E: Embed, R: Rerank>(
@@ -436,6 +485,7 @@ fn run_evaluate_with<E: Embed, R: Rerank>(
     kind: &str,
     aggregation: AggregationKind,
     merge_config: &HybridSearchConfig,
+    normalization: &QueryNormalizationConfig,
 ) -> ExitCode {
     let (corpus, queries) = match load_fixture_for_kind(&ctx.fixture_dir, kind) {
         Ok(v) => v,
@@ -452,6 +502,7 @@ fn run_evaluate_with<E: Embed, R: Rerank>(
         Some(&ctx.reranker),
         aggregation,
         merge_config,
+        normalization,
         &config,
     ) {
         Ok(r) => r,
@@ -513,6 +564,13 @@ fn run_capture_baseline(kvs: &HashMap<String, String>) -> ExitCode {
             return ExitCode::from(EXIT_USAGE);
         }
     };
+    let normalization = match parse_normalization_from_kvs(kvs) {
+        Ok(c) => c,
+        Err(msg) => {
+            eprintln!("capture-baseline: {msg}");
+            return ExitCode::from(EXIT_USAGE);
+        }
+    };
     let ctx = match production_context() {
         Ok(c) => c,
         Err(msg) => {
@@ -521,14 +579,22 @@ fn run_capture_baseline(kvs: &HashMap<String, String>) -> ExitCode {
         }
     };
     log_run_context(&ctx, "capture-baseline", None, Some(&output_path));
-    run_capture_baseline_with(&ctx, &output_path, aggregation, &merge_config)
+    run_capture_baseline_with(
+        &ctx,
+        &output_path,
+        aggregation,
+        &merge_config,
+        &normalization,
+    )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_capture_baseline_with<E: Embed, R: Rerank>(
     ctx: &EvalContext<E, R>,
     output_path: &Path,
     aggregation: AggregationKind,
     merge_config: &HybridSearchConfig,
+    normalization: &QueryNormalizationConfig,
 ) -> ExitCode {
     let (corpus, queries) = match load_fixture_for_kind(&ctx.fixture_dir, "full") {
         Ok(v) => v,
@@ -552,6 +618,7 @@ fn run_capture_baseline_with<E: Embed, R: Rerank>(
         Some(&ctx.reranker),
         aggregation,
         merge_config,
+        normalization,
         &config,
     ) {
         Ok(r) => r,
@@ -575,6 +642,7 @@ fn run_capture_baseline_with<E: Embed, R: Rerank>(
         fixture_hash,
         aggregation: aggregation.name(),
         merge_config: merge_config.clone(),
+        normalization: *normalization,
         global,
         per_category,
         latency_p50_ms,
@@ -627,9 +695,11 @@ fn run_capture_reverse_baseline_with<E: Embed, R: Rerank>(
     };
     let config = PipelineConfig { k: PIPELINE_K };
     let merge_config = HybridSearchConfig::default();
-    // Reverse baseline measures the nDCG lower bound under a flipped ranking;
-    // aggregation choice is irrelevant once `reverse_each_ranking` runs, so
-    // pin to `Identity` to keep the lower-bound contract independent of #67.
+    // Reverse baseline measures the nDCG lower bound under a flipped ranking.
+    // Aggregation and Phase 5 normalization are both irrelevant once
+    // `reverse_each_ranking` runs, so pin to `Identity` + `disabled()` to
+    // keep the lower-bound contract independent of #67 / #69.
+    let normalization = QueryNormalizationConfig::disabled();
     let mut results = match dispatch_pipeline(
         &corpus,
         &queries,
@@ -637,6 +707,7 @@ fn run_capture_reverse_baseline_with<E: Embed, R: Rerank>(
         Some(&ctx.reranker),
         AggregationKind::Identity,
         &merge_config,
+        &normalization,
         &config,
     ) {
         Ok(r) => r,
@@ -761,6 +832,7 @@ fn run_verify_baseline_with<E: Embed, R: Rerank>(
         Some(&ctx.reranker),
         aggregation,
         &committed.merge_config,
+        &committed.normalization,
         &config,
     ) {
         Ok(r) => r,

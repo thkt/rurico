@@ -4,6 +4,8 @@ use std::hash::Hash;
 
 use rusqlite::Connection;
 
+use super::query_normalize::{QueryNormalizationConfig, normalize_for_fts};
+
 /// Exponential recency decay: 1.0 at age=0, 0.5 at one half-life, approaching 0.0.
 ///
 /// Negative `age_days` is clamped to 0 (returns 1.0).
@@ -170,9 +172,16 @@ pub fn fts_quote(s: &str) -> String {
     format!("\"{}\"", s.replace('"', "\"\""))
 }
 
-/// Sanitize user input and expand short terms into a query safe for FTS5 `MATCH`.
+/// Normalize, sanitize, and expand short terms into a query safe for FTS5 `MATCH`.
 ///
-/// Combines `sanitize_fts_query` and `fts_expand_short_terms` into a single call.
+/// Phase 5 (#69): `normalization` is applied **before** `sanitize_fts_query`
+/// so full-width punctuation (e.g. `（`) folds to ASCII (`(`) prior to NEAR
+/// detection. Callers must apply the same `normalization` config to indexed
+/// text — applying only to one side leaves the FTS5 token streams disagreed
+/// and silently misses matches.
+///
+/// Combines `normalize_for_fts`, `sanitize_fts_query`, and
+/// `fts_expand_short_terms` into a single call.
 ///
 /// `vocab_table` names the `fts5vocab` virtual table to consult for short-term
 /// expansion (e.g. `"fts_chunks_vocab"` or `"messages_vocab"`). Must be created
@@ -192,8 +201,10 @@ pub fn prepare_match_query(
     conn: &Connection,
     query: &str,
     vocab_table: &str,
+    normalization: &QueryNormalizationConfig,
 ) -> Result<MatchFtsQuery, SanitizeError> {
-    let sanitized = sanitize_fts_query(query)?;
+    let normalized = normalize_for_fts(query, normalization);
+    let sanitized = sanitize_fts_query(&normalized)?;
     fts_expand_short_terms(conn, &sanitized, vocab_table)
 }
 
@@ -432,10 +443,18 @@ mod tests {
         assert!(result.as_str().contains("\"audit\"") || result.as_str() == "\"a\"");
     }
 
+    /// Tests below pin the sanitize / expand contract — pass `disabled()` so
+    /// changes to the Phase 5 normalization defaults can never alter what
+    /// these tests measure.
+    fn no_norm() -> QueryNormalizationConfig {
+        QueryNormalizationConfig::disabled()
+    }
+
     #[test]
     fn prepare_match_query_end_to_end() {
         let conn = setup_fts_db();
-        let result = prepare_match_query(&conn, "au login", "fts_chunks_vocab").unwrap();
+        let result =
+            prepare_match_query(&conn, "au login", "fts_chunks_vocab", &no_norm()).unwrap();
         assert!(result.as_str().contains("\"login\""), "{}", result.as_str());
         assert!(result.as_str().contains(" OR "), "{}", result.as_str());
     }
@@ -444,7 +463,7 @@ mod tests {
     fn prepare_match_query_empty_input() {
         let conn = setup_fts_db();
         assert_eq!(
-            prepare_match_query(&conn, "", "fts_chunks_vocab"),
+            prepare_match_query(&conn, "", "fts_chunks_vocab", &no_norm()),
             Err(SanitizeError::EmptyInput)
         );
     }
@@ -452,7 +471,8 @@ mod tests {
     #[test]
     fn prepare_match_query_operators_are_quoted() {
         let conn = setup_fts_db();
-        let result = prepare_match_query(&conn, "foo OR bar", "fts_chunks_vocab").unwrap();
+        let result =
+            prepare_match_query(&conn, "foo OR bar", "fts_chunks_vocab", &no_norm()).unwrap();
         assert_eq!(result.as_str(), "\"foo\" \"OR\" \"bar\"");
     }
 
@@ -460,7 +480,7 @@ mod tests {
     fn prepare_match_query_rejects_invalid_vocab_table_name() {
         let conn = setup_fts_db();
         assert_eq!(
-            prepare_match_query(&conn, "au", "1vocab"),
+            prepare_match_query(&conn, "au", "1vocab", &no_norm()),
             Err(SanitizeError::InvalidVocabTable("1vocab".into()))
         );
     }
@@ -471,7 +491,7 @@ mod tests {
         conn.execute("CREATE TABLE bad_vocab(term TEXT)", [])
             .unwrap();
 
-        let result = prepare_match_query(&conn, "au", "bad_vocab");
+        let result = prepare_match_query(&conn, "au", "bad_vocab", &no_norm());
         assert!(
             matches!(result, Err(SanitizeError::VocabLookupFailed(_))),
             "expected vocab lookup failure, got {result:?}"
@@ -512,8 +532,25 @@ mod tests {
     #[test]
     fn prepare_match_query_with_missing_vocab_degrades() {
         let conn = Connection::open_in_memory().unwrap();
-        let result = prepare_match_query(&conn, "au login", "fts_chunks_vocab").unwrap();
+        let result =
+            prepare_match_query(&conn, "au login", "fts_chunks_vocab", &no_norm()).unwrap();
         assert_eq!(result.as_str(), "\"au\" \"login\"");
+    }
+
+    #[test]
+    fn prepare_match_query_default_normalizes_fullwidth_input() {
+        let conn = setup_fts_db();
+        // Phase 5 default: NFKC folds `ＬＯＧＩＮ` → `LOGIN` then ASCII
+        // lowercase folds to `login`. Without normalization the trigram
+        // index would never match the half-width form.
+        let result = prepare_match_query(
+            &conn,
+            "ＬＯＧＩＮ",
+            "fts_chunks_vocab",
+            &QueryNormalizationConfig::default(),
+        )
+        .unwrap();
+        assert_eq!(result.as_str(), "\"login\"");
     }
 
     fn prepare_err(conn: &Connection, sql: &str) -> rusqlite::Error {
