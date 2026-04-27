@@ -37,7 +37,7 @@ Each stage names the input/output types, the default behaviour, and the Phase-3+
 
 - Input: `query: &str`, `top_n: usize`, optional `CandidateSource` filter.
 - Output: `Vec<Candidate { source: CandidateSource, doc_id: String, score: f64, rank: usize }>` per source.
-- `CandidateSource` is a closed enum: `Fts`, `Vector`. Phase 6 may add `PrefixEnsemble` variants. Closed-enum keeps misspelled labels a compile error (same posture as ADR 0003's `MetricSpec`).
+- `CandidateSource` is a closed enum: `Fts`, `Vector`. Closed-enum keeps misspelled labels a compile error (same posture as ADR 0003's `MetricSpec`). ~~Phase 6 may add `PrefixEnsemble` variants.~~ **Resolved 2026-04-27 (ADR 0005)**: Phase 6 (#70) ran the prefix-ensemble experiment, no variant cleared the locked adoption gate, and the closed enum stays at `{ Fts, Vector }`.
 - The `top_n` semantics inherit recall's `limit * 3` heuristic: retrieve the best 3× the final cutoff per source so RRF has headroom. The multiplier is a default constant, not a contract guarantee — Phase 4 may override.
 
 #### Stage 2: Candidate merge
@@ -185,7 +185,7 @@ Negative:
    - **Recency posture**: Recency stays *opt-in* via `merge_with_recency` and an injected age accessor, matching the pre-Phase-4 "downstream-owned" stance. `RecencyConfig` lives in `src/retrieval.rs` so all crates can share the math, but the rurico pipeline does not query metadata directly. Lifting recency into `evaluate()` is gated on the chunk-level retrieval follow-up (item 7) supplying `updated_at` in the eval fixture without invalidating the committed `baseline.json` fixture_hash.
    - **Deferred from this Migration Plan's wording**: variant baseline fixtures (fts-heavy, vec-heavy, k-low, k-high). Generation requires MLX (Apple Silicon) and is a one-time developer run via `capture-baseline rrf_k=... fts_weight=... output=...`; results compare via the new `compare-baselines` command. Recommended-default JSON is committed alongside the variant baselines once measurements exist.
 4. **Phase 5** (Issue #69): insert query normalization at Stage 1 entry. Default off; opt-in via config to preserve current behaviour.
-5. **Phase 6** (Issue #70): add `CandidateSource::PrefixEnsemble` variants and the embedding-side fan-out logic.
+5. ~~**Phase 6** (Issue #70): add `CandidateSource::PrefixEnsemble` variants and the embedding-side fan-out logic.~~ **Resolved 2026-04-27 (ADR 0005)**: Phase 6 (#70) experiment compared four prefix combinations against baseline; no variant cleared the `+0.005 ndcg@10` gate (the cross-encoder reranker put `mrr@10` at ceiling on every variant, leaving no headroom for Stage 1 retrieval to surface). No public API added; `CandidateSource` stays closed at `{ Fts, Vector }`.
 6. **Cross-repo follow-ups**: file individual issues against `recall`, `sae`, `yomu` after the first `rurico` bump that exposes `src/retrieval.rs`. Each downstream adopts at its own pace; `rurico` does not change `recall`/`sae`/`yomu` directly (cross-repo issue rule, ADR 0001 migration pattern).
 7. **Chunk-level retrieval follow-up** (Issue #76, prerequisite for non-vacuous aggregation evaluation): extend `ChunkedEmbedding` with `chunk_id` metadata, switch the reference pipeline to chunk-level indexing, add the parent-child helper, and capture per-strategy baselines that reflect actual ranking changes. Touches `recall`/`sae`/`yomu` schema, so it ships under its own issue rather than #67.
 

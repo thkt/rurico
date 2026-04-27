@@ -6,3 +6,4 @@
 | [0002](./0002-gpu-side-pooling-embed.md) | GPU-side Pooling for the embed Pipeline | Proposed | 2026-04-24 |
 | [0003](./0003-evaluation-methodology.md) | Search Quality Evaluation Methodology for `rurico` | Accepted | 2026-04-25 |
 | [0004](./0004-retrieval-and-rerank-pipeline-contract-for-rurico.md) | Retrieval and Rerank Pipeline Contract for `rurico` | Proposed | 2026-04-26 |
+| [0005](./0005-prefix-ensemble-experiment-not-adopted.md) | Phase 6 Prefix-Ensemble Experiment — Not Adopted | Accepted | 2026-04-27 |

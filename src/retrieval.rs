@@ -26,8 +26,10 @@ use crate::storage::recency_decay;
 
 /// Source of a Stage 1 candidate hit (ADR 0004 Stage 1 output).
 ///
-/// Closed enum: misspelled labels become compile errors. Phase 6 (#70) may
-/// add `PrefixEnsemble` variants when the prefix-fanout retrieval lands.
+/// Closed enum: misspelled labels become compile errors. The set is frozen
+/// at `Fts` and `Vector`; ADR 0005 records the Phase 6 (#70) prefix-ensemble
+/// experiment that considered adding new variants and decided against it on
+/// measured results.
 ///
 /// Used as a `HashMap` key in [`MergedHit::source_scores`] — `lowercase`
 /// rename-all keeps JSON round-trip stable (`"fts"`, `"vector"`).
