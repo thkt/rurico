@@ -1,8 +1,8 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "kind": "forward",
   "captured_with": "eval_harness capture-baseline",
-  "timestamp": "epoch:1777255600",
+  "timestamp": "epoch:1777265610",
   "model_id": "cl-nagoya/ruri-v3-310m",
   "model_revision": "pinned-via-rurico-embed-cache",
   "mlx_rs_version": "0.25",
@@ -48,9 +48,9 @@
     {
       "name": "ndcg@10",
       "k": 10,
-      "point_estimate": 0.8930997906950294,
-      "ci_lower": 0.8764243109745701,
-      "ci_upper": 0.9063722144039171,
+      "point_estimate": 0.8929930705316574,
+      "ci_lower": 0.8761522102123755,
+      "ci_upper": 0.9062809356005043,
       "uninformative": false
     }
   ],
@@ -83,9 +83,9 @@
       {
         "name": "ndcg@10",
         "k": 10,
-        "point_estimate": 0.8984764101286741,
-        "ci_lower": 0.8566214344863141,
-        "ci_upper": 0.9326326317516082,
+        "point_estimate": 0.8983317922434706,
+        "ci_lower": 0.8563901996271307,
+        "ci_upper": 0.9325460147776281,
         "uninformative": false
       }
     ],
@@ -117,9 +117,9 @@
       {
         "name": "ndcg@10",
         "k": 10,
-        "point_estimate": 0.8705807743814395,
-        "ci_lower": 0.8328619919283758,
-        "ci_upper": 0.9049160372891101,
+        "point_estimate": 0.8703370297846807,
+        "ci_lower": 0.8326182473316168,
+        "ci_upper": 0.9046574980745109,
         "uninformative": false
       }
     ],
@@ -185,9 +185,9 @@
       {
         "name": "ndcg@10",
         "k": 10,
-        "point_estimate": 0.9181507632810328,
-        "ci_lower": 0.8937393353685754,
-        "ci_upper": 0.940453028232296,
+        "point_estimate": 0.9185756327347544,
+        "ci_lower": 0.8939517700954362,
+        "ci_upper": 0.941254666473713,
         "uninformative": false
       }
     ],
@@ -219,8 +219,8 @@
       {
         "name": "ndcg@10",
         "k": 10,
-        "point_estimate": 0.8514606582509406,
-        "ci_lower": 0.7650467452354768,
+        "point_estimate": 0.8508233540703584,
+        "ci_lower": 0.7646722904276082,
         "ci_upper": 0.9174426666621226,
         "uninformative": false
       }
@@ -253,9 +253,9 @@
       {
         "name": "ndcg@10",
         "k": 10,
-        "point_estimate": 0.8753578717564721,
-        "ci_lower": 0.8450884085962778,
-        "ci_upper": 0.9041709424199154,
+        "point_estimate": 0.8744565124001691,
+        "ci_lower": 0.8442136605507112,
+        "ci_upper": 0.9032185061447183,
         "uninformative": false
       }
     ],
@@ -287,9 +287,9 @@
       {
         "name": "ndcg@10",
         "k": 10,
-        "point_estimate": 0.9060724268546734,
-        "ci_lower": 0.8694666730233985,
-        "ci_upper": 0.9388526396138298,
+        "point_estimate": 0.906720822112825,
+        "ci_lower": 0.8718830780638507,
+        "ci_upper": 0.939301680065366,
         "uninformative": false
       }
     ],
@@ -328,6 +328,6 @@
       }
     ]
   },
-  "latency_p50_ms": 380.0,
-  "latency_p95_ms": 458.0
+  "latency_p50_ms": 516.0,
+  "latency_p95_ms": 650.0
 }

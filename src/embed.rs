@@ -140,10 +140,32 @@ pub(crate) const fn max_content(prefix_len: usize) -> usize {
 /// Each chunk is an embedding vector whose length equals the loaded model's
 /// `hidden_size`. Short texts produce a single chunk; texts exceeding
 /// [`MAX_SEQ_LEN`] produce multiple overlapping chunks.
+///
+/// `chunk_ids` carries a stable per-chunk identifier (`"c0"`, `"c1"`, …) used
+/// by chunk-level retrieval (Issue #76 / ADR 0004 Stage 1) to keep child
+/// chunks distinguishable through Stage 1 candidates and Stage 2 fusion. The
+/// vector length is always equal to `chunks.len()`; constructors enforce this
+/// invariant.
 #[derive(Debug, Clone)]
 pub struct ChunkedEmbedding {
     /// One embedding vector per chunk. Always non-empty.
     pub chunks: Vec<Vec<f32>>,
+    /// Stable identifier per chunk. Same length as `chunks`. Auto-generated
+    /// as `"c0"`, `"c1"`, … by [`ChunkedEmbedding::new`]; persistence formats
+    /// (e.g. [`crate::embed::fixtures`]) regenerate the default labels at
+    /// load time so historical fixtures round-trip without format changes.
+    pub chunk_ids: Vec<String>,
+}
+
+impl ChunkedEmbedding {
+    /// Construct from chunk vectors with auto-generated chunk IDs (`"c0"`,
+    /// `"c1"`, …). The default label scheme keeps producers (the MLX
+    /// embedder, mocks, persistence loaders) consistent without forcing each
+    /// caller to mint its own scheme.
+    pub fn new(chunks: Vec<Vec<f32>>) -> Self {
+        let chunk_ids = (0..chunks.len()).map(|i| format!("c{i}")).collect();
+        Self { chunks, chunk_ids }
+    }
 }
 
 // ── Token helpers ─────────────────────────────────────────────────────────────

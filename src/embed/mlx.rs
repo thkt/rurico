@@ -304,7 +304,7 @@ impl EmbedderInner {
         let mut iter = all_embeddings.into_iter();
         for &count in &chunks_per_doc {
             let chunks: Vec<_> = iter.by_ref().take(count).collect();
-            results.push(ChunkedEmbedding { chunks });
+            results.push(ChunkedEmbedding::new(chunks));
         }
 
         Ok((results, batch_metrics))

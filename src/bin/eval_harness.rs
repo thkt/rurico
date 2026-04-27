@@ -21,7 +21,7 @@
 //! computation (FR-014). Required keys (`output=`, `baseline=`) panic if
 //! absent so leader's GREEN code can rely on them being present.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -47,7 +47,7 @@ use rurico::eval::pipeline::{
 use rurico::reranker::Rerank;
 use rurico::retrieval::{
     CandidateSource, DedupeAggregator, HybridSearchConfig, IdentityAggregator, MaxChunkAggregator,
-    TopKAverageAggregator,
+    MergedHit, TopKAverageAggregator,
 };
 use rurico::sandbox::exit_if_seatbelt;
 use rurico::storage::QueryNormalizationConfig;
@@ -1017,6 +1017,26 @@ fn reverse_each_ranking(results: &mut [QueryResult]) {
     }
 }
 
+/// Project `ranked_hits` to a parent-doc list, retaining only the first
+/// occurrence of each `doc_id`.
+///
+/// IR metrics (`recall@k`, `mrr@k`, `ndcg@k`) are defined over unique
+/// document identities — duplicate parent ids would let a single relevant
+/// doc count multiple times and push `recall@k` above `1.0`. Chunk-level
+/// retrieval under the Identity aggregator surfaces sibling chunks of the
+/// same parent, so the projection has to dedupe before the metric runs.
+fn parent_dedup_ranked(hits: &[MergedHit]) -> Vec<&str> {
+    let mut seen: HashSet<&str> = HashSet::new();
+    let mut out = Vec::with_capacity(hits.len());
+    for hit in hits {
+        let id = hit.doc_id.as_str();
+        if seen.insert(id) {
+            out.push(id);
+        }
+    }
+    out
+}
+
 /// Mean of `metric_fn` across every (result, query) pair.
 fn global_metric<F>(results: &[QueryResult], queries: &[EvalQuery], metric_fn: F, k: usize) -> f64
 where
@@ -1026,7 +1046,7 @@ where
         .iter()
         .zip(queries.iter())
         .map(|(r, q)| {
-            let ranked: Vec<&str> = r.ranked_hits.iter().map(|h| h.doc_id.as_str()).collect();
+            let ranked = parent_dedup_ranked(&r.ranked_hits);
             metric_fn(&ranked, &q.relevance_map, k)
         })
         .collect();
@@ -1142,7 +1162,7 @@ fn build_one_metric(
         .iter()
         .zip(queries.iter())
         .map(|(r, q)| {
-            let ranked: Vec<&str> = r.ranked_hits.iter().map(|h| h.doc_id.as_str()).collect();
+            let ranked = parent_dedup_ranked(&r.ranked_hits);
             metric(&ranked, &q.relevance_map, k)
         })
         .collect();

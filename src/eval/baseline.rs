@@ -30,7 +30,16 @@ pub const UNINFORMATIVE_HALF_WIDTH: f64 = 0.10;
 ///
 /// Bump on a breaking change (renamed/removed fields, semantic shift) so
 /// downstream consumers can refuse silently-incompatible files.
-pub const BASELINE_SCHEMA_VERSION: &str = "1.0";
+///
+/// Version log:
+/// - `1.0`: initial Phase 1 baseline.
+/// - `1.1`: chunk-level retrieval (Issue #76). The Stage 2 fusion key
+///   widened to `(doc_id, chunk_id)`, splitting FTS hits (`chunk_id=None`)
+///   from Vector hits (`chunk_id=Some(_)`) for the same parent doc. Pre-1.1
+///   baseline.json files would surface as confusing per-metric drift under
+///   the new fusion; the version bump turns that into a clean
+///   "regenerate the baseline before verifying" exit instead.
+pub const BASELINE_SCHEMA_VERSION: &str = "1.1";
 
 /// Discriminator distinguishing forward (`capture-baseline`) from reverse
 /// (`capture-reverse-baseline`) baseline files.

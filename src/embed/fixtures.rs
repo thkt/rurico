@@ -123,7 +123,7 @@ pub fn load<R: Read>(r: &mut R) -> io::Result<Vec<ChunkedEmbedding>> {
             let vec: Vec<f32> = bytemuck::cast_slice::<u8, f32>(&bytes).to_vec();
             chunks.push(vec);
         }
-        docs.push(ChunkedEmbedding { chunks });
+        docs.push(ChunkedEmbedding::new(chunks));
     }
     Ok(docs)
 }
@@ -214,12 +214,8 @@ mod tests {
 
     fn sample_docs() -> Vec<ChunkedEmbedding> {
         vec![
-            ChunkedEmbedding {
-                chunks: vec![vec![0.1, 0.2, 0.3], vec![0.4, 0.5, 0.6]],
-            },
-            ChunkedEmbedding {
-                chunks: vec![vec![-0.7, 0.8, 0.9]],
-            },
+            ChunkedEmbedding::new(vec![vec![0.1, 0.2, 0.3], vec![0.4, 0.5, 0.6]]),
+            ChunkedEmbedding::new(vec![vec![-0.7, 0.8, 0.9]]),
         ]
     }
 
@@ -251,9 +247,7 @@ mod tests {
     // so the NFR-001 threshold stays passable on zero-norm inputs.
     #[test]
     fn compare_identical_zero_fixtures_reports_cosine_one() {
-        let zeros = vec![ChunkedEmbedding {
-            chunks: vec![vec![0.0f32; 8]],
-        }];
+        let zeros = vec![ChunkedEmbedding::new(vec![vec![0.0f32; 8]])];
         let diff = compare(&zeros, &zeros).unwrap();
         assert_eq!(diff.cosine_min, 1.0);
         assert_eq!(diff.max_abs_diff, 0.0);
@@ -262,12 +256,8 @@ mod tests {
     // Regression: zero vs nonzero must report cosine=0.0 (clear mismatch).
     #[test]
     fn compare_zero_versus_nonzero_reports_cosine_zero() {
-        let a = vec![ChunkedEmbedding {
-            chunks: vec![vec![0.0f32; 3]],
-        }];
-        let b = vec![ChunkedEmbedding {
-            chunks: vec![vec![1.0, 2.0, 3.0]],
-        }];
+        let a = vec![ChunkedEmbedding::new(vec![vec![0.0f32; 3]])];
+        let b = vec![ChunkedEmbedding::new(vec![vec![1.0, 2.0, 3.0]])];
         let diff = compare(&a, &b).unwrap();
         assert_eq!(diff.cosine_min, 0.0);
     }
