@@ -2,27 +2,39 @@
   "schema_version": "1.0",
   "kind": "forward",
   "captured_with": "eval_harness capture-baseline",
-  "timestamp": "epoch:1777185001",
+  "timestamp": "epoch:1777255600",
   "model_id": "cl-nagoya/ruri-v3-310m",
   "model_revision": "pinned-via-rurico-embed-cache",
   "mlx_rs_version": "0.25",
-  "fixture_hash": "fnv1a64:187f5bea7336300c",
+  "fixture_hash": "fnv1a64:88afbfc4e99e0a84",
   "aggregation": "identity",
+  "merge_config": {
+    "rrf_k": 60.0,
+    "source_weights": {
+      "vector": 1.0,
+      "fts": 1.0
+    }
+  },
+  "normalization": {
+    "nfkc": true,
+    "ascii_lowercase": true,
+    "collapse_whitespace": true
+  },
   "global": [
     {
       "name": "recall@5",
       "k": 5,
-      "point_estimate": 0.6133786848072563,
-      "ci_lower": 0.5829931972789115,
-      "ci_upper": 0.6469387755102041,
+      "point_estimate": 0.6299603174603176,
+      "ci_lower": 0.5985119047619046,
+      "ci_upper": 0.6635912698412697,
       "uninformative": false
     },
     {
       "name": "recall@10",
       "k": 10,
-      "point_estimate": 0.7340136054421768,
-      "ci_lower": 0.7005668934240362,
-      "ci_upper": 0.7684807256235826,
+      "point_estimate": 0.7414682539682539,
+      "ci_lower": 0.7112103174603175,
+      "ci_upper": 0.774404761904762,
       "uninformative": false
     },
     {
@@ -36,9 +48,9 @@
     {
       "name": "ndcg@10",
       "k": 10,
-      "point_estimate": 0.8870133885944869,
-      "ci_lower": 0.8703470221140115,
-      "ci_upper": 0.9026007353147993,
+      "point_estimate": 0.8930997906950294,
+      "ci_lower": 0.8764243109745701,
+      "ci_upper": 0.9063722144039171,
       "uninformative": false
     }
   ],
@@ -71,9 +83,9 @@
       {
         "name": "ndcg@10",
         "k": 10,
-        "point_estimate": 0.8982737913322472,
-        "ci_lower": 0.8563901996271307,
-        "ci_upper": 0.9324657275775711,
+        "point_estimate": 0.8984764101286741,
+        "ci_lower": 0.8566214344863141,
+        "ci_upper": 0.9326326317516082,
         "uninformative": false
       }
     ],
@@ -105,9 +117,9 @@
       {
         "name": "ndcg@10",
         "k": 10,
-        "point_estimate": 0.8696997256040983,
-        "ci_lower": 0.8318985420422672,
-        "ci_upper": 0.9040009346216106,
+        "point_estimate": 0.8705807743814395,
+        "ci_lower": 0.8328619919283758,
+        "ci_upper": 0.9049160372891101,
         "uninformative": false
       }
     ],
@@ -115,9 +127,9 @@
       {
         "name": "recall@5",
         "k": 5,
-        "point_estimate": 0.5920634920634921,
-        "ci_lower": 0.5095238095238095,
-        "ci_upper": 0.6785714285714286,
+        "point_estimate": 0.5801587301587302,
+        "ci_lower": 0.4888888888888888,
+        "ci_upper": 0.6753968253968254,
         "uninformative": false
       },
       {
@@ -139,9 +151,9 @@
       {
         "name": "ndcg@10",
         "k": 10,
-        "point_estimate": 0.8887351913519757,
-        "ci_lower": 0.8516812535532374,
-        "ci_upper": 0.9245383741877939,
+        "point_estimate": 0.8884103087687821,
+        "ci_lower": 0.8511654643804011,
+        "ci_upper": 0.9240010568777395,
         "uninformative": false
       }
     ],
@@ -173,9 +185,9 @@
       {
         "name": "ndcg@10",
         "k": 10,
-        "point_estimate": 0.9185756327347544,
-        "ci_lower": 0.8939517700954362,
-        "ci_upper": 0.941254666473713,
+        "point_estimate": 0.9181507632810328,
+        "ci_lower": 0.8937393353685754,
+        "ci_upper": 0.940453028232296,
         "uninformative": false
       }
     ],
@@ -207,9 +219,9 @@
       {
         "name": "ndcg@10",
         "k": 10,
-        "point_estimate": 0.8512482235240798,
-        "ci_lower": 0.7654535080777085,
-        "ci_upper": 0.9174612382258907,
+        "point_estimate": 0.8514606582509406,
+        "ci_lower": 0.7650467452354768,
+        "ci_upper": 0.9174426666621226,
         "uninformative": false
       }
     ],
@@ -217,9 +229,9 @@
       {
         "name": "recall@5",
         "k": 5,
-        "point_estimate": 0.5595238095238095,
-        "ci_lower": 0.4880952380952381,
-        "ci_upper": 0.6357142857142857,
+        "point_estimate": 0.5476190476190477,
+        "ci_lower": 0.46904761904761905,
+        "ci_upper": 0.6309523809523809,
         "uninformative": false
       },
       {
@@ -241,9 +253,9 @@
       {
         "name": "ndcg@10",
         "k": 10,
-        "point_estimate": 0.8759103062894604,
-        "ci_lower": 0.8454368799737189,
-        "ci_upper": 0.9044508522662741,
+        "point_estimate": 0.8753578717564721,
+        "ci_lower": 0.8450884085962778,
+        "ci_upper": 0.9041709424199154,
         "uninformative": false
       }
     ],
@@ -275,13 +287,47 @@
       {
         "name": "ndcg@10",
         "k": 10,
-        "point_estimate": 0.9066508493247896,
-        "ci_lower": 0.8717431324877797,
-        "ci_upper": 0.9392317072773305,
+        "point_estimate": 0.9060724268546734,
+        "ci_lower": 0.8694666730233985,
+        "ci_upper": 0.9388526396138298,
+        "uninformative": false
+      }
+    ],
+    "variant_notation": [
+      {
+        "name": "recall@5",
+        "k": 5,
+        "point_estimate": 0.7698412698412698,
+        "ci_lower": 0.6587301587301587,
+        "ci_upper": 0.8730158730158731,
+        "uninformative": true
+      },
+      {
+        "name": "recall@10",
+        "k": 10,
+        "point_estimate": 0.7936507936507935,
+        "ci_lower": 0.6746031746031746,
+        "ci_upper": 0.8968253968253967,
+        "uninformative": true
+      },
+      {
+        "name": "mrr@10",
+        "k": 10,
+        "point_estimate": 1.0,
+        "ci_lower": 1.0,
+        "ci_upper": 1.0,
+        "uninformative": false
+      },
+      {
+        "name": "ndcg@10",
+        "k": 10,
+        "point_estimate": 0.9362891121382129,
+        "ci_lower": 0.9099351071237409,
+        "ci_upper": 0.9606261115951567,
         "uninformative": false
       }
     ]
   },
-  "latency_p50_ms": 381.0,
-  "latency_p95_ms": 405.0
+  "latency_p50_ms": 380.0,
+  "latency_p95_ms": 458.0
 }

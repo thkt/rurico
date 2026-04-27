@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::eval::metrics::MetricResult;
 use crate::retrieval::HybridSearchConfig;
+use crate::storage::{QueryNormalizationConfig, pre_phase_5_disabled};
 
 /// Half-width threshold above which a per-category metric is flagged
 /// `uninformative` (FR-016 / BR-002).
@@ -90,6 +91,14 @@ pub struct BaselineSnapshot {
     /// so existing committed baselines round-trip bit-equal.
     #[serde(default)]
     pub merge_config: HybridSearchConfig,
+    /// Stage 1 query normalization config used for capture (Issue #69 / Phase 5).
+    ///
+    /// Pre-Phase-5 baselines lack this field; the serde-default points at
+    /// [`pre_phase_5_disabled`] (all OFF), **not** at runtime
+    /// [`QueryNormalizationConfig::default`] (all ON), so historical files
+    /// replay under the behaviour they were captured with.
+    #[serde(default = "pre_phase_5_disabled")]
+    pub normalization: QueryNormalizationConfig,
     /// Global metric results (regression gate per BR-001).
     pub global: Vec<MetricResult>,
     /// Per-category metric breakdown for exploratory inspection.
@@ -281,6 +290,7 @@ mod tests {
             fixture_hash: "fnv1a64:0".to_owned(),
             aggregation: default_aggregation_kind(),
             merge_config: HybridSearchConfig::default(),
+            normalization: pre_phase_5_disabled(),
             global: vec![],
             per_category: BTreeMap::new(),
             latency_p50_ms: 0.0,
