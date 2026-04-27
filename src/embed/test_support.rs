@@ -37,18 +37,14 @@ impl Embed for MockEmbedder {
     }
 
     fn embed_document(&self, _text: &str) -> Result<ChunkedEmbedding, EmbedError> {
-        Ok(ChunkedEmbedding {
-            chunks: vec![one_hot(0, self.dims)],
-        })
+        Ok(ChunkedEmbedding::new(vec![one_hot(0, self.dims)]))
     }
 
     fn embed_documents_batch(&self, texts: &[&str]) -> Result<Vec<ChunkedEmbedding>, EmbedError> {
         Ok(texts
             .iter()
             .enumerate()
-            .map(|(i, _)| ChunkedEmbedding {
-                chunks: vec![one_hot(i, self.dims)],
-            })
+            .map(|(i, _)| ChunkedEmbedding::new(vec![one_hot(i, self.dims)]))
             .collect())
     }
 
@@ -93,9 +89,7 @@ impl Embed for FailingEmbedder {
         if self.docs_fail {
             Err(EmbedError::Inference(self.message.into()))
         } else {
-            Ok(ChunkedEmbedding {
-                chunks: vec![one_hot(0, self.dims)],
-            })
+            Ok(ChunkedEmbedding::new(vec![one_hot(0, self.dims)]))
         }
     }
 
@@ -113,15 +107,14 @@ impl Embed for MismatchEmbedder {
     }
 
     fn embed_document(&self, _text: &str) -> Result<ChunkedEmbedding, EmbedError> {
-        Ok(ChunkedEmbedding {
-            chunks: vec![one_hot(0, EMBEDDING_DIMS)],
-        })
+        Ok(ChunkedEmbedding::new(vec![one_hot(0, EMBEDDING_DIMS)]))
     }
 
     fn embed_documents_batch(&self, _texts: &[&str]) -> Result<Vec<ChunkedEmbedding>, EmbedError> {
-        Ok(vec![ChunkedEmbedding {
-            chunks: vec![one_hot(0, EMBEDDING_DIMS)],
-        }])
+        Ok(vec![ChunkedEmbedding::new(vec![one_hot(
+            0,
+            EMBEDDING_DIMS,
+        )])])
     }
 
     fn embed_text(&self, text: &str, _prefix: &str) -> Result<Vec<f32>, EmbedError> {
@@ -165,21 +158,23 @@ impl Embed for MockChunkedEmbedder {
     }
 
     fn embed_document(&self, _text: &str) -> Result<ChunkedEmbedding, EmbedError> {
-        Ok(ChunkedEmbedding {
-            chunks: (0..self.chunks_per_doc)
+        Ok(ChunkedEmbedding::new(
+            (0..self.chunks_per_doc)
                 .map(|i| one_hot(i, self.dims))
                 .collect(),
-        })
+        ))
     }
 
     fn embed_documents_batch(&self, texts: &[&str]) -> Result<Vec<ChunkedEmbedding>, EmbedError> {
         Ok(texts
             .iter()
             .enumerate()
-            .map(|(i, _)| ChunkedEmbedding {
-                chunks: (0..self.chunks_per_doc)
-                    .map(|j| one_hot(i * self.chunks_per_doc + j, self.dims))
-                    .collect(),
+            .map(|(i, _)| {
+                ChunkedEmbedding::new(
+                    (0..self.chunks_per_doc)
+                        .map(|j| one_hot(i * self.chunks_per_doc + j, self.dims))
+                        .collect(),
+                )
             })
             .collect())
     }
@@ -222,9 +217,7 @@ impl Embed for AlternatingEmbedder {
         if n.is_multiple_of(2) {
             Err(EmbedError::Inference("alternating failure".into()))
         } else {
-            Ok(ChunkedEmbedding {
-                chunks: vec![one_hot(0, self.dims)],
-            })
+            Ok(ChunkedEmbedding::new(vec![one_hot(0, self.dims)]))
         }
     }
 

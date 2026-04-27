@@ -48,12 +48,22 @@ pub enum CandidateSource {
 /// preserve `source_scores` into [`MergedHit`]. `rank` is 0-based (0 = best
 /// per source); `score` is the raw per-source score (BM25 for FTS, distance
 /// for vector — sign convention depends on source).
+///
+/// `chunk_id` carries the child chunk identifier when chunk-level retrieval
+/// is active (Issue #76). `None` means whole-document indexing — the legacy
+/// posture, where every aggregator collapses to identity because Stage 2
+/// fusion already keys by `doc_id` alone. With `Some(id)`, Stage 2 fuses on
+/// `(doc_id, chunk_id)` so distinct chunks survive merge and Stage 3
+/// aggregators can produce non-vacuous rankings.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Candidate {
     /// Originating retrieval source.
     pub source: CandidateSource,
-    /// Document or chunk identifier.
+    /// Parent document identifier.
     pub doc_id: String,
+    /// Optional child chunk identifier within `doc_id`. `None` indicates
+    /// whole-document granularity.
+    pub chunk_id: Option<String>,
     /// Raw per-source score (BM25, distance, etc.). Sign convention is
     /// source-specific — Stage 2 fuses by `rank`, not by `score`.
     pub score: f64,
@@ -76,14 +86,40 @@ pub struct Candidate {
 /// information unavailable" rather than "no source contributed".
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MergedHit {
-    /// Document or chunk identifier carried through Stage 1+2.
+    /// Parent document identifier carried through Stage 1+2.
     pub doc_id: String,
+    /// Optional child chunk identifier (Issue #76). `None` is the
+    /// pre-chunk-level posture — Stage 3 aggregators that collapse parents
+    /// also strip `chunk_id` to `None` so Stage 4 sees parent-granular hits.
+    /// `serde(default)` keeps pre-Issue-#76 baseline.json files round-tripping.
+    #[serde(default)]
+    pub chunk_id: Option<String>,
     /// Aggregated relevance score (RRF score).
     pub score: f64,
     /// Per-source contributions to the fused score. Empty when source
     /// information is not preserved through the pipeline.
     #[serde(default)]
     pub source_scores: HashMap<CandidateSource, f64>,
+}
+
+/// Group chunk-level [`MergedHit`]s by their parent `doc_id` (Issue #76).
+///
+/// Returns one bucket per parent doc, with the original input order preserved
+/// inside each bucket. Hits whose `chunk_id` is `None` still bucket under
+/// their `doc_id` — the helper does not enforce a chunk-level invariant
+/// because mixed-granularity input is legitimate (a parent-collapsed hit
+/// alongside chunk-level siblings from a different parent).
+///
+/// Designed for downstream Stage 4 wiring that needs to reconstruct
+/// "周辺文脈込みの parent text" from sibling chunks before reranking, and
+/// for custom [`Aggregator`] impls that want shared bucketing without
+/// re-implementing the parent-grouping pass.
+pub fn group_by_parent<'a>(hits: &'a [MergedHit]) -> HashMap<&'a str, Vec<&'a MergedHit>> {
+    let mut buckets: HashMap<&'a str, Vec<&'a MergedHit>> = HashMap::new();
+    for hit in hits {
+        buckets.entry(hit.doc_id.as_str()).or_default().push(hit);
+    }
+    buckets
 }
 
 /// Stage 2 hook: fuse Stage 1 [`Candidate`]s into Stage 3-ready [`MergedHit`]s.
@@ -231,7 +267,12 @@ impl MergeStrategy for WeightedRrf {
             .get(&CandidateSource::Vector)
             .copied()
             .unwrap_or(0.0);
-        let mut acc: HashMap<&str, WeightedRrfAcc> = HashMap::new();
+        // Fusion key is (doc_id, chunk_id) — chunk-level retrieval (Issue #76)
+        // requires distinct child chunks to survive Stage 2 so Stage 3
+        // aggregators can collapse them on their own contract. With
+        // `chunk_id == None` the tuple degenerates to `(doc_id, None)` and
+        // pre-Issue-#76 fusion-on-doc_id behaviour is preserved bit-equal.
+        let mut acc: HashMap<(&str, Option<&str>), WeightedRrfAcc> = HashMap::new();
         for cand in candidates {
             let weight = match cand.source {
                 CandidateSource::Fts => fts_w,
@@ -247,14 +288,16 @@ impl MergeStrategy for WeightedRrf {
             #[allow(clippy::cast_precision_loss)]
             let rank_f = cand.rank as f64;
             let contribution = weight / (self.config.rrf_k + rank_f);
-            let entry = acc.entry(cand.doc_id.as_str()).or_default();
+            let key = (cand.doc_id.as_str(), cand.chunk_id.as_deref());
+            let entry = acc.entry(key).or_default();
             entry.score += contribution;
             *entry.source_scores.entry(cand.source).or_default() += contribution;
         }
         let mut hits: Vec<MergedHit> = acc
             .into_iter()
-            .map(|(doc_id, a)| MergedHit {
+            .map(|((doc_id, chunk_id), a)| MergedHit {
                 doc_id: doc_id.to_owned(),
+                chunk_id: chunk_id.map(str::to_owned),
                 score: a.score,
                 source_scores: a.source_scores,
             })
@@ -263,6 +306,7 @@ impl MergeStrategy for WeightedRrf {
             b.score
                 .total_cmp(&a.score)
                 .then_with(|| a.doc_id.cmp(&b.doc_id))
+                .then_with(|| a.chunk_id.cmp(&b.chunk_id))
         });
         hits
     }
@@ -302,6 +346,10 @@ impl Aggregator for IdentityAggregator {
 
 /// Same-document max-score aggregator — keeps the maximum score per `doc_id`,
 /// then re-orders by score descending (ties broken by `doc_id` ascending).
+///
+/// Output `chunk_id` is `None` (parent-granular). When chunk-level retrieval
+/// is active (Issue #76), this collapses sibling child chunks into a single
+/// parent hit carrying the best chunk's score and `source_scores`.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct MaxChunkAggregator;
 
@@ -317,7 +365,15 @@ impl Aggregator for MaxChunkAggregator {
                 })
                 .or_insert(hit);
         }
-        let mut output: Vec<MergedHit> = best.into_values().cloned().collect();
+        let mut output: Vec<MergedHit> = best
+            .into_values()
+            .map(|h| MergedHit {
+                doc_id: h.doc_id.clone(),
+                chunk_id: None,
+                score: h.score,
+                source_scores: h.source_scores.clone(),
+            })
+            .collect();
         output.sort_by(|a, b| {
             b.score
                 .total_cmp(&a.score)
@@ -335,6 +391,10 @@ impl Aggregator for MaxChunkAggregator {
 /// score-aware collapse. The sort invariant is upheld because Stage 2 RRF
 /// merge already emits score-descending output and dedupe drops later
 /// duplicates without re-ordering.
+///
+/// Output `chunk_id` is `None` (parent-granular) — Dedupe's contract is
+/// "one hit per parent doc", so retaining a chunk_id would imply parents
+/// inadvertently surface their first-seen child's identity to Stage 4.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct DedupeAggregator;
 
@@ -344,7 +404,12 @@ impl Aggregator for DedupeAggregator {
         let mut output = Vec::with_capacity(hits.len());
         for hit in hits {
             if seen.insert(hit.doc_id.as_str(), ()).is_none() {
-                output.push(hit.clone());
+                output.push(MergedHit {
+                    doc_id: hit.doc_id.clone(),
+                    chunk_id: None,
+                    score: hit.score,
+                    source_scores: hit.source_scores.clone(),
+                });
             }
         }
         output
@@ -397,6 +462,7 @@ impl Aggregator for TopKAverageAggregator {
                 }
                 MergedHit {
                     doc_id: id.to_owned(),
+                    chunk_id: None,
                     score: mean,
                     source_scores,
                 }
@@ -418,6 +484,7 @@ mod tests {
     fn hit(id: &str, score: f64) -> MergedHit {
         MergedHit {
             doc_id: id.to_owned(),
+            chunk_id: None,
             score,
             source_scores: HashMap::new(),
         }
@@ -426,8 +493,23 @@ mod tests {
     fn hit_with_sources(id: &str, score: f64, sources: &[(CandidateSource, f64)]) -> MergedHit {
         MergedHit {
             doc_id: id.to_owned(),
+            chunk_id: None,
             score,
             source_scores: sources.iter().copied().collect(),
+        }
+    }
+
+    /// Build a chunk-level [`MergedHit`] (Issue #76).
+    ///
+    /// The chunk-level aggregator tests assert how each strategy handles
+    /// distinct child chunks of the same parent doc — the helpers above keep
+    /// `chunk_id = None` for backward-compat with the pre-#76 tests.
+    fn chunk_hit(doc_id: &str, chunk_id: &str, score: f64) -> MergedHit {
+        MergedHit {
+            doc_id: doc_id.to_owned(),
+            chunk_id: Some(chunk_id.to_owned()),
+            score,
+            source_scores: HashMap::new(),
         }
     }
 
@@ -606,6 +688,7 @@ mod tests {
         Candidate {
             source,
             doc_id: doc_id.to_owned(),
+            chunk_id: None,
             score: 0.0,
             rank,
         }
@@ -744,6 +827,153 @@ mod tests {
         // d1 boosted by 1.0; d2 only has RRF
         assert!((d1.score - (1.0 / 60.0 + 1.0)).abs() < f64::EPSILON);
         assert!((d2.score - 1.0 / 61.0).abs() < f64::EPSILON);
+    }
+
+    // T-076-001: weighted_rrf_fuses_chunks_separately_when_chunk_id_differs
+    //
+    // Issue #76 / ADR 0004 line 180: when chunk-level retrieval is active,
+    // distinct child chunks of the same parent doc MUST survive Stage 2
+    // fusion. Otherwise Stage 3 aggregators have nothing to collapse and
+    // every strategy is structurally identical to identity.
+    #[test]
+    fn weighted_rrf_fuses_chunks_separately_when_chunk_id_differs() {
+        let strategy = WeightedRrf::default();
+        let candidates = vec![
+            Candidate {
+                source: CandidateSource::Fts,
+                doc_id: "d1".to_owned(),
+                chunk_id: Some("c0".to_owned()),
+                score: 0.0,
+                rank: 0,
+            },
+            Candidate {
+                source: CandidateSource::Fts,
+                doc_id: "d1".to_owned(),
+                chunk_id: Some("c1".to_owned()),
+                score: 0.0,
+                rank: 1,
+            },
+        ];
+        let output = strategy.merge(&candidates);
+        assert_eq!(
+            output.len(),
+            2,
+            "two distinct chunks of d1 must survive Stage 2 fusion"
+        );
+        let chunk_ids: Vec<Option<&str>> = output.iter().map(|h| h.chunk_id.as_deref()).collect();
+        assert!(chunk_ids.contains(&Some("c0")), "c0 must be present");
+        assert!(chunk_ids.contains(&Some("c1")), "c1 must be present");
+    }
+
+    // T-076-002: identity_preserves_chunk_level_distinctness
+    #[test]
+    fn identity_preserves_chunk_level_distinctness() {
+        let aggregator = IdentityAggregator;
+        let input = vec![
+            chunk_hit("d1", "c0", 0.9),
+            chunk_hit("d1", "c1", 0.5),
+            chunk_hit("d2", "c0", 0.7),
+        ];
+        let output = aggregator.aggregate(&input);
+        assert_eq!(output.len(), 3, "Identity must keep all chunk-level hits");
+        assert_eq!(output, input, "Identity must preserve chunk_ids verbatim");
+    }
+
+    // T-076-003: max_chunk_collapses_sibling_chunks_to_parent
+    //
+    // Two chunks of d1 (scores 0.5 + 0.9), one chunk of d2 (0.7). MaxChunk
+    // must keep d1's higher-scoring chunk (0.9), drop the sibling, and emit
+    // parent-granular hits (chunk_id=None).
+    #[test]
+    fn max_chunk_collapses_sibling_chunks_to_parent() {
+        let aggregator = MaxChunkAggregator;
+        let input = vec![
+            chunk_hit("d1", "c0", 0.5),
+            chunk_hit("d2", "c0", 0.7),
+            chunk_hit("d1", "c1", 0.9),
+        ];
+        let output = aggregator.aggregate(&input);
+        assert_eq!(output.len(), 2, "MaxChunk collapses d1's two chunks");
+        assert_eq!(output[0].doc_id, "d1", "d1 wins ranking via its 0.9 chunk");
+        assert!(
+            (output[0].score - 0.9).abs() < f64::EPSILON,
+            "d1 score must be 0.9 (max of its chunks)"
+        );
+        assert_eq!(
+            output[0].chunk_id, None,
+            "MaxChunk emits parent-granular hits (chunk_id=None)"
+        );
+        assert_eq!(output[1].doc_id, "d2");
+        assert_eq!(output[1].chunk_id, None);
+    }
+
+    // T-076-004: dedupe_collapses_chunks_to_first_parent
+    #[test]
+    fn dedupe_collapses_chunks_to_first_parent() {
+        let aggregator = DedupeAggregator;
+        let input = vec![
+            chunk_hit("d1", "c0", 0.9),
+            chunk_hit("d2", "c0", 0.7),
+            chunk_hit("d1", "c1", 0.5),
+        ];
+        let output = aggregator.aggregate(&input);
+        assert_eq!(output.len(), 2, "Dedupe drops d1's second chunk");
+        assert_eq!(output[0].doc_id, "d1");
+        assert_eq!(
+            output[0].chunk_id, None,
+            "Dedupe emits parent-granular hits (chunk_id=None)"
+        );
+        assert!((output[0].score - 0.9).abs() < f64::EPSILON);
+        assert_eq!(output[1].doc_id, "d2");
+        assert_eq!(output[1].chunk_id, None);
+    }
+
+    // T-076-005: topk_average_collapses_chunks_with_chunk_id_none
+    //
+    // TopKAverage already collapsed sibling chunks pre-#76 (the bucketing
+    // happened on doc_id). The new contract is that chunk_id is reset to
+    // None so Stage 4 sees parent-granular hits regardless of input
+    // granularity.
+    #[test]
+    fn topk_average_collapses_chunks_with_chunk_id_none() {
+        let aggregator = TopKAverageAggregator::new(2);
+        let input = vec![
+            chunk_hit("d1", "c0", 1.0),
+            chunk_hit("d1", "c1", 0.5),
+            chunk_hit("d2", "c0", 0.25),
+        ];
+        let output = aggregator.aggregate(&input);
+        assert_eq!(output.len(), 2);
+        assert_eq!(output[0].doc_id, "d1");
+        assert_eq!(
+            output[0].chunk_id, None,
+            "TopKAverage emits parent-granular hits"
+        );
+        // d1 top-2 = (1.0 + 0.5) / 2 = 0.75
+        assert!((output[0].score - 0.75).abs() < f64::EPSILON);
+    }
+
+    // T-076-006: group_by_parent_buckets_chunks_per_doc
+    #[test]
+    fn group_by_parent_buckets_chunks_per_doc() {
+        let input = vec![
+            chunk_hit("d1", "c0", 0.9),
+            chunk_hit("d2", "c0", 0.7),
+            chunk_hit("d1", "c1", 0.5),
+        ];
+        let buckets = group_by_parent(&input);
+        assert_eq!(buckets.len(), 2, "two parent docs → two buckets");
+        let d1_bucket = buckets.get("d1").expect("d1 bucket must exist");
+        assert_eq!(d1_bucket.len(), 2, "d1 bucket holds both of its chunks");
+        let d1_chunk_ids: Vec<Option<&str>> =
+            d1_bucket.iter().map(|h| h.chunk_id.as_deref()).collect();
+        assert_eq!(
+            d1_chunk_ids,
+            vec![Some("c0"), Some("c1")],
+            "input order preserved inside the bucket"
+        );
+        let d2_bucket = buckets.get("d2").expect("d2 bucket must exist");
+        assert_eq!(d2_bucket.len(), 1);
     }
 
     // T-068-008: weighted_rrf_fts_heavy_weight_reorders
