@@ -102,6 +102,26 @@ pub enum PipelineError {
         /// Identifier of the corpus document with no chunks.
         doc_id: String,
     },
+    /// Embedder returned a [`ChunkedEmbedding`](crate::embed::ChunkedEmbedding)
+    /// whose `chunks` and `chunk_ids` vectors disagree on length.
+    ///
+    /// `ChunkedEmbedding::new` upholds the invariant, but the fields are
+    /// `pub` and a custom impl could break it. Without this guard the
+    /// per-chunk `zip` would silently stop at the shorter vector and either
+    /// drop chunks (recall regression) or insert zero rows for a doc with
+    /// chunks-but-no-ids (vec table mismatch).
+    #[error(
+        "pipeline chunk_id metadata length mismatch for doc {doc_id:?}: \
+         {chunks} chunks vs {chunk_ids} chunk_ids"
+    )]
+    ChunkIdLengthMismatch {
+        /// Identifier of the corpus document with mismatched metadata.
+        doc_id: String,
+        /// `chunks.len()` reported by the embedder.
+        chunks: usize,
+        /// `chunk_ids.len()` reported by the embedder.
+        chunk_ids: usize,
+    },
 }
 
 /// Run the reference pipeline on `corpus` for every query in `queries`.
@@ -175,12 +195,11 @@ where
 
 /// Build the in-memory schema (documents + FTS5 + vec0 + fts5vocab).
 ///
-/// Phase 7 (Issue #76): `vec_docs` carries an extra `chunk_id` metadata
-/// column so chunk-level vector retrieval can surface distinct child
-/// chunks of the same parent doc. FTS stays parent-granular because
-/// per-chunk text is not stored on [`crate::embed::ChunkedEmbedding`];
-/// the vector source alone is sufficient to drive Stage 3 aggregation
-/// non-vacuously.
+/// `vec_docs` carries an extra `chunk_id` metadata column so chunk-level
+/// vector retrieval can surface distinct child chunks of the same parent
+/// doc. FTS stays parent-granular because per-chunk text is not stored on
+/// [`crate::embed::ChunkedEmbedding`]; the vector source alone is sufficient
+/// to drive Stage 3 aggregation non-vacuously.
 fn create_schema(conn: &Connection) -> Result<(), PipelineError> {
     conn.execute_batch(&format!(
         "CREATE TABLE documents(id TEXT PRIMARY KEY, body TEXT NOT NULL); \
@@ -195,8 +214,8 @@ fn create_schema(conn: &Connection) -> Result<(), PipelineError> {
 ///
 /// FTS / `documents` are parent-granular (one row per [`EvalDocument`]);
 /// `vec_docs` is chunk-granular — each chunk vector lands in its own row
-/// tagged with `(doc_id, chunk_id)` so chunk-level retrieval (Issue #76)
-/// can surface multiple chunks of the same parent. Returns
+/// tagged with `(doc_id, chunk_id)` so chunk-level retrieval can surface
+/// multiple chunks of the same parent. Returns
 /// [`PipelineError::ChunkCountMismatch`] when the embedder's output length
 /// does not match the corpus and [`PipelineError::EmptyEmbedding`] when a
 /// document yields no chunks — silent truncation of the vec index would
@@ -221,27 +240,43 @@ fn index_corpus<E: Embed>(
             chunked: chunked.len(),
         });
     }
-    let mut insert_doc = conn.prepare_cached("INSERT INTO documents(id, body) VALUES (?, ?)")?;
-    let mut insert_fts = conn.prepare_cached("INSERT INTO docs_fts(doc_id, body) VALUES (?, ?)")?;
-    let mut insert_vec =
-        conn.prepare_cached("INSERT INTO vec_docs(embedding, doc_id, chunk_id) VALUES (?, ?, ?)")?;
-    for (doc, chunked_embedding) in corpus.iter().zip(chunked.iter()) {
-        insert_doc.execute(params![&doc.id, &doc.body])?;
-        let fts_body = normalize_for_fts(&doc.body, normalization);
-        insert_fts.execute(params![&doc.id, &fts_body])?;
-        if chunked_embedding.chunks.is_empty() {
-            return Err(PipelineError::EmptyEmbedding {
-                doc_id: doc.id.clone(),
-            });
-        }
-        for (chunk_vec, chunk_id) in chunked_embedding
-            .chunks
-            .iter()
-            .zip(&chunked_embedding.chunk_ids)
-        {
-            insert_vec.execute(params![f32_as_bytes(chunk_vec), &doc.id, chunk_id])?;
+    // Wrap inserts in a single transaction. Each chunk now generates its own
+    // vec_docs row, so the implicit per-statement commit count grew from
+    // `N×3` to `N×2 + N×chunks_per_doc`. Batching keeps WAL fsync overhead
+    // bounded as fixture size grows.
+    let tx = conn.unchecked_transaction()?;
+    {
+        let mut insert_doc = tx.prepare_cached("INSERT INTO documents(id, body) VALUES (?, ?)")?;
+        let mut insert_fts =
+            tx.prepare_cached("INSERT INTO docs_fts(doc_id, body) VALUES (?, ?)")?;
+        let mut insert_vec = tx
+            .prepare_cached("INSERT INTO vec_docs(embedding, doc_id, chunk_id) VALUES (?, ?, ?)")?;
+        for (doc, chunked_embedding) in corpus.iter().zip(chunked.iter()) {
+            insert_doc.execute(params![&doc.id, &doc.body])?;
+            let fts_body = normalize_for_fts(&doc.body, normalization);
+            insert_fts.execute(params![&doc.id, &fts_body])?;
+            if chunked_embedding.chunks.is_empty() {
+                return Err(PipelineError::EmptyEmbedding {
+                    doc_id: doc.id.clone(),
+                });
+            }
+            if chunked_embedding.chunks.len() != chunked_embedding.chunk_ids.len() {
+                return Err(PipelineError::ChunkIdLengthMismatch {
+                    doc_id: doc.id.clone(),
+                    chunks: chunked_embedding.chunks.len(),
+                    chunk_ids: chunked_embedding.chunk_ids.len(),
+                });
+            }
+            for (chunk_vec, chunk_id) in chunked_embedding
+                .chunks
+                .iter()
+                .zip(&chunked_embedding.chunk_ids)
+            {
+                insert_vec.execute(params![f32_as_bytes(chunk_vec), &doc.id, chunk_id])?;
+            }
         }
     }
+    tx.commit()?;
     Ok(())
 }
 
@@ -444,10 +479,10 @@ fn cross_product(groups: &[Vec<String>]) -> Vec<Vec<String>> {
 /// is 0-based — fed verbatim to [`WeightedRrf`].
 ///
 /// Each chunk of a parent doc is indexed as its own row tagged with
-/// `(doc_id, chunk_id)` (Issue #76), so a single query can return multiple
-/// chunks of the same parent. Stage 2 keeps them distinct via the
-/// `(doc_id, chunk_id)` fusion key; Stage 3 aggregators collapse to the
-/// parent on their own contract.
+/// `(doc_id, chunk_id)`, so a single query can return multiple chunks of
+/// the same parent. Stage 2 keeps them distinct via the `(doc_id, chunk_id)`
+/// fusion key; Stage 3 aggregators collapse to the parent on their own
+/// contract.
 fn retrieve_vec<E: Embed>(
     conn: &Connection,
     embedder: &E,
@@ -508,35 +543,43 @@ fn apply_reranker<R: Rerank>(
     merged: Vec<MergedHit>,
     corpus_index: &HashMap<&str, &str>,
 ) -> Result<Vec<MergedHit>, PipelineError> {
-    type ResolvedSlot<'a> = Option<(
-        String,
-        Option<String>,
-        &'a str,
-        HashMap<CandidateSource, f64>,
-    )>;
-    let mut resolved: Vec<ResolvedSlot<'_>> = merged
+    // `Option<ResolvedSlot>` so each slot is consumed exactly once when the
+    // reranker references its index — protects against a malformed reranker
+    // that emits the same index twice from re-using the same hit identity.
+    struct ResolvedSlot<'a> {
+        doc_id: String,
+        chunk_id: Option<String>,
+        body: &'a str,
+        source_scores: HashMap<CandidateSource, f64>,
+    }
+    let mut resolved: Vec<Option<ResolvedSlot<'_>>> = merged
         .into_iter()
         .filter_map(|h| {
-            corpus_index
-                .get(h.doc_id.as_str())
-                .map(|body| Some((h.doc_id, h.chunk_id, *body, h.source_scores)))
+            corpus_index.get(h.doc_id.as_str()).map(|body| {
+                Some(ResolvedSlot {
+                    doc_id: h.doc_id,
+                    chunk_id: h.chunk_id,
+                    body,
+                    source_scores: h.source_scores,
+                })
+            })
         })
         .collect();
     let bodies: Vec<&str> = resolved
         .iter()
-        .map(|slot| slot.as_ref().map(|(_, _, body, _)| *body).unwrap_or(""))
+        .map(|slot| slot.as_ref().map(|s| s.body).unwrap_or(""))
         .collect();
     let ranked_results = reranker.rerank(query, &bodies)?;
     let mut reranked = Vec::with_capacity(ranked_results.len());
     for r in ranked_results {
         if let Some(slot) = resolved.get_mut(r.index)
-            && let Some((doc_id, chunk_id, _, source_scores)) = slot.take()
+            && let Some(s) = slot.take()
         {
             reranked.push(MergedHit {
-                doc_id,
-                chunk_id,
+                doc_id: s.doc_id,
+                chunk_id: s.chunk_id,
                 score: f64::from(r.score),
-                source_scores,
+                source_scores: s.source_scores,
             });
         }
     }

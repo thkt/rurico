@@ -2,7 +2,7 @@
   "schema_version": "1.1",
   "kind": "forward",
   "captured_with": "eval_harness capture-baseline",
-  "timestamp": "epoch:1777263211",
+  "timestamp": "epoch:1777265610",
   "model_id": "cl-nagoya/ruri-v3-310m",
   "model_revision": "pinned-via-rurico-embed-cache",
   "mlx_rs_version": "0.25",
@@ -24,17 +24,17 @@
     {
       "name": "recall@5",
       "k": 5,
-      "point_estimate": 0.6587301587301588,
-      "ci_lower": 0.6170634920634921,
-      "ci_upper": 0.7041666666666667,
+      "point_estimate": 0.6299603174603176,
+      "ci_lower": 0.5985119047619046,
+      "ci_upper": 0.6635912698412697,
       "uninformative": false
     },
     {
       "name": "recall@10",
       "k": 10,
-      "point_estimate": 0.7732142857142856,
-      "ci_lower": 0.732440476190476,
-      "ci_upper": 0.8179563492063492,
+      "point_estimate": 0.7414682539682539,
+      "ci_lower": 0.7112103174603175,
+      "ci_upper": 0.774404761904762,
       "uninformative": false
     },
     {
@@ -48,9 +48,9 @@
     {
       "name": "ndcg@10",
       "k": 10,
-      "point_estimate": 0.9200552761579414,
-      "ci_lower": 0.8957496204494937,
-      "ci_upper": 0.9456627395824879,
+      "point_estimate": 0.8929930705316574,
+      "ci_lower": 0.8761522102123755,
+      "ci_upper": 0.9062809356005043,
       "uninformative": false
     }
   ],
@@ -83,9 +83,9 @@
       {
         "name": "ndcg@10",
         "k": 10,
-        "point_estimate": 0.8984764101286741,
-        "ci_lower": 0.8566214344863141,
-        "ci_upper": 0.9326326317516082,
+        "point_estimate": 0.8983317922434706,
+        "ci_lower": 0.8563901996271307,
+        "ci_upper": 0.9325460147776281,
         "uninformative": false
       }
     ],
@@ -117,9 +117,9 @@
       {
         "name": "ndcg@10",
         "k": 10,
-        "point_estimate": 0.8707932091083004,
-        "ci_lower": 0.8334992961089581,
-        "ci_upper": 0.9051284720159709,
+        "point_estimate": 0.8703370297846807,
+        "ci_lower": 0.8326182473316168,
+        "ci_upper": 0.9046574980745109,
         "uninformative": false
       }
     ],
@@ -185,9 +185,9 @@
       {
         "name": "ndcg@10",
         "k": 10,
-        "point_estimate": 0.9183631980078937,
-        "ci_lower": 0.8937393353685754,
-        "ci_upper": 0.9408027792462884,
+        "point_estimate": 0.9185756327347544,
+        "ci_lower": 0.8939517700954362,
+        "ci_upper": 0.941254666473713,
         "uninformative": false
       }
     ],
@@ -219,8 +219,8 @@
       {
         "name": "ndcg@10",
         "k": 10,
-        "point_estimate": 0.8511280166500368,
-        "ci_lower": 0.7649334759948792,
+        "point_estimate": 0.8508233540703584,
+        "ci_lower": 0.7646722904276082,
         "ci_upper": 0.9174426666621226,
         "uninformative": false
       }
@@ -253,9 +253,9 @@
       {
         "name": "ndcg@10",
         "k": 10,
-        "point_estimate": 0.8749722996848236,
-        "ci_lower": 0.8447294478353659,
-        "ci_upper": 0.9039817945359538,
+        "point_estimate": 0.8744565124001691,
+        "ci_lower": 0.8442136605507112,
+        "ci_upper": 0.9032185061447183,
         "uninformative": false
       }
     ],
@@ -287,9 +287,9 @@
       {
         "name": "ndcg@10",
         "k": 10,
-        "point_estimate": 0.9060724268546734,
-        "ci_lower": 0.8694666730233985,
-        "ci_upper": 0.9388526396138298,
+        "point_estimate": 0.906720822112825,
+        "ci_lower": 0.8718830780638507,
+        "ci_upper": 0.939301680065366,
         "uninformative": false
       }
     ],
@@ -297,17 +297,17 @@
       {
         "name": "recall@5",
         "k": 5,
-        "point_estimate": 1.0,
-        "ci_lower": 0.8015873015873017,
-        "ci_upper": 1.23015873015873,
+        "point_estimate": 0.7698412698412698,
+        "ci_lower": 0.6587301587301587,
+        "ci_upper": 0.8730158730158731,
         "uninformative": true
       },
       {
         "name": "recall@10",
         "k": 10,
-        "point_estimate": 1.0476190476190477,
-        "ci_lower": 0.8412698412698413,
-        "ci_upper": 1.2619047619047619,
+        "point_estimate": 0.7936507936507935,
+        "ci_lower": 0.6746031746031746,
+        "ci_upper": 0.8968253968253967,
         "uninformative": true
       },
       {
@@ -321,13 +321,13 @@
       {
         "name": "ndcg@10",
         "k": 10,
-        "point_estimate": 1.1522263400603423,
-        "ci_lower": 1.028912955299193,
-        "ci_upper": 1.2953584745410565,
-        "uninformative": true
+        "point_estimate": 0.9362891121382129,
+        "ci_lower": 0.9099351071237409,
+        "ci_upper": 0.9606261115951567,
+        "uninformative": false
       }
     ]
   },
-  "latency_p50_ms": 631.0,
-  "latency_p95_ms": 751.0
+  "latency_p50_ms": 516.0,
+  "latency_p95_ms": 650.0
 }

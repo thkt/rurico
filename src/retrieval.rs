@@ -7,16 +7,6 @@
 //! Concrete strategies ([`MaxChunkAggregator`], [`DedupeAggregator`],
 //! [`TopKAverageAggregator`]) live alongside the trait; downstream crates can
 //! also supply their own `impl Aggregator` for domain-specific dedupers.
-//!
-//! ## Pipeline shape note
-//!
-//! Stage 2 [`WeightedRrf`] fuses ranks via a `HashMap` keyed by `doc_id`,
-//! so its output already carries unique identifiers. With the current
-//! pipeline that indexes one chunk per `EvalDocument`, every non-identity
-//! aggregator therefore behaves as identity on the eval baseline. Strategy
-//! correctness is validated via synthetic multi-hit unit tests; non-vacuous
-//! evaluation arrives once chunk-level retrieval lands (parent-child /
-//! `chunk_id` follow-up — Issue #76).
 
 use std::collections::HashMap;
 
@@ -50,9 +40,9 @@ pub enum CandidateSource {
 /// for vector — sign convention depends on source).
 ///
 /// `chunk_id` carries the child chunk identifier when chunk-level retrieval
-/// is active (Issue #76). `None` means whole-document indexing — the legacy
-/// posture, where every aggregator collapses to identity because Stage 2
-/// fusion already keys by `doc_id` alone. With `Some(id)`, Stage 2 fuses on
+/// is active. `None` means whole-document indexing — the legacy posture,
+/// where every aggregator collapses to identity because Stage 2 fusion
+/// already keys by `doc_id` alone. With `Some(id)`, Stage 2 fuses on
 /// `(doc_id, chunk_id)` so distinct chunks survive merge and Stage 3
 /// aggregators can produce non-vacuous rankings.
 #[derive(Debug, Clone, PartialEq)]
@@ -88,10 +78,10 @@ pub struct Candidate {
 pub struct MergedHit {
     /// Parent document identifier carried through Stage 1+2.
     pub doc_id: String,
-    /// Optional child chunk identifier (Issue #76). `None` is the
-    /// pre-chunk-level posture — Stage 3 aggregators that collapse parents
-    /// also strip `chunk_id` to `None` so Stage 4 sees parent-granular hits.
-    /// `serde(default)` keeps pre-Issue-#76 baseline.json files round-tripping.
+    /// Optional child chunk identifier. `None` is the pre-chunk-level
+    /// posture — Stage 3 aggregators that collapse parents also strip
+    /// `chunk_id` to `None` so Stage 4 sees parent-granular hits.
+    /// `serde(default)` keeps pre-#76 baseline.json files round-tripping.
     #[serde(default)]
     pub chunk_id: Option<String>,
     /// Aggregated relevance score (RRF score).
@@ -102,7 +92,25 @@ pub struct MergedHit {
     pub source_scores: HashMap<CandidateSource, f64>,
 }
 
-/// Group chunk-level [`MergedHit`]s by their parent `doc_id` (Issue #76).
+impl MergedHit {
+    /// Build a parent-granular hit (`chunk_id = None`). Single seam every
+    /// Stage 3 collapse aggregator routes through, so the "strip chunk_id"
+    /// contract is enforced once instead of repeated at three call sites.
+    pub(crate) fn parent_granular(
+        doc_id: String,
+        score: f64,
+        source_scores: HashMap<CandidateSource, f64>,
+    ) -> Self {
+        Self {
+            doc_id,
+            chunk_id: None,
+            score,
+            source_scores,
+        }
+    }
+}
+
+/// Group chunk-level [`MergedHit`]s by their parent `doc_id`.
 ///
 /// Returns one bucket per parent doc, with the original input order preserved
 /// inside each bucket. Hits whose `chunk_id` is `None` still bucket under
@@ -348,8 +356,8 @@ impl Aggregator for IdentityAggregator {
 /// then re-orders by score descending (ties broken by `doc_id` ascending).
 ///
 /// Output `chunk_id` is `None` (parent-granular). When chunk-level retrieval
-/// is active (Issue #76), this collapses sibling child chunks into a single
-/// parent hit carrying the best chunk's score and `source_scores`.
+/// is active, this collapses sibling child chunks into a single parent hit
+/// carrying the best chunk's score and `source_scores`.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct MaxChunkAggregator;
 
@@ -367,12 +375,7 @@ impl Aggregator for MaxChunkAggregator {
         }
         let mut output: Vec<MergedHit> = best
             .into_values()
-            .map(|h| MergedHit {
-                doc_id: h.doc_id.clone(),
-                chunk_id: None,
-                score: h.score,
-                source_scores: h.source_scores.clone(),
-            })
+            .map(|h| MergedHit::parent_granular(h.doc_id.clone(), h.score, h.source_scores.clone()))
             .collect();
         output.sort_by(|a, b| {
             b.score
@@ -401,15 +404,17 @@ pub struct DedupeAggregator;
 impl Aggregator for DedupeAggregator {
     fn aggregate(&self, hits: &[MergedHit]) -> Vec<MergedHit> {
         let mut seen: HashMap<&str, ()> = HashMap::new();
-        let mut output = Vec::with_capacity(hits.len());
+        // Output holds at most one entry per parent doc_id — chunk-level input
+        // can be `chunks_per_doc`× larger than the realised output, so sizing
+        // off `hits.len()` over-allocates. Defer to the default growth path.
+        let mut output = Vec::new();
         for hit in hits {
             if seen.insert(hit.doc_id.as_str(), ()).is_none() {
-                output.push(MergedHit {
-                    doc_id: hit.doc_id.clone(),
-                    chunk_id: None,
-                    score: hit.score,
-                    source_scores: hit.source_scores.clone(),
-                });
+                output.push(MergedHit::parent_granular(
+                    hit.doc_id.clone(),
+                    hit.score,
+                    hit.source_scores.clone(),
+                ));
             }
         }
         output
@@ -438,11 +443,7 @@ impl Aggregator for TopKAverageAggregator {
         if self.k == 0 {
             return Vec::new();
         }
-        let mut buckets: HashMap<&str, Vec<&MergedHit>> = HashMap::new();
-        for hit in hits {
-            buckets.entry(hit.doc_id.as_str()).or_default().push(hit);
-        }
-        let mut output: Vec<MergedHit> = buckets
+        let mut output: Vec<MergedHit> = group_by_parent(hits)
             .into_iter()
             .map(|(id, mut bucket)| {
                 bucket.sort_by(|a, b| b.score.total_cmp(&a.score));
@@ -460,12 +461,7 @@ impl Aggregator for TopKAverageAggregator {
                 for value in source_scores.values_mut() {
                     *value /= len;
                 }
-                MergedHit {
-                    doc_id: id.to_owned(),
-                    chunk_id: None,
-                    score: mean,
-                    source_scores,
-                }
+                MergedHit::parent_granular(id.to_owned(), mean, source_scores)
             })
             .collect();
         output.sort_by(|a, b| {
@@ -499,7 +495,7 @@ mod tests {
         }
     }
 
-    /// Build a chunk-level [`MergedHit`] (Issue #76).
+    /// Build a chunk-level [`MergedHit`].
     ///
     /// The chunk-level aggregator tests assert how each strategy handles
     /// distinct child chunks of the same parent doc — the helpers above keep
