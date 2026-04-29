@@ -175,7 +175,7 @@ Negative:
 
 ## Migration Plan
 
-1. **Phase 2 (this ADR)**: commit `adr/0004-retrieval-and-rerank-pipeline-contract-for-rurico.md`, append the row to `adr/README.md`. No changes to `src/`. **Done 2026-04-26 (PR #74).**
+1. **Phase 2 (this ADR)**: commit `docs/decisions/0004-retrieval-and-rerank-pipeline-contract-for-rurico.md`, append the row to `docs/decisions/README.md`. No changes to `src/`. **Done 2026-04-26 (PR #74).**
 2. **Phase 3** (Issue #67, **implemented 2026-04-26**): introduce `MergedHit` and the `Aggregator` trait at the position fixed in Stage 3, plus four impls (`IdentityAggregator`, `MaxChunkAggregator`, `DedupeAggregator`, `TopKAverageAggregator`). New surface lives in `src/retrieval.rs` with no feature gate. `eval/pipeline.rs::evaluate` takes an `&impl Aggregator` parameter; the harness dispatches by `aggregation=identity|max-chunk|dedupe|topk-average` argv. `BaselineSnapshot` gains `aggregation: String` (serde-default `"identity"` so pre-Phase-3 files round-trip).
    - **Pipeline-shape finding**: `rrf_merge` (`src/storage/search.rs:154`) fuses on `doc_id` via `HashMap`, so its output is already unique. Combined with one-chunk-per-`EvalDocument` indexing, every non-identity aggregator is **structurally identical** to identity on the current eval baseline. Strategy correctness is validated via synthetic multi-hit unit tests in `src/retrieval.rs`; non-vacuous baseline evaluation arrives once chunk-level retrieval lands (item 7 below).
    - **Deferred from this ADR's wording**: full `eval/pipeline.rs` → `src/retrieval.rs` rename. The Aggregator surface is what Phase 3+ needs; the reference composition stays in `eval/pipeline.rs` until a downstream consumer needs to share more of the wiring.
@@ -212,8 +212,8 @@ Negative:
 - Parent issue #53 (search-quality programme, Phase 1–6)
 - Phase 2 issue #66 (this ADR's deliverable)
 - Phase 3 issue #67 (aggregation), Phase 4 #68 (weights), Phase 5 #69 (normalization), Phase 6 #70 (prefix ensemble)
-- ADR 0001 (`adr/0001-typed-fts-query-contract.md`) — typed FTS query primitive
-- ADR 0003 (`adr/0003-evaluation-methodology.md`) — Phase 1 reference composition + cyclic-dep posture
+- ADR 0001 (`docs/decisions/0001-typed-fts-query-contract.md`) — typed FTS query primitive
+- ADR 0003 (`docs/decisions/0003-evaluation-methodology.md`) — Phase 1 reference composition + cyclic-dep posture
 - `src/eval/pipeline.rs` — Phase 1c reference composition (Phase 3 promotion target)
 - `src/storage/search.rs:146-198` — `rrf_merge`, `prepare_match_query` primitives
 - `src/embed/embedder.rs` — `Embed` trait surface

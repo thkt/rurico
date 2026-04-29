@@ -36,7 +36,7 @@ Migrate the search-quality evaluation harness from `rurico` to `amici`. Concrete
 
 4. **ADR continuity**:
    - This ADR is the migration record.
-   - ADR 0003 is updated to `Status: Superseded by amici/docs/adr/0002-evaluation-methodology.md` once the `amici` ADR lands (work tracked in `rurico#86`).
+   - ADR 0003 is updated to `Status: Superseded by amici/docs/decisions/0002-evaluation-methodology.md` once the `amici` ADR lands (work tracked in `rurico#86`).
    - The `amici` ADR re-states the four-part methodology from ADR 0003 (reference composition, fixture corpus, statistical contract, wiring validation) without behavioural change — the *location* of the harness moves; the methodology does not.
 
 ## Options Considered
@@ -105,7 +105,7 @@ Positive:
 
 Negative:
 
-- One ADR move and one ADR re-state are required. ADR 0003's content survives in `amici/docs/adr/0002-evaluation-methodology.md`; the `Superseded by` link in ADR 0003 ties the history.
+- One ADR move and one ADR re-state are required. ADR 0003's content survives in `amici/docs/decisions/0002-evaluation-methodology.md`; the `Superseded by` link in ADR 0003 ties the history.
 - The migration involves four issues (`amici#24`, `amici#27`, `rurico#86`, `sae#77`). Sequencing matters: `amici#24` must merge before `amici#27` (the harness in `amici` calls the guarded `clean_for_trigram`), and `amici#27` must complete before `rurico#86` (the new `amici` rev must satisfy the `eval-verify` gate before the `rurico` mirror is deleted).
 - Downstream baseline regeneration: the baseline is regenerated in `amici` with the same embedder/reranker primitives. The metric drift envelope (per `MetricSpec::tolerance` from ADR 0003) must hold across the regeneration; the migration's acceptance gate (`amici#27`) requires bit-identical mrr/ndcg/recall/p50/p95 against the existing `rurico/tests/fixtures/eval/baseline.json` before the move is considered successful.
 - `rurico` loses the ability to detect end-to-end retrieval-quality regressions standalone. Any `rurico` change that affects pipeline metrics (e.g. embedding-output drift, RRF helper change) is detected via `amici`'s `eval-verify` after a `rurico` rev bump in `amici/Cargo.toml`. CI for `rurico` PRs covers primitive contracts only; pipeline-quality CI moves to `amici`.
@@ -115,8 +115,8 @@ Negative:
 The four-issue sequence is tracked on GitHub:
 
 1. **`amici#24`** — port the `MAX_COMBOS` guard from `rurico/src/eval/pipeline.rs:35-45` (commit `7592a82`) into `amici/src/storage/fts.rs:20-43`. Required before `amici#27` so the migrated harness calls a guarded `clean_for_trigram`. Independently fixes the production OOM inherited by `sae/src/storage/search.rs`.
-2. **`amici#27`** — receive the eval-harness in `amici`. Move `src/eval/`, `src/bin/eval_harness.rs`, `tests/fixtures/eval/`, `tests/eval_smoke.rs`; create `amici/justfile`; create `amici/docs/adr/0002-evaluation-methodology.md` (re-states ADR 0003); regenerate `baseline.json` and assert bit-identical metrics against the rurico-side baseline before the issue closes. Blocked by `amici#24`.
-3. **`rurico#86`** — delete the migrated artefacts from `rurico` (`src/eval/`, `src/bin/eval_harness.rs`, `[[bin]] eval_harness`, `eval-harness` feature, `tests/eval_smoke.rs`, `tests/fixtures/eval/`, `justfile` `=== 検索評価ハーネス ===` section); update ADR 0003 status to `Superseded by amici/docs/adr/0002-evaluation-methodology.md`; clean up the `chunk-test` recipe's `--features eval-harness` dependency. Blocked by `amici#27`.
+2. **`amici#27`** — receive the eval-harness in `amici`. Move `src/eval/`, `src/bin/eval_harness.rs`, `tests/fixtures/eval/`, `tests/eval_smoke.rs`; create `amici/justfile`; create `amici/docs/decisions/0002-evaluation-methodology.md` (re-states ADR 0003); regenerate `baseline.json` and assert bit-identical metrics against the rurico-side baseline before the issue closes. Blocked by `amici#24`.
+3. **`rurico#86`** — delete the migrated artefacts from `rurico` (`src/eval/`, `src/bin/eval_harness.rs`, `[[bin]] eval_harness`, `eval-harness` feature, `tests/eval_smoke.rs`, `tests/fixtures/eval/`, `justfile` `=== 検索評価ハーネス ===` section); update ADR 0003 status to `Superseded by amici/docs/decisions/0002-evaluation-methodology.md`; clean up the `chunk-test` recipe's `--features eval-harness` dependency. Blocked by `amici#27`.
 4. **`sae#77`** — bump `sae/Cargo.toml`'s `amici` rev to pick up `amici#24`'s guard. Independent of the migration in scope; tracked in the same family because the OOM-fix sequencing is part of this Decision's prerequisites.
 
 ## Reassessment Triggers
@@ -124,7 +124,7 @@ The four-issue sequence is tracked on GitHub:
 - Embedder or reranker primitive changes in `rurico` affect score determinism beyond the `MetricSpec::tolerance` envelope → re-evaluate whether `amici`'s `eval-verify` can absorb the drift, or whether per-metric tolerance needs widening in the `amici` ADR.
 - `amici` becomes large enough that its dependents (`recall`, `sae`, `yomu`) want to depend on a smaller `amici-core` crate without the harness → split the harness into `amici-eval` (revisit Option D under new constraints). The current sequencing keeps the harness opt-in via the `eval-harness` feature so this is not yet warranted.
 - A second downstream toolchain (not under `amici`) needs end-to-end retrieval-quality evaluation against `rurico` primitives → re-evaluate whether the harness should sit in a neutral crate (Option D) rather than in `amici`.
-- ADR 0003's Reassessment Triggers re-fire (mlx-rs major bump, fixture-category extension, reverse-fixture lower-bound exceeded, etc.) → handled in the new location (`amici/docs/adr/0002`); this ADR is unaffected.
+- ADR 0003's Reassessment Triggers re-fire (mlx-rs major bump, fixture-category extension, reverse-fixture lower-bound exceeded, etc.) → handled in the new location (`amici/docs/decisions/0002`); this ADR is unaffected.
 
 ## References
 

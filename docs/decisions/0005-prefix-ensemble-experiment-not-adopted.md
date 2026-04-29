@@ -181,8 +181,8 @@ Negative:
 
 - Parent issue #53 (search-quality programme, Phase 1–6)
 - This issue #70 (Phase 6 prefix ensemble — experiment scope)
-- ADR 0003 (`adr/0003-evaluation-methodology.md`) — eval harness methodology, bootstrap CI tolerance, fixture posture
-- ADR 0004 (`adr/0004-retrieval-and-rerank-pipeline-contract-for-rurico.md`) — `CandidateSource` closed-enum frozen at `{ Fts, Vector }`; Stage 1 source-variant placeholder for Phase 6 (now closed by this ADR)
+- ADR 0003 (`docs/decisions/0003-evaluation-methodology.md`) — eval harness methodology, bootstrap CI tolerance, fixture posture
+- ADR 0004 (`docs/decisions/0004-retrieval-and-rerank-pipeline-contract-for-rurico.md`) — `CandidateSource` closed-enum frozen at `{ Fts, Vector }`; Stage 1 source-variant placeholder for Phase 6 (now closed by this ADR)
 - Memory `project_reranker_saves_fts_recall.md` — prior observation that retrieval-side knobs are washed out by the cross-encoder
 - Memory `feedback_no_artifact_metrics.md` — reranker-bypass evaluation as Goodhart-law anti-pattern
 - ruri-v3 prefix scheme: <https://huggingface.co/collections/cl-nagoya/ruri-v3>
