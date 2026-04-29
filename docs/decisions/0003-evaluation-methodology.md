@@ -1,6 +1,6 @@
 # ADR 0003: Search Quality Evaluation Methodology for `rurico`
 
-- Status: Superseded by [`amici/docs/adr/0002-evaluation-methodology.md`](https://github.com/thkt/amici/blob/main/docs/adr/0002-evaluation-methodology.md) (migration recorded in [ADR 0006](./0006-eval-harness-migration-to-amici.md))
+- Status: Superseded by [`amici/docs/decisions/0002-evaluation-methodology.md`](https://github.com/thkt/amici/blob/main/docs/decisions/0002-evaluation-methodology.md) (migration recorded in [ADR 0006](./0006-eval-harness-migration-to-amici.md))
 - Date: 2026-04-25
 - Confidence: medium-high. Reference composition pattern is empirically established in `recall/src/hybrid.rs`; statistical significance via bootstrap CI on 140+ query fixtures is a well-known IR convention; the unknown is whether mlx inference f32 drift across machines / mlx-rs versions stays inside the regeneration tolerance already adopted by ADR 0002.
 
@@ -142,7 +142,7 @@ Negative:
 3. **Phase 1c** (commit 9088dbd): implement `src/eval/pipeline.rs` (recall-inspired composition) and `src/eval/baseline.rs` (JSON + markdown serialisation, `UNINFORMATIVE_HALF_WIDTH = 0.10`).
 4. **Phase 1d** (commit f2b3ce3): implement `src/bin/eval_harness.rs` (mlx_smoke pattern, modes: `evaluate`, `capture-baseline`, `capture-reverse-baseline`, `verify-baseline`) and `tests/eval_smoke.rs` (subprocess-driven assertions, T-013/014/015/016/017/019). Gate behind `[features] eval-harness = []` so default `cargo test` skips the evaluation module entirely (FR-018); opt-in via `cargo test --workspace --features eval-harness -- --ignored` (FR-019).
 5. **Phase 1e**: run `eval_harness capture-baseline` and `eval_harness capture-reverse-baseline` on Apple Silicon with `ruri-v3-310m` cached; commit `tests/fixtures/eval/baseline.json`, `tests/fixtures/eval/reverse_baseline.json`, and `docs/eval/baseline.md` (`## Methodology`, `## Per-category breakdown`, `## Reproducibility`).
-6. **Phase 1f**: finalise this ADR with implementation-confirmed details and add the corresponding row to `adr/README.md`.
+6. **Phase 1f**: finalise this ADR with implementation-confirmed details and add the corresponding row to `docs/decisions/README.md`.
 
 ## Reassessment Triggers
 
@@ -163,4 +163,4 @@ Negative:
 - `rurico/src/storage/search.rs:150,191` (primitives `rrf_merge`, `prepare_match_query`)
 - `rurico/src/embed/embedder.rs` (`Embed` trait surface)
 - `rurico/tests/mlx_smoke.rs` (subprocess test pattern, reused)
-- `rurico/adr/0002-gpu-side-pooling-embed.md` (regeneration tolerance and probe-bin pattern, reused)
+- `rurico/docs/decisions/0002-gpu-side-pooling-embed.md` (regeneration tolerance and probe-bin pattern, reused)
