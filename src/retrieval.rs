@@ -65,9 +65,9 @@ pub struct Candidate {
 ///
 /// Score sign is "higher is better" (post-RRF fused score). Stage 3 may
 /// rewrite, drop, or re-order entries; the resulting `Vec` becomes the input
-/// to Stage 4 (rerank). Also serves as the public ranked-hit type returned
-/// from `eval::pipeline::QueryResult` — Serialize/Deserialize keep the
-/// pipeline output JSON shape unchanged across the merge boundary.
+/// to Stage 4 (rerank). Also serves as the public ranked-hit type for
+/// downstream pipeline outputs — Serialize/Deserialize keep the pipeline
+/// output JSON shape unchanged across the merge boundary.
 ///
 /// `source_scores` records per-source contributions so downstream UIs can
 /// display score breakdown and debugging surfaces can attribute fusion
@@ -340,7 +340,7 @@ pub trait Aggregator {
 /// Identity aggregator — returns the input unchanged.
 ///
 /// Default for the reference pipeline composition; preserves the pre-Phase-3
-/// behaviour where each `EvalDocument` produces exactly one hit. The sort
+/// behaviour where each input document produces exactly one hit. The sort
 /// invariant is upheld by pass-through because Stage 2 RRF merge already
 /// emits score-descending output.
 #[derive(Debug, Default, Clone, Copy)]

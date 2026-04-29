@@ -51,9 +51,10 @@ impl Default for QueryNormalizationConfig {
 impl QueryNormalizationConfig {
     /// All steps off — the literal pre-Phase-5 behaviour.
     ///
-    /// Used by the serde-default path on [`crate::eval::baseline::BaselineSnapshot`]
-    /// so a baseline file written before normalization existed round-trips with
-    /// the same metric values it was captured under.
+    /// Used by the serde-default path on `amici::eval::baseline::BaselineSnapshot`
+    /// (eval harness migrated to amici per ADR 0006) so a baseline file written
+    /// before normalization existed round-trips with the same metric values it
+    /// was captured under.
     #[must_use]
     pub const fn disabled() -> Self {
         Self {

@@ -17,12 +17,11 @@ Apple Silicon (MLX) 上で日本語テキストのembedding・reranking・類似
 | `modernbert`  | ModernBERT モデル定義と config                                                                                                        |
 | `storage`     | SQLite + sqlite-vec のベクトル検索プリミティブ（FTS sanitize / `MatchFtsQuery`、`rrf_merge`、`recency_decay`、`QueryNormalizationConfig`） |
 | `retrieval`   | 5-stage retrieval pipeline contract（ADR 0004）— `Candidate` / `MergedHit` / `MergeStrategy` / `Aggregator` / `HybridSearchConfig` / `RecencyConfig` |
-| `eval` ※     | 検索評価ハーネス（Recall@k / MRR@k / nDCG@k、`tests/fixtures/eval/baseline.json`）。ADR 0003 / Issue #65                              |
 | `text`        | テキスト分割（段落 > 行 > 文字境界で UTF-8 安全に分割）                                                                               |
 | `artifacts`   | モデルファイルの型付き検証パイプライン（`CandidateArtifacts` → `VerifiedArtifacts`）                                                  |
 | `model_probe` | サブプロセス probe 基盤（`handle_probe_if_needed`、`ProbeStatus`）                                                                    |
 
-※ `eval` モジュールと `eval_harness` バイナリは `eval-harness` feature で gate されている。詳細は [テスト](#テスト) と [検索評価ハーネス](#検索評価ハーネス) を参照。
+検索品質の評価ハーネス（Recall@k / MRR@k / nDCG@k）は [`amici`](https://github.com/thkt/amici) に移譲した。詳細は ADR 0006 を参照。
 
 ## 要件
 
@@ -358,46 +357,13 @@ assert_eq!(v.len(), 768);
 ```sh
 cargo test --workspace                                          # MLX ランタイム不要のテスト
 cargo test --workspace --features test-mlx -- --ignored         # MLX ランタイムテスト（通常 Terminal 推奨）
-cargo test --workspace --features eval-harness                  # 検索評価ハーネスの単体テスト
 ```
 
 Codex Desktop の `CODEX_SANDBOX=seatbelt` 環境では、MLX / Metal 初期化が abort することがあるため、
 smoke binary は専用 exit code で停止し、`test-mlx` は ignored のままにしている。
 実検証は通常の Terminal か、sandbox 外の実行環境で行う。
 
-## 検索評価ハーネス
-
-`eval-harness` feature を有効にすると、検索品質を **Recall@k / MRR@k / nDCG@k** （95% bootstrap CI、`n = 1000`、`seed = 42`）で計測できる。Issue #53 (Phase 1〜6 + chunk-level retrieval #76) で構築した。
-
-- Fixture: `tests/fixtures/eval/`（60 docs × 7 ドメイン、147 queries × 7 IR categories、graded relevance `{0, 1, 2, 3}`、表記ゆれを含む `variant_notation` 21 件を含む）
-- Baseline スナップショット: `tests/fixtures/eval/baseline.json`（`schema_version: "1.1"`、`fnv1a64:` fixture hash 付き）
-- Methodology: ADR 0003、再現手順は `docs/eval/baseline.md`
-- Pipeline 設計: ADR 0004（5-stage contract）
-
-```sh
-# ベースラインを再生成（MLX 必要、Apple Silicon）
-cargo run --release --features eval-harness --bin eval_harness -- \
-    capture-baseline output=tests/fixtures/eval/baseline.json
-
-# 既存スナップショットからのドリフトを検証（exit 0 = pass、1 = regression、2 = usage、3 = infra）
-cargo run --release --features eval-harness --bin eval_harness -- \
-    verify-baseline baseline=tests/fixtures/eval/baseline.json
-
-# 複数 baseline のメトリクス差分を markdown matrix で比較（Phase 4 #68）
-cargo run --release --features eval-harness --bin eval_harness -- \
-    compare-baselines paths=baselines/default.json,baselines/fts-heavy.json
-```
-
-`capture-baseline` で受けるチューニング flag:
-
-| flag                                              | 効果                                              |
-| ------------------------------------------------- | ------------------------------------------------- |
-| `aggregation=identity\|max-chunk\|dedupe\|topk-average` | Stage 3 aggregator を切り替える                   |
-| `rrf_k=`                                          | RRF の k 値（default 60.0）                       |
-| `fts_weight=` / `vector_weight=`                  | Stage 2 の per-source weight                      |
-| `normalize_nfkc=` / `normalize_lowercase=` / `normalize_collapse_whitespace=` | Stage 1 の query normalization step を個別 on/off |
-
-なお、Phase 6 prefix-ensemble（Issue #70）は ADR 0005 で **Not Adopted** と結論済みのため、`CandidateSource` は `{ Fts, Vector }` の閉 enum に固定されている。
+検索品質の評価（Recall@k / MRR@k / nDCG@k）は [`amici`](https://github.com/thkt/amici) で行う。詳細は amici 側の ADR 0002 と rurico ADR 0006 を参照。Phase 6 prefix-ensemble（Issue #70）は ADR 0005 で **Not Adopted** と結論済みのため、`CandidateSource` は `{ Fts, Vector }` の閉 enum に固定されている。
 
 ## ライセンス
 
