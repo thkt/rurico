@@ -13,14 +13,8 @@ publish = false
 exclude = [".claude/", ".yomu/", "workspace/"]
 
 [features]
-eval-harness = []
 test-mlx = []
 test-support = []
-
-[[bin]]
-name = "eval_harness"
-path = "src/bin/eval_harness.rs"
-required-features = ["eval-harness"]
 
 [dependencies]
 bytemuck = "1"

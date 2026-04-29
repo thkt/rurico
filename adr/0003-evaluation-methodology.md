@@ -1,6 +1,6 @@
 # ADR 0003: Search Quality Evaluation Methodology for `rurico`
 
-- Status: Accepted
+- Status: Superseded by [`amici/docs/adr/0002-evaluation-methodology.md`](https://github.com/thkt/amici/blob/main/docs/adr/0002-evaluation-methodology.md) (migration recorded in [ADR 0006](./0006-eval-harness-migration-to-amici.md))
 - Date: 2026-04-25
 - Confidence: medium-high. Reference composition pattern is empirically established in `recall/src/hybrid.rs`; statistical significance via bootstrap CI on 140+ query fixtures is a well-known IR convention; the unknown is whether mlx inference f32 drift across machines / mlx-rs versions stays inside the regeneration tolerance already adopted by ADR 0002.
 
