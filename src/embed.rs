@@ -197,7 +197,7 @@ pub(crate) fn truncate_for_query(
 ) -> (Vec<u32>, Vec<u32>, usize) {
     let orig_len = input_ids.len();
     if truncate_with_eos(&mut input_ids, &mut attention_mask, max_len) {
-        log::warn!("query exceeds max_seq_len ({orig_len} > {max_len}), truncating");
+        tracing::warn!(orig_len, max_len, "query exceeds max_seq_len, truncating");
     }
     let len = input_ids.len();
     (input_ids, attention_mask, len)

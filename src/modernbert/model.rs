@@ -282,7 +282,7 @@ impl ModernBert {
     ///
     /// When `seq_len` exceeds `config.max_position_embeddings`, the input is
     /// truncated as a defense-in-depth fallback; `Ok` is returned with a shorter
-    /// output tensor and a `log::warn!` warning is emitted.
+    /// output tensor and a `tracing::warn!` warning is emitted.
     ///
     /// Exception messages are backend-generated and should be treated as opaque.
     pub fn forward(
@@ -317,9 +317,10 @@ impl ModernBert {
         let max_seq = i32::try_from(self.max_seq_len).expect("bounded by model config");
         if seq_len > max_seq {
             // Defense-in-depth: truncate oversize inputs, validating only the effective prefix.
-            log::warn!(
-                "model.forward: seq_len ({seq_len}) exceeds max_seq_len ({max_seq}), \
-                 truncating as defense-in-depth fallback"
+            tracing::warn!(
+                seq_len,
+                max_seq,
+                "model.forward: seq_len exceeds max_seq_len, truncating as defense-in-depth fallback"
             );
             let bs = batch_size as usize;
             let old_len = seq_len as usize;

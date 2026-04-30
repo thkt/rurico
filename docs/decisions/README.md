@@ -8,3 +8,4 @@
 | [0004](./0004-retrieval-and-rerank-pipeline-contract-for-rurico.md) | Retrieval and Rerank Pipeline Contract for `rurico` | Accepted | 2026-04-26 |
 | [0005](./0005-prefix-ensemble-experiment-not-adopted.md) | Phase 6 Prefix-Ensemble Experiment — Not Adopted | Accepted | 2026-04-27 |
 | [0006](./0006-eval-harness-migration-to-amici.md) | Migrate Search-Quality Evaluation Harness from `rurico` to `amici` | Accepted | 2026-04-27 |
+| [0007](./0007-library-logging-boundary.md) | Library Logging Boundary — `rurico` Emits Internal Recovery Warns, CLI Emits Caller Boundary Warns | Accepted | 2026-04-30 |

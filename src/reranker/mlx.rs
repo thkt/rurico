@@ -63,12 +63,21 @@ impl RerankerInner {
             let flat: &[f32] = output.as_slice();
             let flat_len = flat.len();
             if flat_len != batch_size {
+                tracing::warn!(
+                    expected = batch_size,
+                    actual = flat_len,
+                    "score_batch: output shape mismatch"
+                );
                 return Err(RerankerError::inference(format!(
                     "score_batch: expected {batch_size} scores, got {flat_len}"
                 )));
             }
             let scores: Vec<f32> = flat.iter().map(|&logit| sigmoid(logit)).collect();
             if scores.iter().any(|v| !v.is_finite()) {
+                tracing::warn!(
+                    batch_size,
+                    "score_batch: non-finite output detected (NaN or Inf in reranker scores)"
+                );
                 return Err(RerankerError::NonFiniteOutput);
             }
             Ok(scores)
@@ -156,7 +165,12 @@ pub(super) fn truncate_pair(
 ) {
     let orig_len = ids.len();
     if truncate_with_eos(ids, mask, max_len) {
-        log::warn!("pair {pair_idx} exceeds max_seq_len ({orig_len} > {max_len}), truncating");
+        tracing::warn!(
+            pair_idx,
+            orig_len,
+            max_len,
+            "pair exceeds max_seq_len, truncating"
+        );
     }
 }
 

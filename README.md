@@ -325,7 +325,7 @@ stmt.execute(rusqlite::params![f32_as_bytes(&vector)])?;
 
 ### ログ出力
 
-内部の警告は `log` crate経由で出力される。`env_logger::init()` 等でloggerを初期化すると観測できる。
+内部の警告は `tracing` crate 経由で `warn` レベルで出力される。`tracing_subscriber` を初期化し、`RUST_LOG=rurico=warn` または EnvFilter に `rurico=warn` directive を含めることで観測できる（amici を使う CLI は `amici::logging::init_subscriber` 経由で自動的に観測される）。
 
 ### テストサポート（downstream 向け）
 

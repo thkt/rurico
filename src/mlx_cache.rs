@@ -48,16 +48,16 @@ pub(crate) fn release_inference_output(output: mlx_rs::Array) {
 /// to preserve the drop-before-clear ordering.
 pub(crate) fn clear_inference_cache() {
     let _guard = MLX_CACHE_LOCK.lock().unwrap_or_else(|e| {
-        log::warn!("MLX cache lock was poisoned; recovering");
+        tracing::warn!("MLX cache lock was poisoned; recovering");
         e.into_inner()
     });
     let code = rurico_ffi::mlx_clear_cache();
     if code != 0 {
-        log::warn!("mlx_clear_cache failed (code: {code})");
+        tracing::warn!(code, "mlx_clear_cache failed");
     }
     let code = rurico_ffi::mlx_compile_clear_cache();
     if code != 0 {
-        log::warn!("mlx_detail_compile_clear_cache failed (code: {code})");
+        tracing::warn!(code, "mlx_detail_compile_clear_cache failed");
     }
 }
 

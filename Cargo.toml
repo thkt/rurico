@@ -15,11 +15,22 @@ exclude = [".claude/", ".yomu/", "workspace/"]
 [features]
 test-mlx = []
 test-support = []
+# Gate the `mlx_smoke` binary and its integration test behind a feature so
+# `tracing-subscriber` does not enter downstream library users' dependency
+# graph. Enable with `cargo build/run/test --features smoke`.
+smoke = ["dep:tracing-subscriber"]
+
+[[bin]]
+name = "mlx_smoke"
+required-features = ["smoke"]
+
+[[test]]
+name = "mlx_smoke"
+required-features = ["smoke"]
 
 [dependencies]
 bytemuck = "1"
 hf-hub = "0.5"
-log = "0.4"
 mlx-rs = "0.25"
 rand = "0.10"
 rand_chacha = "0.10"
@@ -29,11 +40,14 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 tokenizers = { version = "0.23", default-features = false, features = ["onig"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }
 unicode-normalization = "0.1"
 
 [dev-dependencies]
 serial_test = "3"
 tempfile = "3"
+tracing-test = "0.2"
 
 [lints.rust]
 unsafe_code = "forbid"
