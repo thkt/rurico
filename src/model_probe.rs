@@ -220,7 +220,7 @@ where
         thread::spawn(move || {
             let mut buf = Vec::new();
             if let Err(e) = stream.read_to_end(&mut buf) {
-                log::warn!("probe: failed to drain child {label}: {e}");
+                tracing::warn!(label, error = %e, "probe: failed to drain child");
             }
             let _ = tx.send(buf);
         });
@@ -243,14 +243,15 @@ fn collect_pipe(recv: Option<Receiver<Vec<u8>>>, label: &str) -> Vec<u8> {
     match rx.recv_timeout(COLLECT_PIPE_TIMEOUT) {
         Ok(buf) => buf,
         Err(RecvTimeoutError::Timeout) => {
-            log::warn!(
-                "probe: child {label} drain timed out after {}s; reader thread will leak",
-                COLLECT_PIPE_TIMEOUT.as_secs()
+            tracing::warn!(
+                label,
+                timeout_secs = COLLECT_PIPE_TIMEOUT.as_secs(),
+                "probe: child drain timed out; reader thread will leak"
             );
             Vec::new()
         }
         Err(RecvTimeoutError::Disconnected) => {
-            log::warn!("probe: child {label} reader thread dropped channel");
+            tracing::warn!(label, "probe: child reader thread dropped channel");
             Vec::new()
         }
     }
@@ -294,9 +295,9 @@ fn wait_with_timeout(child: &mut Child, timeout: Duration) -> Result<Output, Pro
             }
             Ok(None) => {
                 if Instant::now() >= deadline {
-                    log::warn!(
-                        "probe subprocess timed out after {}s, killing",
-                        timeout.as_secs()
+                    tracing::warn!(
+                        timeout_secs = timeout.as_secs(),
+                        "probe subprocess timed out, killing"
                     );
                     let _ = child.kill();
                     let status = child.wait().map_err(|e| {

@@ -32,15 +32,15 @@ chunk-test:
 
 # Capture embed fixture → tests/fixtures/embed/{w1,w2,w3}.bin
 embed-capture:
-    cargo run --bin mlx_smoke --release -- capture-fixture
+    cargo run --bin mlx_smoke --features smoke --release -- capture-fixture
 
 # Measure embed speed / padding / R² baseline (stderr diagnostics)
 embed-baseline:
-    cargo run --bin mlx_smoke --release -- measure-baseline
+    cargo run --bin mlx_smoke --features smoke --release -- measure-baseline
 
 # Verify embed fixture parity (cosine_min ≥ 0.99999, max_abs_diff ≤ 1e-5)
 embed-verify:
-    cargo run --bin mlx_smoke --release -- verify-fixture
+    cargo run --bin mlx_smoke --features smoke --release -- verify-fixture
 
 # === Probe smoke (subprocess probe contract) ===
 

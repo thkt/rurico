@@ -1,6 +1,6 @@
 //! Phase timing and batch shape counters for the embed pipeline.
 //!
-//! One `log::debug!` line per `embed_*` call so that bottlenecks can be read
+//! One `tracing::debug!` line per `embed_*` call so that bottlenecks can be read
 //! from a run log without extra infrastructure.
 //!
 //! [`PhaseMetrics`] is the internal accumulator, `pub(super)` so only the
@@ -125,9 +125,7 @@ impl PhaseMetrics {
 
     /// Emit one structured debug line summarising this call.
     pub(super) fn log(&self) {
-        if log::log_enabled!(log::Level::Debug) {
-            log::debug!("{}", self.format_log());
-        }
+        tracing::debug!("{}", self.format_log());
     }
 }
 

@@ -475,6 +475,10 @@ pub(super) fn shrink_chunk_to_fit(
     let byte_start = offsets[start].0;
     loop {
         if *end <= start {
+            tracing::warn!(
+                start_token = start,
+                "chunk cannot fit within MAX_SEQ_LEN after adaptive shrink"
+            );
             return Err(EmbedError::inference(format!(
                 "chunk at token {start} cannot fit within \
                  MAX_SEQ_LEN after adaptive shrink"
@@ -553,12 +557,24 @@ pub(super) fn split_pooled(
 ) -> Result<Vec<Vec<f32>>, EmbedError> {
     let expected = batch_size.saturating_mul(hidden_size);
     if flat.len() != expected {
+        tracing::warn!(
+            expected,
+            actual = flat.len(),
+            batch_size,
+            hidden_size,
+            "split_pooled: buffer shape mismatch"
+        );
         return Err(EmbedError::BufferShapeMismatch {
             expected,
             actual: flat.len(),
         });
     }
     if !flat.iter().all(|v| v.is_finite()) {
+        tracing::warn!(
+            batch_size,
+            hidden_size,
+            "split_pooled: non-finite output detected (NaN or Inf in pooled buffer)"
+        );
         return Err(EmbedError::NonFiniteOutput);
     }
     if batch_size == 0 {
@@ -578,6 +594,7 @@ mod tests {
     use std::sync::{Mutex, PoisonError};
 
     use mlx_rs::Array;
+    use tracing_test::traced_test;
 
     use super::super::EmbedError;
     use super::{
@@ -971,5 +988,30 @@ mod tests {
             Err(EmbedError::NonFiniteOutput) => {}
             other => panic!("[T-015] expected Err(NonFiniteOutput), got {other:?}"),
         }
+    }
+
+    // T-012: emits warn so operators can diagnose corrupt readback (see ADR 0007).
+    #[traced_test]
+    #[test]
+    fn t_012_split_pooled_emits_warn_on_buffer_shape_mismatch() {
+        let flat: Vec<f32> = vec![0.0; 7]; // expected 8
+        let _ = split_pooled(&flat, 2, 4);
+        assert!(
+            logs_contain("split_pooled: buffer shape mismatch"),
+            "warn must be emitted on shape mismatch"
+        );
+    }
+
+    // T-015: emits warn so operators can distinguish kernel overflow / corrupt
+    // weights from upstream input errors (see ADR 0007).
+    #[traced_test]
+    #[test]
+    fn t_015_split_pooled_emits_warn_on_non_finite_output() {
+        let flat: Vec<f32> = vec![0.0, 1.0, f32::NAN, 3.0];
+        let _ = split_pooled(&flat, 1, 4);
+        assert!(
+            logs_contain("split_pooled: non-finite output"),
+            "warn must be emitted on non-finite output"
+        );
     }
 }
