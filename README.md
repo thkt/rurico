@@ -352,6 +352,26 @@ let v = embedder.embed_query("テスト")?;
 assert_eq!(v.len(), 768);
 ```
 
+## Development
+
+### Setup
+
+Run once after cloning:
+
+```sh
+git config --local core.hooksPath .githooks
+```
+
+This installs a pre-commit hook that runs `cargo fmt --all -- --check` and `cargo clippy --workspace --all-targets --all-features -- -D warnings` before each commit. Violations abort the commit. To skip for one commit: `git commit --no-verify`.
+
+### Common commands
+
+```sh
+cargo test --workspace                                                  # all tests
+cargo clippy --workspace --all-targets --all-features -- -D warnings    # lint (matches CI)
+cargo fmt --all -- --check                                              # format check
+```
+
 ## テスト
 
 ```sh
