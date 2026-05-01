@@ -17,6 +17,8 @@ use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
 
 pub use crate::artifacts::{ArtifactError, RerankerKind, VerifiedArtifacts};
+#[cfg(any(test, feature = "test-support"))]
+pub use test_support::MockReranker;
 
 /// Probe env-var key for the reranker model weights path.
 pub(crate) const PROBE_ENV_MODEL: &str = "__RURICO_RERANKER_PROBE_MODEL";
@@ -24,9 +26,6 @@ pub(crate) const PROBE_ENV_MODEL: &str = "__RURICO_RERANKER_PROBE_MODEL";
 pub(crate) const PROBE_ENV_CONFIG: &str = "__RURICO_RERANKER_PROBE_CONFIG";
 /// Probe env-var key for the reranker model tokenizer path.
 pub(crate) const PROBE_ENV_TOKENIZER: &str = "__RURICO_RERANKER_PROBE_TOKENIZER";
-
-#[cfg(any(test, feature = "test-support"))]
-pub use test_support::MockReranker;
 
 // ── Domain alias ─────────────────────────────────────────────────────────────
 
