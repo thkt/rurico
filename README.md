@@ -32,8 +32,10 @@ Apple Silicon (MLX) 上で日本語テキストのembedding・reranking・類似
 
 ```toml
 [dependencies]
-rurico = { git = "https://github.com/thkt/rurico", rev = "main" }
+rurico = { git = "https://github.com/thkt/rurico", tag = "v0.2.0" }
 ```
+
+`tag` は [Cargo.toml の `version`](Cargo.toml) と同期する。新しい release を取り込む場合は [tag 一覧](https://github.com/thkt/rurico/tags) から最新 tag を確認して上書きする。
 
 MLXの初期化失敗はプロセスをabortする可能性がある。`probe` でモデルのロード可否を子プロセスで検証してからEmbedderを作成する。
 
