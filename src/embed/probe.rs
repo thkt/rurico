@@ -2,7 +2,7 @@ use super::{
     Artifacts, CandidateArtifacts, EmbedInitError, PROBE_ENV_CONFIG, PROBE_ENV_MODEL,
     PROBE_ENV_TOKENIZER,
 };
-use crate::model_probe::{self, ProbeStatus, resolve_probe_env};
+use crate::model_probe::{self, ProbeStatus, resolve_probe_env, validate_probe_paths};
 
 /// Resolve probe env vars into a [`CandidateArtifacts`].
 ///
@@ -14,8 +14,13 @@ pub(crate) fn probe_env_to_paths(
     config: Option<String>,
     tokenizer: Option<String>,
 ) -> Option<Result<CandidateArtifacts, i32>> {
-    resolve_probe_env(model, config, tokenizer)
-        .map(|r| r.map(|(m, c, t)| CandidateArtifacts::from_paths(m, c, t)))
+    resolve_probe_env(model, config, tokenizer).map(|r| {
+        r.and_then(|(m, c, t)| {
+            validate_probe_paths(&m, &c, &t)?;
+            Ok((m, c, t))
+        })
+        .map(|(m, c, t)| CandidateArtifacts::from_paths(m, c, t))
+    })
 }
 
 /// Re-exec the current binary as a probe subprocess for the embedding model.

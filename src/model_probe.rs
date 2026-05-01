@@ -6,10 +6,12 @@
 //! (embed, reranker) call [`probe_via_subprocess`] to re-exec the current
 //! binary as an isolated probe.
 
+use std::collections::HashMap;
 use std::env;
 use std::fmt;
+use std::fs;
 use std::io::{self, Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{self, Child, Command, Output, Stdio};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::thread;
@@ -26,6 +28,66 @@ pub const PROBE_ACK: &str = "RURICO_PROBE_OK";
 /// Exit code used when a probe subprocess was invoked with the primary model env var
 /// set but the config or tokenizer env vars were missing.
 pub(crate) const PROBE_EXIT_ENV_INCOMPLETE: i32 = 3;
+
+/// Exit code returned by the probe child when `std::fs::canonicalize` fails on
+/// any of the candidate paths (file missing, permission denied, symlink loop).
+pub(crate) const PROBE_EXIT_CANONICALIZE_FAILED: i32 = 4;
+
+/// Exit code returned by the probe child when a candidate path's canonical form
+/// is not a component-wise descendant of the canonical cache root.
+pub(crate) const PROBE_EXIT_PATH_OUTSIDE_CACHE: i32 = 5;
+
+/// Exit code returned by the probe child when `std::fs::canonicalize` fails on
+/// the cache root itself (HF cache directory missing or unreadable).
+pub(crate) const PROBE_EXIT_CACHE_ROOT_INVALID: i32 = 6;
+
+/// Verify that `model`, `config`, and `tokenizer` paths all canonicalize to
+/// component-wise descendants of `cache_root`. The candidate paths are
+/// not modified — the load step receives the original symlink path so HF
+/// cache snapshot symlinks (`snapshots/<commit>/<file>` -> `blobs/<etag>`)
+/// keep their original filenames, preserving MLX's extension-based dispatch.
+///
+/// # Errors
+///
+/// - [`PROBE_EXIT_CACHE_ROOT_INVALID`] if `cache_root` cannot be canonicalized
+/// - [`PROBE_EXIT_CANONICALIZE_FAILED`] if any candidate path cannot be canonicalized
+/// - [`PROBE_EXIT_PATH_OUTSIDE_CACHE`] if any candidate path's canonical form
+///   is not a component-wise descendant of `cache_root`'s canonical form
+pub(crate) fn validate_probe_paths_with_root(
+    model: &Path,
+    config: &Path,
+    tokenizer: &Path,
+    cache_root: &Path,
+) -> Result<(), i32> {
+    let canon_root = fs::canonicalize(cache_root).map_err(|_| PROBE_EXIT_CACHE_ROOT_INVALID)?;
+    for p in [model, config, tokenizer] {
+        let canon = fs::canonicalize(p).map_err(|_| PROBE_EXIT_CANONICALIZE_FAILED)?;
+        if !canon.starts_with(&canon_root) {
+            return Err(PROBE_EXIT_PATH_OUTSIDE_CACHE);
+        }
+    }
+    Ok(())
+}
+
+/// Production wrapper for [`validate_probe_paths_with_root`] that resolves
+/// the cache root via [`hf_hub::Cache::from_env`].
+///
+/// `Cache::from_env()` reads `HF_HOME` and falls back to the user's default
+/// `~/.cache/huggingface/hub`. The cache resolution happens at call time so
+/// parallel tests using `temp_env::with_vars` to scope env vars do not poison
+/// each other.
+///
+/// # Errors
+///
+/// Same as [`validate_probe_paths_with_root`].
+pub(crate) fn validate_probe_paths(
+    model: &Path,
+    config: &Path,
+    tokenizer: &Path,
+) -> Result<(), i32> {
+    let cache = hf_hub::Cache::from_env();
+    validate_probe_paths_with_root(model, config, tokenizer, cache.path())
+}
 
 /// Result of a model probe — whether the backend can load the model.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,9 +113,32 @@ pub enum ProbeError {
         /// Failure detail from stderr.
         reason: String,
     },
+    /// Setup-phase rejection (path validation or env hardening) in the probe child.
+    ///
+    /// `code` is one of [`PROBE_EXIT_CANONICALIZE_FAILED`] (4),
+    /// [`PROBE_EXIT_PATH_OUTSIDE_CACHE`] (5), or
+    /// [`PROBE_EXIT_CACHE_ROOT_INVALID`] (6).
+    #[error("probe setup rejected (code {code}: {})", setup_label(*code))]
+    SetupRejected {
+        /// Setup-phase exit code.
+        code: i32,
+    },
     /// Subprocess spawn or wait failure.
     #[error("probe error: {0}")]
     SubprocessFailed(String),
+}
+
+/// Human-readable label for a setup-phase exit code, used in
+/// [`ProbeError::SetupRejected`] Display and in [`setup_failure_message`]
+/// (child stderr message).
+fn setup_label(code: i32) -> &'static str {
+    match code {
+        PROBE_EXIT_ENV_INCOMPLETE => "env incomplete",
+        PROBE_EXIT_CANONICALIZE_FAILED => "path canonicalize failed",
+        PROBE_EXIT_PATH_OUTSIDE_CACHE => "path outside cache",
+        PROBE_EXIT_CACHE_ROOT_INVALID => "cache root invalid",
+        _ => "unknown setup failure",
+    }
 }
 
 /// Resolve probe env vars into a `(model, config, tokenizer)` path triple.
@@ -148,6 +233,64 @@ pub fn probe_via_subprocess(env_pairs: &[(&str, &str)]) -> Result<ProbeStatus, P
     probe_via_subprocess_with(exe, env_pairs)
 }
 
+/// Allowlist of environment variable keys that the probe child inherits from
+/// the parent. After [`Command::env_clear`], only these keys plus the caller's
+/// `env_pairs` are applied to the spawn command, eliminating env-injection
+/// vectors that bypass `__RURICO_PROBE_*` validation (e.g. `HF_HOME`
+/// re-targeting).
+///
+/// New runtime dependencies that read environment variables must be added here
+/// (with rationale) for the probe to function in their presence.
+pub(super) const FORWARD: &[&str] = &[
+    // exe lookup
+    "PATH",
+    // Cache::from_env default fallback root resolution (`<HOME>/.cache/huggingface/hub`)
+    "HOME",
+    // HF cache root override
+    "HF_HOME",
+    // HF cache root override (alt)
+    "HF_HUB_CACHE",
+    // private repo authentication (optional)
+    "HF_TOKEN",
+    // macOS dynamic linker
+    "DYLD_LIBRARY_PATH",
+    // macOS dynamic linker fallback
+    "DYLD_FALLBACK_LIBRARY_PATH",
+    // Linux dynamic linker
+    "LD_LIBRARY_PATH",
+    // locale
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    // tokenizers / tempfile cache
+    "TMPDIR",
+    "TMP",
+    // diagnostic
+    "RUST_LOG",
+    "RUST_BACKTRACE",
+];
+
+/// Compute the exact env map that [`probe_via_subprocess_with`] applies to
+/// the child after [`Command::env_clear`]. Pure function — does not spawn a
+/// child or mutate parent env. Tests assert against the returned map directly,
+/// avoiding the Rust 2024 unsafe-`set_var` parallel-test problem.
+///
+/// The map combines two sources:
+/// 1. Parent env vars matching keys in [`FORWARD`] (undefined keys are skipped silently)
+/// 2. Caller `env_pairs` (overlays / overrides FORWARD entries)
+pub(super) fn child_env_for_spawn(env_pairs: &[(&str, &str)]) -> HashMap<String, String> {
+    let mut env = HashMap::new();
+    for &key in FORWARD {
+        if let Ok(value) = env::var(key) {
+            env.insert(key.into(), value);
+        }
+    }
+    for &(key, value) in env_pairs {
+        env.insert(key.into(), value.into());
+    }
+    env
+}
+
 /// Like [`probe_via_subprocess`] but the executable to re-exec is provided
 /// explicitly. Used by tests to avoid depending on `env::current_exe()`.
 pub fn probe_via_subprocess_with(
@@ -155,7 +298,9 @@ pub fn probe_via_subprocess_with(
     env_pairs: &[(&str, &str)],
 ) -> Result<ProbeStatus, ProbeError> {
     let mut cmd = Command::new(exe);
-    for &(key, value) in env_pairs {
+    cmd.env_clear();
+    let env = child_env_for_spawn(env_pairs);
+    for (key, value) in &env {
         cmd.env(key, value);
     }
     let mut child = cmd
@@ -322,6 +467,11 @@ pub(crate) fn interpret_probe_output(output: &Output) -> Result<ProbeStatus, Pro
 
     match output.status.code() {
         Some(0) => Ok(ProbeStatus::Available),
+        Some(
+            code @ (PROBE_EXIT_CANONICALIZE_FAILED
+            | PROBE_EXIT_PATH_OUTSIDE_CACHE
+            | PROBE_EXIT_CACHE_ROOT_INVALID),
+        ) => Err(ProbeError::SetupRejected { code }),
         Some(_) => {
             let reason = String::from_utf8_lossy(&output.stderr).trim().to_owned();
             Err(ProbeError::ModelLoadFailed {
@@ -337,240 +487,4 @@ pub(crate) fn interpret_probe_output(output: &Output) -> Result<ProbeStatus, Pro
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn resolve_probe_env_returns_none_when_model_absent() {
-        assert!(resolve_probe_env(None, None, None).is_none());
-        assert!(resolve_probe_env(None, Some("c".into()), Some("t".into())).is_none());
-    }
-
-    #[test]
-    fn resolve_probe_env_returns_err_when_incomplete() {
-        assert_eq!(
-            resolve_probe_env(Some("m".into()), None, Some("t".into())),
-            Some(Err(PROBE_EXIT_ENV_INCOMPLETE))
-        );
-        assert_eq!(
-            resolve_probe_env(Some("m".into()), Some("c".into()), None),
-            Some(Err(PROBE_EXIT_ENV_INCOMPLETE))
-        );
-    }
-
-    #[test]
-    fn resolve_probe_env_returns_paths_when_all_present() {
-        let (model, config, tokenizer) =
-            resolve_probe_env(Some("/m".into()), Some("/c".into()), Some("/t".into()))
-                .unwrap()
-                .unwrap();
-        assert_eq!(model, PathBuf::from("/m"));
-        assert_eq!(config, PathBuf::from("/c"));
-        assert_eq!(tokenizer, PathBuf::from("/t"));
-    }
-
-    fn exit_status(code: i32) -> ExitStatus {
-        Command::new("sh")
-            .args(["-c", &format!("exit {code}")])
-            .status()
-            .unwrap()
-    }
-
-    #[test]
-    fn interpret_available_on_exit_0() {
-        let output = Output {
-            status: exit_status(0),
-            stdout: format!("{PROBE_ACK}\n").into_bytes(),
-            stderr: Vec::new(),
-        };
-        assert_eq!(
-            interpret_probe_output(&output).unwrap(),
-            ProbeStatus::Available
-        );
-    }
-
-    #[test]
-    fn interpret_model_load_failed_on_nonzero_exit() {
-        let output = Output {
-            status: exit_status(1),
-            stdout: format!("{PROBE_ACK}\n").into_bytes(),
-            stderr: b"inference error: bad model".to_vec(),
-        };
-        let err = interpret_probe_output(&output).unwrap_err();
-        assert!(
-            matches!(err, ProbeError::ModelLoadFailed { ref reason } if reason.contains("bad model")),
-            "{err}"
-        );
-    }
-
-    #[test]
-    fn interpret_model_load_failed_empty_stderr() {
-        let output = Output {
-            status: exit_status(1),
-            stdout: format!("{PROBE_ACK}\n").into_bytes(),
-            stderr: Vec::new(),
-        };
-        let err = interpret_probe_output(&output).unwrap_err();
-        assert!(
-            matches!(err, ProbeError::ModelLoadFailed { ref reason } if reason == "model load failed"),
-            "{err}"
-        );
-    }
-
-    #[test]
-    fn interpret_handler_not_installed_on_missing_ack() {
-        let output = Output {
-            status: exit_status(0),
-            stdout: b"unexpected output".to_vec(),
-            stderr: Vec::new(),
-        };
-        let err = interpret_probe_output(&output).unwrap_err();
-        assert!(matches!(err, ProbeError::HandlerNotInstalled), "{err}");
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn interpret_timeout_output_returns_backend_unavailable() {
-        let output = build_timeout_output();
-        assert_eq!(
-            interpret_probe_output(&output).unwrap(),
-            ProbeStatus::BackendUnavailable,
-        );
-    }
-
-    #[test]
-    fn probe_exit_env_incomplete() {
-        let action = compute_probe_exit(Err(PROBE_EXIT_ENV_INCOMPLETE));
-        assert_eq!(action.code, PROBE_EXIT_ENV_INCOMPLETE);
-        assert!(action.message.is_some());
-    }
-
-    #[test]
-    fn probe_exit_load_success() {
-        let action = compute_probe_exit(Ok(Ok(())));
-        assert_eq!(action.code, 0);
-        assert!(action.message.is_none());
-    }
-
-    #[test]
-    fn probe_exit_load_failure() {
-        let action = compute_probe_exit(Ok(Err("bad model".into())));
-        assert_eq!(action.code, 1);
-        assert_eq!(action.message.as_deref(), Some("bad model"));
-    }
-
-    #[test]
-    fn interpret_backend_unavailable_on_signal() {
-        let status = Command::new("sh")
-            .args(["-c", "kill -ABRT $$"])
-            .status()
-            .unwrap();
-        let output = Output {
-            status,
-            stdout: format!("{PROBE_ACK}\n").into_bytes(),
-            stderr: Vec::new(),
-        };
-        assert_eq!(
-            interpret_probe_output(&output).unwrap(),
-            ProbeStatus::BackendUnavailable
-        );
-    }
-
-    #[test]
-    fn wait_with_timeout_drains_verbose_failure_before_timeout() {
-        let mut child = Command::new("sh")
-            .args([
-                "-c",
-                "printf '%s\\n' \"$0\"; \
-                 i=0; \
-                 while [ \"$i\" -lt 5000 ]; do \
-                   printf 'verbose probe failure line %04d\\n' \"$i\" 1>&2; \
-                   i=$((i + 1)); \
-                 done; \
-                 exit 1",
-                PROBE_ACK,
-            ])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
-
-        let output = wait_with_timeout(&mut child, Duration::from_secs(2)).unwrap();
-        assert_eq!(output.status.code(), Some(1), "child should exit normally");
-        assert!(
-            output.stderr.len() > 100_000,
-            "stderr should be fully drained, got {} bytes",
-            output.stderr.len()
-        );
-
-        let err = interpret_probe_output(&output).unwrap_err();
-        assert!(
-            matches!(err, ProbeError::ModelLoadFailed { .. }),
-            "expected verbose failure to remain ModelLoadFailed, got {err}"
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn wait_with_timeout_returns_when_grandchild_inherits_pipes() {
-        let mut child = Command::new("sh")
-            .args(["-c", "sleep 10 & printf '%s\\n' \"$0\"; exit 1", PROBE_ACK])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
-
-        let start = Instant::now();
-        let output = wait_with_timeout(&mut child, Duration::from_secs(30)).unwrap();
-        let elapsed = start.elapsed();
-
-        assert_eq!(
-            output.status.code(),
-            Some(1),
-            "direct child should exit with 1 before the grandchild finishes"
-        );
-        assert!(
-            elapsed < Duration::from_secs(5),
-            "collect_pipe must not wait for the grandchild's inherited FDs; elapsed {elapsed:?}"
-        );
-    }
-
-    #[test]
-    fn probe_via_subprocess_with_reports_spawn_failure_for_missing_exe() {
-        let exe = PathBuf::from("/nonexistent/rurico-probe-test-binary");
-        let err = probe_via_subprocess_with(exe, &[]).unwrap_err();
-        assert!(
-            matches!(err, ProbeError::SubprocessFailed(_)),
-            "expected SubprocessFailed for missing executable, got {err}"
-        );
-    }
-
-    #[test]
-    fn wait_with_timeout_with_kills_long_running_child_on_short_timeout() {
-        let mut child = Command::new("sh")
-            .args(["-c", "sleep 30"])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
-
-        let start = Instant::now();
-        let output = wait_with_timeout_with(
-            &mut child,
-            Duration::from_millis(50),
-            Duration::from_millis(1),
-        )
-        .unwrap();
-        let elapsed = start.elapsed();
-
-        assert!(
-            elapsed < Duration::from_secs(2),
-            "1ms poll interval should detect the 50ms deadline promptly; elapsed {elapsed:?}"
-        );
-        assert!(
-            output.status.code().is_none() || output.status.code() == Some(0),
-            "child should be killed (no exit code) or have exited; got {:?}",
-            output.status.code()
-        );
-    }
-}
+mod tests;
