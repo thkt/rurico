@@ -26,7 +26,6 @@ pub use test_support::{
 };
 
 pub use crate::artifacts::{ArtifactError, EmbedKind, VerifiedArtifacts};
-pub use crate::model_probe::{ProbeStatus, handle_probe_if_needed};
 pub use embedder::Embedder;
 pub use metrics::BatchMetrics;
 pub use pooling::gpu_pool_and_normalize;
@@ -41,6 +40,13 @@ use std::fmt;
 #[cfg(any(test, feature = "test-support"))]
 use std::path::Path;
 use std::path::PathBuf;
+
+/// Probe env-var key for the embedding model weights path.
+pub(crate) const PROBE_ENV_MODEL: &str = "__RURICO_PROBE_MODEL";
+/// Probe env-var key for the embedding model config path.
+pub(crate) const PROBE_ENV_CONFIG: &str = "__RURICO_PROBE_CONFIG";
+/// Probe env-var key for the embedding model tokenizer path.
+pub(crate) const PROBE_ENV_TOKENIZER: &str = "__RURICO_PROBE_TOKENIZER";
 
 // ── Domain alias ─────────────────────────────────────────────────────────────
 

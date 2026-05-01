@@ -8,13 +8,14 @@
 //! `Reranker::probe()` re-execs `current_exe()`, it re-execs this binary —
 //! so the full probe cycle is exercised end-to-end.
 
-use rurico::model_probe;
-use rurico::reranker::{ProbeStatus, Reranker, RerankerModelId, cached_artifacts};
+use rurico::handle_probe_if_needed;
+use rurico::model_probe::ProbeStatus;
+use rurico::reranker::{Reranker, RerankerModelId, cached_artifacts};
 use rurico::sandbox;
 
 fn main() {
     // Must be first: handles re-exec when called as a probe subprocess.
-    model_probe::handle_probe_if_needed();
+    handle_probe_if_needed();
 
     sandbox::exit_if_seatbelt(env!("CARGO_BIN_NAME"));
 
