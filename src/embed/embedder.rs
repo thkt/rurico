@@ -3,9 +3,8 @@ use std::sync::{Mutex, MutexGuard};
 
 use super::metrics::BatchMetrics;
 use super::mlx::EmbedderInner;
-use super::{
-    Artifacts, ChunkedEmbedding, Embed, EmbedError, EmbedInitError, ProbeStatus, QUERY_PREFIX,
-};
+use super::{Artifacts, ChunkedEmbedding, Embed, EmbedError, EmbedInitError, QUERY_PREFIX};
+use crate::model_probe::ProbeStatus;
 
 /// Thread-safe embedding model backed by MLX. Wraps the backend in a [`Mutex`].
 pub struct Embedder {

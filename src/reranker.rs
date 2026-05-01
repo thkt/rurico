@@ -9,10 +9,7 @@ mod tests;
 use self::mlx::RerankerInner;
 use crate::artifacts::verify_as_reranker;
 use crate::model_io::{ModelArtifact, ModelPaths, artifacts_if_cached, download_artifacts};
-use crate::model_probe::{
-    ProbeError, RERANKER_PROBE_ENV_CONFIG, RERANKER_PROBE_ENV_MODEL, RERANKER_PROBE_ENV_TOKENIZER,
-    probe_paths_via_subprocess, resolve_probe_env,
-};
+use crate::model_probe::{ProbeError, ProbeStatus, probe_paths_via_subprocess, resolve_probe_env};
 use std::fmt::{self, Debug, Display, Formatter};
 #[cfg(any(test, feature = "test-support"))]
 use std::path::Path;
@@ -20,7 +17,13 @@ use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
 
 pub use crate::artifacts::{ArtifactError, RerankerKind, VerifiedArtifacts};
-pub use crate::model_probe::ProbeStatus;
+
+/// Probe env-var key for the reranker model weights path.
+pub(crate) const PROBE_ENV_MODEL: &str = "__RURICO_RERANKER_PROBE_MODEL";
+/// Probe env-var key for the reranker model config path.
+pub(crate) const PROBE_ENV_CONFIG: &str = "__RURICO_RERANKER_PROBE_CONFIG";
+/// Probe env-var key for the reranker model tokenizer path.
+pub(crate) const PROBE_ENV_TOKENIZER: &str = "__RURICO_RERANKER_PROBE_TOKENIZER";
 
 #[cfg(any(test, feature = "test-support"))]
 pub use test_support::MockReranker;
@@ -390,9 +393,9 @@ pub(crate) fn probe_env_to_paths(
 fn probe_via_subprocess(artifacts: &Artifacts) -> Result<ProbeStatus, RerankerInitError> {
     probe_paths_via_subprocess(
         &artifacts.paths,
-        RERANKER_PROBE_ENV_MODEL,
-        RERANKER_PROBE_ENV_CONFIG,
-        RERANKER_PROBE_ENV_TOKENIZER,
+        PROBE_ENV_MODEL,
+        PROBE_ENV_CONFIG,
+        PROBE_ENV_TOKENIZER,
     )
     .map_err(Into::into)
 }

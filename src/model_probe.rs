@@ -1,8 +1,10 @@
 //! Shared subprocess probe infrastructure for model loading verification.
 //!
-//! Host binaries call `handle_probe_if_needed` once at the start of `main()`.
-//! Individual modules (embed, reranker) call `probe_via_subprocess` to
-//! re-exec the current binary as an isolated probe.
+//! Host binaries call [`handle_probe_if_needed`](crate::handle_probe_if_needed)
+//! once at the start of `main()` — that lives in [`crate::dispatch`] because it
+//! needs to know about both embed and reranker domains. Individual modules
+//! (embed, reranker) call [`probe_via_subprocess`] to re-exec the current
+//! binary as an isolated probe.
 
 use std::env;
 use std::fmt;
@@ -16,9 +18,7 @@ use std::time::{Duration, Instant};
 #[cfg(test)]
 use std::process::ExitStatus;
 
-use crate::embed;
 use crate::model_io::ModelPaths;
-use crate::reranker;
 
 /// Handshake token written to stdout by probe subprocesses.
 pub const PROBE_ACK: &str = "RURICO_PROBE_OK";
@@ -56,16 +56,6 @@ pub enum ProbeError {
     SubprocessFailed(String),
 }
 
-// --- Embed probe env var keys ---
-pub(crate) const EMBED_PROBE_ENV_MODEL: &str = "__RURICO_PROBE_MODEL";
-pub(crate) const EMBED_PROBE_ENV_CONFIG: &str = "__RURICO_PROBE_CONFIG";
-pub(crate) const EMBED_PROBE_ENV_TOKENIZER: &str = "__RURICO_PROBE_TOKENIZER";
-
-// --- Reranker probe env var keys ---
-pub(crate) const RERANKER_PROBE_ENV_MODEL: &str = "__RURICO_RERANKER_PROBE_MODEL";
-pub(crate) const RERANKER_PROBE_ENV_CONFIG: &str = "__RURICO_RERANKER_PROBE_CONFIG";
-pub(crate) const RERANKER_PROBE_ENV_TOKENIZER: &str = "__RURICO_RERANKER_PROBE_TOKENIZER";
-
 /// Resolve probe env vars into a `(model, config, tokenizer)` path triple.
 ///
 /// Returns `None` if the primary model env var is absent (not a probe invocation).
@@ -86,51 +76,10 @@ pub(crate) fn resolve_probe_env(
 /// Timeout for probe subprocesses.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Single entry point for probe subprocess dispatch in host binaries.
-///
-/// Call at the start of `main()`. When invoked as a probe subprocess (detected
-/// via env vars), this function loads the appropriate model and exits. Otherwise
-/// returns immediately.
-///
-/// # Process Behavior
-///
-/// When the current process is a probe subprocess, this function terminates
-/// with `std::process::exit`:
-///
-/// - Exit 0: model loaded successfully
-/// - Exit 1: model load failed (reason written to stderr)
-/// - Exit 3: primary env var set but config or tokenizer env var missing
-///
-/// When the current process is not a probe subprocess, it returns immediately.
-pub fn handle_probe_if_needed() {
-    // --- Embed probe ---
-    if let Some(result) = embed::probe_env_to_paths(
-        env::var(EMBED_PROBE_ENV_MODEL).ok(),
-        env::var(EMBED_PROBE_ENV_CONFIG).ok(),
-        env::var(EMBED_PROBE_ENV_TOKENIZER).ok(),
-    ) {
-        dispatch_probe(result, |candidate| {
-            let artifacts = candidate.verify().map_err(|e| e.to_string())?;
-            embed::Embedder::new(&artifacts)
-                .map(|_| ())
-                .map_err(|e| e.to_string())
-        });
-    }
-
-    // --- Reranker probe ---
-    if let Some(result) = reranker::probe_env_to_paths(
-        env::var(RERANKER_PROBE_ENV_MODEL).ok(),
-        env::var(RERANKER_PROBE_ENV_CONFIG).ok(),
-        env::var(RERANKER_PROBE_ENV_TOKENIZER).ok(),
-    ) {
-        dispatch_probe(result, |candidate| {
-            let artifacts = candidate.verify().map_err(|e| e.to_string())?;
-            reranker::Reranker::new(&artifacts)
-                .map(|_| ())
-                .map_err(|e| e.to_string())
-        });
-    }
-}
+/// Default polling interval used by [`wait_with_timeout`] to check whether the
+/// child has exited. Tests inject a smaller interval via
+/// [`wait_with_timeout_with`] to keep timeout-path assertions fast.
+const DEFAULT_WAIT_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 /// Exit action computed by [`compute_probe_exit`].
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
@@ -164,7 +113,7 @@ pub(crate) fn compute_probe_exit(result: Result<Result<(), String>, i32>) -> Pro
 /// Execute a probe dispatch: emit ACK, load model, exit with appropriate code.
 ///
 /// Always terminates the process via [`std::process::exit`].
-fn dispatch_probe<P, E: fmt::Display>(
+pub(crate) fn dispatch_probe<P, E: fmt::Display>(
     result: Result<P, i32>,
     load: impl FnOnce(P) -> Result<(), E>,
 ) -> ! {
@@ -196,7 +145,15 @@ fn emit_ack() {
 pub fn probe_via_subprocess(env_pairs: &[(&str, &str)]) -> Result<ProbeStatus, ProbeError> {
     let exe = env::current_exe()
         .map_err(|e| ProbeError::SubprocessFailed(format!("cannot locate executable: {e}")))?;
+    probe_via_subprocess_with(exe, env_pairs)
+}
 
+/// Like [`probe_via_subprocess`] but the executable to re-exec is provided
+/// explicitly. Used by tests to avoid depending on `env::current_exe()`.
+pub fn probe_via_subprocess_with(
+    exe: PathBuf,
+    env_pairs: &[(&str, &str)],
+) -> Result<ProbeStatus, ProbeError> {
     let mut cmd = Command::new(exe);
     for &(key, value) in env_pairs {
         cmd.env(key, value);
@@ -280,6 +237,16 @@ pub(crate) fn probe_paths_via_subprocess(
 /// Wait for a child process with a timeout. Kill and return a synthetic
 /// timeout output if the deadline is exceeded.
 fn wait_with_timeout(child: &mut Child, timeout: Duration) -> Result<Output, ProbeError> {
+    wait_with_timeout_with(child, timeout, DEFAULT_WAIT_POLL_INTERVAL)
+}
+
+/// Like [`wait_with_timeout`] but the polling interval is provided explicitly.
+/// Used by tests to keep timeout-path assertions fast (e.g. 1 ms).
+fn wait_with_timeout_with(
+    child: &mut Child,
+    timeout: Duration,
+    poll_interval: Duration,
+) -> Result<Output, ProbeError> {
     let deadline = Instant::now() + timeout;
     let stdout = spawn_drain_pipe(child.stdout.take(), "stdout");
     let stderr = spawn_drain_pipe(child.stderr.take(), "stderr");
@@ -309,7 +276,7 @@ fn wait_with_timeout(child: &mut Child, timeout: Duration) -> Result<Output, Pro
                         stderr: collect_pipe(stderr, "stderr"),
                     });
                 }
-                thread::sleep(Duration::from_millis(100));
+                thread::sleep(poll_interval);
             }
             Err(e) => {
                 return Err(ProbeError::SubprocessFailed(format!(
@@ -565,6 +532,45 @@ mod tests {
         assert!(
             elapsed < Duration::from_secs(5),
             "collect_pipe must not wait for the grandchild's inherited FDs; elapsed {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn probe_via_subprocess_with_reports_spawn_failure_for_missing_exe() {
+        let exe = PathBuf::from("/nonexistent/rurico-probe-test-binary");
+        let err = probe_via_subprocess_with(exe, &[]).unwrap_err();
+        assert!(
+            matches!(err, ProbeError::SubprocessFailed(_)),
+            "expected SubprocessFailed for missing executable, got {err}"
+        );
+    }
+
+    #[test]
+    fn wait_with_timeout_with_kills_long_running_child_on_short_timeout() {
+        let mut child = Command::new("sh")
+            .args(["-c", "sleep 30"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+
+        let start = Instant::now();
+        let output = wait_with_timeout_with(
+            &mut child,
+            Duration::from_millis(50),
+            Duration::from_millis(1),
+        )
+        .unwrap();
+        let elapsed = start.elapsed();
+
+        assert!(
+            elapsed < Duration::from_secs(2),
+            "1ms poll interval should detect the 50ms deadline promptly; elapsed {elapsed:?}"
+        );
+        assert!(
+            output.status.code().is_none() || output.status.code() == Some(0),
+            "child should be killed (no exit code) or have exited; got {:?}",
+            output.status.code()
         );
     }
 }

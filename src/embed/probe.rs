@@ -1,8 +1,8 @@
-use super::{Artifacts, CandidateArtifacts, EmbedInitError};
-use crate::model_probe::{
-    self, EMBED_PROBE_ENV_CONFIG, EMBED_PROBE_ENV_MODEL, EMBED_PROBE_ENV_TOKENIZER, ProbeStatus,
-    resolve_probe_env,
+use super::{
+    Artifacts, CandidateArtifacts, EmbedInitError, PROBE_ENV_CONFIG, PROBE_ENV_MODEL,
+    PROBE_ENV_TOKENIZER,
 };
+use crate::model_probe::{self, ProbeStatus, resolve_probe_env};
 
 /// Resolve probe env vars into a [`CandidateArtifacts`].
 ///
@@ -23,9 +23,9 @@ pub(super) fn probe_via_subprocess(artifacts: &Artifacts) -> Result<ProbeStatus,
     let paths = &artifacts.paths;
     model_probe::probe_paths_via_subprocess(
         paths,
-        EMBED_PROBE_ENV_MODEL,
-        EMBED_PROBE_ENV_CONFIG,
-        EMBED_PROBE_ENV_TOKENIZER,
+        PROBE_ENV_MODEL,
+        PROBE_ENV_CONFIG,
+        PROBE_ENV_TOKENIZER,
     )
     .map_err(Into::into)
 }

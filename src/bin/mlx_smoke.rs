@@ -35,7 +35,7 @@ use rurico::embed::{
     linreg::{linear_regression, r_squared},
     workloads::{workload_w1, workload_w2, workload_w3},
 };
-use rurico::model_probe;
+use rurico::handle_probe_if_needed;
 use rurico::sandbox;
 
 /// Minimal `tracing` subscriber that writes every record to stderr.
@@ -57,7 +57,7 @@ fn main() {
     init_tracing_subscriber();
 
     // Also acts as a probe subprocess when probe env vars are set.
-    model_probe::handle_probe_if_needed();
+    handle_probe_if_needed();
 
     sandbox::exit_if_seatbelt(env!("CARGO_BIN_NAME"));
 

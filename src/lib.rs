@@ -3,6 +3,8 @@
 
 /// Typed artifact verification: [`CandidateArtifacts`](embed::CandidateArtifacts) → [`VerifiedArtifacts`](artifacts::VerifiedArtifacts).
 pub mod artifacts;
+/// Top-level probe dispatch wiring embed and reranker domains.
+pub mod dispatch;
 /// Embedding models and the [`Embed`](embed::Embed) trait.
 pub mod embed;
 /// Process-global MLX cache lock shared by embed and reranker.
@@ -30,3 +32,5 @@ pub mod storage;
 pub(crate) mod test_support;
 /// Text chunking utilities.
 pub mod text;
+
+pub use dispatch::{handle_probe_if_needed, handle_probe_if_needed_with};
