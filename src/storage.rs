@@ -30,7 +30,12 @@ pub fn ensure_sqlite_vec() -> Result<(), String> {
     static INIT: OnceLock<Result<(), i32>> = OnceLock::new();
     let init_result = INIT.get_or_init(|| {
         let rc = rurico_ffi::sqlite_vec_register();
-        if rc == 0 { Ok(()) } else { Err(rc) }
+        if rc == 0 {
+            Ok(())
+        } else {
+            tracing::error!(rc, "sqlite-vec auto-extension registration failed");
+            Err(rc)
+        }
     });
     if let Err(rc) = init_result {
         return Err(format!(

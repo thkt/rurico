@@ -1,6 +1,8 @@
 use super::{Artifacts, RerankerError, RerankerInitError};
 use crate::mlx_cache::release_inference_output;
-use crate::model_io::{MAX_SEQ_LEN, pad_sequences, truncate_with_eos};
+use crate::model_io::{
+    BUCKET_BOUNDS, MAX_SEQ_LEN, assign_bucket, pad_sequences, truncate_with_eos,
+};
 use crate::modernbert::{Config, ModernBert, layer_norm_eps_f32};
 
 use mlx_rs::{
@@ -49,7 +51,10 @@ impl RerankerInner {
             all_masks.push(mask);
         }
 
-        let (flat_ids, flat_mask, batch_size, max_len) = pad_sequences(&all_ids, Some(&all_masks));
+        let raw_max = all_ids.iter().map(Vec::len).max().unwrap_or(0);
+        let bucket_idx = assign_bucket(raw_max);
+        let (flat_ids, flat_mask, batch_size, max_len) =
+            pad_sequences(&all_ids, Some(&all_masks), Some(BUCKET_BOUNDS[bucket_idx]));
 
         let batch_size_i32 = i32::try_from(batch_size).expect("batch_size fits in i32");
         let max_len_i32 = i32::try_from(max_len).expect("max_len fits in i32");

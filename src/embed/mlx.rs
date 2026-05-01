@@ -10,17 +10,8 @@ use super::{
     truncate_for_query,
 };
 use crate::mlx_cache::{clear_inference_cache, release_inference_output};
-use crate::model_io::pad_sequences;
+use crate::model_io::{BUCKET_BOUNDS, assign_bucket, pad_sequences};
 use crate::modernbert::ModernBert;
-
-/// Length-bucket upper bounds. A chunk with `len` tokens lands in the first
-/// bucket whose `BUCKET_BOUNDS[i] >= len`. Final bucket equals [`MAX_SEQ_LEN`]
-/// so every valid chunk (post-shrink) resolves to some bucket.
-///
-/// Bucketing keeps padding waste bounded by the bucket ceiling rather than the
-/// global max chunk length, so a short chunk batched with a long one pays
-/// at most the bucket's padding cost (Spec R-M01, AC-4, NFR-003).
-pub(super) const BUCKET_BOUNDS: [usize; 4] = [128, 512, 2048, MAX_SEQ_LEN];
 
 /// Per-chunk metadata carried through bucket forward so the flat output can be
 /// restored to the original position after bucket passes reorder by length.
@@ -43,19 +34,6 @@ impl IndexedChunk {
     fn doc_order_key(&self) -> (usize, usize) {
         (self.doc_idx, self.chunk_in_doc)
     }
-}
-
-/// Assign `len` to a bucket via the first `BUCKET_BOUNDS[i] >= len`.
-///
-/// # Panics
-///
-/// Panics if `len > MAX_SEQ_LEN`. Callers must ensure chunks have already
-/// been shrunk to fit (via `shrink_chunk_to_fit`).
-pub(super) fn assign_bucket(len: usize) -> usize {
-    BUCKET_BOUNDS
-        .iter()
-        .position(|&max| len <= max)
-        .expect("chunk len exceeds MAX_SEQ_LEN; shrink_chunk_to_fit must run first")
 }
 
 /// Partition indexed chunks into the four length buckets.
@@ -164,21 +142,25 @@ impl EmbedderInner {
 
         let t_tok = Instant::now();
         let tok = tokenize_with_prefix(&self.tokenizer, text, prefix)?;
-        let (input_ids, attention_mask, seq_len) =
+        let (mut input_ids, mut attention_mask, seq_len) =
             truncate_for_query(tok.input_ids, tok.attention_mask, MAX_SEQ_LEN);
         metrics.tokenize = t_tok.elapsed();
 
-        let seq_len_i32 = i32::try_from(seq_len).expect("seq_len fits in i32");
+        let bucket_idx = assign_bucket(seq_len);
+        let bucket_len = BUCKET_BOUNDS[bucket_idx];
+        input_ids.resize(bucket_len, 0);
+        attention_mask.resize(bucket_len, 0);
+        let bucket_len_i32 = i32::try_from(bucket_len).expect("BUCKET_BOUNDS fits in i32");
         let hidden_size = self.embedding_dims;
 
         let t_forward = Instant::now();
         let output = self
             .model
-            .forward(&input_ids, &attention_mask, 1, seq_len_i32)
+            .forward(&input_ids, &attention_mask, 1, bucket_len_i32)
             .map_err(EmbedError::inference)?;
 
         let outcome: Result<(mlx_rs::Array, Vec<f32>), EmbedError> = (|| {
-            let pooled = pool_output(output, &attention_mask, 1, seq_len_i32)?;
+            let pooled = pool_output(output, &attention_mask, 1, bucket_len_i32)?;
             metrics.forward_eval = t_forward.elapsed();
 
             let t_readback = Instant::now();
@@ -205,14 +187,14 @@ impl EmbedderInner {
             }
         };
 
-        // Query tokenization produces no padding (truncate, not pad), so every
-        // mask entry is non-zero — real_tokens equals seq_len.
+        // Query has `seq_len` real tokens followed by `bucket_len - seq_len`
+        // zero-padding tokens added for bucket alignment.
         metrics.real_tokens = seq_len;
-        metrics.padded_tokens = seq_len;
+        metrics.padded_tokens = bucket_len;
         metrics.num_chunks = 1;
         metrics.batch_size = 1;
-        metrics.max_seq_len = seq_len;
-        metrics.bucket_hist[assign_bucket(seq_len)] = 1;
+        metrics.max_seq_len = bucket_len;
+        metrics.bucket_hist[bucket_idx] = 1;
         metrics.log();
 
         result
@@ -286,7 +268,7 @@ impl EmbedderInner {
             // bucket_max boundary, matching the pre-bucketing OOM guarantee.
             let sub_batch_size = (TOKEN_BUDGET / BUCKET_BOUNDS[bucket_idx]).max(1);
             for sub_batch in bucket.chunks(sub_batch_size) {
-                self.forward_sub_batch(sub_batch, &mut out, &mut metrics)?;
+                self.forward_sub_batch(sub_batch, bucket_idx, &mut out, &mut metrics)?;
             }
         }
 
@@ -331,11 +313,13 @@ impl EmbedderInner {
     fn forward_sub_batch(
         &mut self,
         sub_batch: &[IndexedChunk],
+        bucket_idx: usize,
         out: &mut [Option<Vec<f32>>],
         metrics: &mut PhaseMetrics,
     ) -> Result<(), EmbedError> {
         let sub_tokens: Vec<Vec<u32>> = sub_batch.iter().map(|c| c.tokens.clone()).collect();
-        let (input_ids, attention_mask, batch_size, max_len) = pad_sequences(&sub_tokens, None);
+        let (input_ids, attention_mask, batch_size, max_len) =
+            pad_sequences(&sub_tokens, None, Some(BUCKET_BOUNDS[bucket_idx]));
         metrics.real_tokens += sub_tokens.iter().map(Vec::len).sum::<usize>();
         metrics.padded_tokens += batch_size * max_len;
         metrics.batch_size = metrics.batch_size.max(batch_size);
@@ -598,9 +582,9 @@ mod tests {
 
     use super::super::EmbedError;
     use super::{
-        BUCKET_BOUNDS, IndexedChunk, assign_bucket, build_indexed_chunks, distribute_into_buckets,
-        pool_output, split_pooled,
+        IndexedChunk, build_indexed_chunks, distribute_into_buckets, pool_output, split_pooled,
     };
+    use crate::model_io::{BUCKET_BOUNDS, assign_bucket};
 
     #[test]
     fn poison_recovery_pattern_works() {

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use mlx_rs::{
@@ -202,8 +203,13 @@ pub struct ModernBert {
     final_norm: nn::LayerNorm,
     local_attention_half: usize,
     max_seq_len: usize,
-    /// Single-entry cache keyed on `seq_len`. Rebuilds when `seq_len` changes.
-    local_mask_cache: Option<(i32, Array)>,
+    /// Per-seq-len cache keyed on the four [`BUCKET_BOUNDS`] ceilings. Every
+    /// `forward()` caller (chunk encoder, query encoder, reranker pair scorer)
+    /// rounds its actual `seq_len` up to a bucket bound before calling, so this
+    /// map holds at most four entries for the lifetime of the model.
+    ///
+    /// [`BUCKET_BOUNDS`]: crate::model_io::BUCKET_BOUNDS
+    local_mask_cache: HashMap<i32, Array>,
 }
 
 impl ModernBert {
@@ -242,7 +248,7 @@ impl ModernBert {
             final_norm,
             local_attention_half: config.local_attention / 2,
             max_seq_len: config.max_position_embeddings,
-            local_mask_cache: None,
+            local_mask_cache: HashMap::new(),
         })
     }
 
@@ -355,15 +361,13 @@ impl ModernBert {
         xs = self.embeddings.norm.forward(&xs)?;
 
         let global_mask = prepare_4d_attention_mask(&mask, batch_size, seq_len)?;
-        let local_mask = match &self.local_mask_cache {
-            Some((cached_len, cached)) if *cached_len == seq_len => cached.clone(),
-            _ => {
-                let half =
-                    i32::try_from(self.local_attention_half).expect("bounded by model config");
-                let m = get_local_attention_mask(seq_len, half)?;
-                self.local_mask_cache = Some((seq_len, m.clone()));
-                m
-            }
+        let local_mask = if let Some(cached) = self.local_mask_cache.get(&seq_len) {
+            cached.clone()
+        } else {
+            let half = i32::try_from(self.local_attention_half).expect("bounded by model config");
+            let m = get_local_attention_mask(seq_len, half)?;
+            self.local_mask_cache.insert(seq_len, m.clone());
+            m
         };
 
         for layer in &mut self.layers {
