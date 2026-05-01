@@ -203,8 +203,12 @@ pub struct ModernBert {
     final_norm: nn::LayerNorm,
     local_attention_half: usize,
     max_seq_len: usize,
-    /// Per-seq-len cache. Bucket batching uses up to 4 unique seq_len values,
-    /// so this map is bounded by the bucket count and never evicts within a run.
+    /// Per-seq-len cache keyed on the four [`BUCKET_BOUNDS`] ceilings. Every
+    /// `forward()` caller (chunk encoder, query encoder, reranker pair scorer)
+    /// rounds its actual `seq_len` up to a bucket bound before calling, so this
+    /// map holds at most four entries for the lifetime of the model.
+    ///
+    /// [`BUCKET_BOUNDS`]: crate::model_io::BUCKET_BOUNDS
     local_mask_cache: HashMap<i32, Array>,
 }
 

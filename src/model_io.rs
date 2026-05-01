@@ -15,6 +15,30 @@ pub(crate) const EOS_TOKEN_ID: u32 = 2;
 /// Maximum sequence length for ruri-v3 models (max_position_embeddings).
 pub const MAX_SEQ_LEN: usize = 8192;
 
+/// Length-bucket upper bounds shared by embed and reranker forward paths.
+///
+/// All `model.forward(..., seq_len)` callers (chunk encoder, query encoder,
+/// reranker pair scorer) round their actual `seq_len` up to one of these four
+/// values. This keeps the per-`seq_len` mask cache inside [`ModernBert`] bounded
+/// to four entries and turns the global MLX compile cache into a fixed working
+/// set of four kernels per model rather than one per observed length.
+///
+/// [`ModernBert`]: crate::modernbert::ModernBert
+pub(crate) const BUCKET_BOUNDS: [usize; 4] = [128, 512, 2048, MAX_SEQ_LEN];
+
+/// Assign `len` to the smallest bucket index `i` with `BUCKET_BOUNDS[i] >= len`.
+///
+/// # Panics
+///
+/// Panics if `len > MAX_SEQ_LEN`. Callers must truncate or shrink the sequence
+/// before bucket assignment.
+pub(crate) fn assign_bucket(len: usize) -> usize {
+    BUCKET_BOUNDS
+        .iter()
+        .position(|&max| len <= max)
+        .expect("len exceeds MAX_SEQ_LEN; truncate before bucketing")
+}
+
 /// Truncate `ids` and `mask` to `max_len` in place, replacing the last token with EOS.
 ///
 /// Returns `true` if truncation was performed. A `max_len` of 0 is a no-op.
@@ -177,7 +201,10 @@ pub(crate) fn artifacts_from_cache<Id: ModelArtifact>(
 
 /// Pad variable-length token sequences into contiguous flat arrays for batched inference.
 ///
-/// Zero-pads shorter sequences to `max_len` (the longest sequence in the batch).
+/// Zero-pads shorter sequences to `max_len`. When `target_len` is `None`,
+/// `max_len` equals the longest sequence in the batch; when `Some(t)`,
+/// `max_len = max(t, longest)`. Callers pass `Some(BUCKET_BOUNDS[i])` to keep
+/// `model.forward` shapes aligned to the four bucket ceilings.
 /// When `masks` is `None`, generates an identity mask (1 for each token, 0 for padding).
 ///
 /// Returns `(flat_ids, flat_mask, batch_size, max_len)`.
@@ -188,6 +215,7 @@ pub(crate) fn artifacts_from_cache<Id: ModelArtifact>(
 pub(crate) fn pad_sequences(
     ids: &[Vec<u32>],
     masks: Option<&[Vec<u32>]>,
+    target_len: Option<usize>,
 ) -> (Vec<u32>, Vec<u32>, usize, usize) {
     debug_assert!(
         masks.is_none_or(|m| m.len() == ids.len()),
@@ -197,7 +225,8 @@ pub(crate) fn pad_sequences(
     );
 
     let batch_size = ids.len();
-    let max_len = ids.iter().map(Vec::len).max().unwrap_or(0);
+    let actual_max = ids.iter().map(Vec::len).max().unwrap_or(0);
+    let max_len = target_len.map_or(actual_max, |t| t.max(actual_max));
 
     let mut flat_ids = vec![0u32; batch_size * max_len];
     let mut flat_mask = vec![0u32; batch_size * max_len];
@@ -262,7 +291,7 @@ mod tests {
     #[test]
     fn pad_sequences_no_masks_generates_identity() {
         let ids = vec![vec![1, 2, 3], vec![4, 5]];
-        let (flat_ids, flat_mask, batch, max_len) = pad_sequences(&ids, None);
+        let (flat_ids, flat_mask, batch, max_len) = pad_sequences(&ids, None, None);
         assert_eq!(batch, 2);
         assert_eq!(max_len, 3);
         assert_eq!(flat_ids, vec![1, 2, 3, 4, 5, 0]);
@@ -273,7 +302,7 @@ mod tests {
     fn pad_sequences_with_masks_copies_mask() {
         let ids = vec![vec![10, 20], vec![30]];
         let masks = vec![vec![1, 1], vec![1]];
-        let (flat_ids, flat_mask, batch, max_len) = pad_sequences(&ids, Some(&masks));
+        let (flat_ids, flat_mask, batch, max_len) = pad_sequences(&ids, Some(&masks), None);
         assert_eq!(batch, 2);
         assert_eq!(max_len, 2);
         assert_eq!(flat_ids, vec![10, 20, 30, 0]);
@@ -283,7 +312,7 @@ mod tests {
     #[test]
     fn pad_sequences_empty_input() {
         let ids: Vec<Vec<u32>> = vec![];
-        let (flat_ids, flat_mask, batch, max_len) = pad_sequences(&ids, None);
+        let (flat_ids, flat_mask, batch, max_len) = pad_sequences(&ids, None, None);
         assert_eq!(batch, 0);
         assert_eq!(max_len, 0);
         assert!(flat_ids.is_empty());
@@ -293,7 +322,7 @@ mod tests {
     #[test]
     fn pad_sequences_single_sequence() {
         let ids = vec![vec![1, 2, 3, 4]];
-        let (flat_ids, flat_mask, batch, max_len) = pad_sequences(&ids, None);
+        let (flat_ids, flat_mask, batch, max_len) = pad_sequences(&ids, None, None);
         assert_eq!(batch, 1);
         assert_eq!(max_len, 4);
         assert_eq!(flat_ids, vec![1, 2, 3, 4]);
