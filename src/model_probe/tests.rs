@@ -278,8 +278,8 @@ fn t_001_validate_probe_paths_with_root_returns_ok_when_all_paths_under_cache_ro
     let (model, config, tokenizer) = write_three_artifacts(cache_dir.path());
 
     // Act
-    let result =
-        super::validate_probe_paths_with_root(&model, &config, &tokenizer, cache_dir.path());
+    let cache = hf_hub::Cache::new(cache_dir.path().to_path_buf());
+    let result = super::validate_probe_paths_with_cache(&cache, &model, &config, &tokenizer);
 
     // Assert
     assert_eq!(result, Ok(()), "expected Ok(()) for paths under cache root");
@@ -296,12 +296,9 @@ fn t_002_validate_probe_paths_with_root_rejects_path_outside_cache_root() {
     fs::write(&outside_model, b"evil").unwrap();
 
     // Act
-    let result = super::validate_probe_paths_with_root(
-        &outside_model,
-        &config,
-        &tokenizer,
-        cache_dir.path(),
-    );
+    let cache = hf_hub::Cache::new(cache_dir.path().to_path_buf());
+    let result =
+        super::validate_probe_paths_with_cache(&cache, &outside_model, &config, &tokenizer);
 
     // Assert
     assert_eq!(
@@ -322,12 +319,9 @@ fn t_003_validate_probe_paths_with_root_returns_err_4_for_nonexistent_candidate_
     // Intentionally do not create the file.
 
     // Act
-    let result = super::validate_probe_paths_with_root(
-        &missing_model,
-        &config,
-        &tokenizer,
-        cache_dir.path(),
-    );
+    let cache = hf_hub::Cache::new(cache_dir.path().to_path_buf());
+    let result =
+        super::validate_probe_paths_with_cache(&cache, &missing_model, &config, &tokenizer);
 
     // Assert
     assert_eq!(
@@ -347,7 +341,8 @@ fn t_004_validate_probe_paths_with_root_returns_err_6_for_nonexistent_cache_root
     let bogus_root = PathBuf::from("/nonexistent/rurico-test-cache-root");
 
     // Act
-    let result = super::validate_probe_paths_with_root(&model, &config, &tokenizer, &bogus_root);
+    let cache = hf_hub::Cache::new(bogus_root.clone());
+    let result = super::validate_probe_paths_with_cache(&cache, &model, &config, &tokenizer);
 
     // Assert
     assert_eq!(
@@ -390,8 +385,8 @@ fn t_005_validate_probe_paths_with_root_accepts_symlink_under_cache_root() {
     symlink(&blob_tokenizer, &tokenizer).unwrap();
 
     // Act
-    let result =
-        super::validate_probe_paths_with_root(&model, &config, &tokenizer, cache_dir.path());
+    let cache = hf_hub::Cache::new(cache_dir.path().to_path_buf());
+    let result = super::validate_probe_paths_with_cache(&cache, &model, &config, &tokenizer);
 
     // Assert: function accepts the symlink as long as the canonicalized form
     // resolves under cache_root (which it does — blobs/ is under cache_dir).
@@ -418,8 +413,8 @@ fn t_006_validate_probe_paths_with_root_rejects_string_prefix_sibling() {
     fs::write(&evil_model, b"evil").unwrap();
 
     // Act
-    let result =
-        super::validate_probe_paths_with_root(&evil_model, &config, &tokenizer, &cache_root);
+    let cache = hf_hub::Cache::new(cache_root.clone());
+    let result = super::validate_probe_paths_with_cache(&cache, &evil_model, &config, &tokenizer);
 
     // Assert: even though `evil_root` shares a string prefix with `cache_root`,
     // component-wise starts_with rejects it.
@@ -545,6 +540,21 @@ fn t_008_interpret_probe_output_maps_exit_5_to_setup_rejected() {
     );
 }
 
+// T-007a: exit 3 (env incomplete) -> ProbeError::SetupRejected { code: 3 }
+#[test]
+fn t_007a_interpret_probe_output_maps_exit_3_to_setup_rejected() {
+    let output = Output {
+        status: exit_status(3),
+        stdout: format!("{PROBE_ACK}\n").into_bytes(),
+        stderr: b"probe setup rejected: env incomplete".to_vec(),
+    };
+    let err = interpret_probe_output(&output).unwrap_err();
+    assert!(
+        matches!(err, ProbeError::SetupRejected { code: 3 }),
+        "expected SetupRejected {{ code: 3 }}, got {err}"
+    );
+}
+
 // T-009: exit 6 -> ProbeError::SetupRejected { code: 6 }
 #[test]
 fn t_009_interpret_probe_output_maps_exit_6_to_setup_rejected() {
@@ -585,6 +595,15 @@ fn t_011c_setup_rejected_display_for_code_6_includes_label() {
     let s = format!("{err}");
     assert!(s.contains('6'), "{s}");
     assert!(s.contains("cache root invalid"), "{s}");
+}
+
+// T-011d: SetupRejected { code: 3 } Display label
+#[test]
+fn t_011d_setup_rejected_display_for_code_3_includes_label() {
+    let err = ProbeError::SetupRejected { code: 3 };
+    let s = format!("{err}");
+    assert!(s.contains('3'), "{s}");
+    assert!(s.contains("env incomplete"), "{s}");
 }
 
 // ── Issue #107 Phase 3 tests (AC-3) ──────────────────────────────────────────
@@ -655,4 +674,48 @@ fn t_022_child_env_for_spawn_skips_undefined_forward_keys() {
             "HF_HOME must NOT be in map when undefined in parent"
         );
     });
+}
+
+// T-013b: e2e — `probe_via_subprocess_with` actually applies env_clear + FORWARD
+// to a real spawned child (TC-001 from /audit). Spawns a sh script that dumps its
+// env to a tempfile, then asserts attacker-injected env is absent and FORWARD
+// keys propagate.
+#[cfg(unix)]
+#[test]
+fn t_013b_probe_via_subprocess_with_env_clear_blocks_attacker_env_in_real_child() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let env_dump = dir.path().join("env_dump.txt");
+    let script = dir.path().join("probe_env_dump.sh");
+    fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\nenv > {}\nprintf '{PROBE_ACK}\\n'\nexit 0\n",
+            env_dump.display()
+        ),
+    )
+    .unwrap();
+    let mut perms = fs::metadata(&script).unwrap().permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(&script, perms).unwrap();
+
+    temp_env::with_vars(
+        [
+            ("HF_HOME", Some("/tmp/test_hf_clear")),
+            ("RURICO_TEST_ATTACKER_ENV", Some("evil")),
+        ],
+        || {
+            // exec succeeds; we ignore the ProbeStatus and inspect env_dump directly.
+            let _ = super::probe_via_subprocess_with(script.clone(), &[]);
+            let dumped = fs::read_to_string(&env_dump).unwrap();
+            assert!(
+                dumped.lines().any(|l| l == "HF_HOME=/tmp/test_hf_clear"),
+                "child must inherit HF_HOME via FORWARD allowlist; dump:\n{dumped}"
+            );
+            assert!(
+                !dumped.contains("RURICO_TEST_ATTACKER_ENV"),
+                "child must NOT inherit non-FORWARD parent env; dump:\n{dumped}"
+            );
+        },
+    );
 }

@@ -53,13 +53,13 @@ pub(crate) const PROBE_EXIT_CACHE_ROOT_INVALID: i32 = 6;
 /// - [`PROBE_EXIT_CANONICALIZE_FAILED`] if any candidate path cannot be canonicalized
 /// - [`PROBE_EXIT_PATH_OUTSIDE_CACHE`] if any candidate path's canonical form
 ///   is not a component-wise descendant of `cache_root`'s canonical form
-pub(crate) fn validate_probe_paths_with_root(
+pub(crate) fn validate_probe_paths_with_cache(
+    cache: &hf_hub::Cache,
     model: &Path,
     config: &Path,
     tokenizer: &Path,
-    cache_root: &Path,
 ) -> Result<(), i32> {
-    let canon_root = fs::canonicalize(cache_root).map_err(|_| PROBE_EXIT_CACHE_ROOT_INVALID)?;
+    let canon_root = fs::canonicalize(cache.path()).map_err(|_| PROBE_EXIT_CACHE_ROOT_INVALID)?;
     for p in [model, config, tokenizer] {
         let canon = fs::canonicalize(p).map_err(|_| PROBE_EXIT_CANONICALIZE_FAILED)?;
         if !canon.starts_with(&canon_root) {
@@ -69,8 +69,8 @@ pub(crate) fn validate_probe_paths_with_root(
     Ok(())
 }
 
-/// Production wrapper for [`validate_probe_paths_with_root`] that resolves
-/// the cache root via [`hf_hub::Cache::from_env`].
+/// Production wrapper for [`validate_probe_paths_with_cache`] that resolves
+/// the cache via [`hf_hub::Cache::from_env`].
 ///
 /// `Cache::from_env()` reads `HF_HOME` and falls back to the user's default
 /// `~/.cache/huggingface/hub`. The cache resolution happens at call time so
@@ -79,14 +79,13 @@ pub(crate) fn validate_probe_paths_with_root(
 ///
 /// # Errors
 ///
-/// Same as [`validate_probe_paths_with_root`].
+/// Same as [`validate_probe_paths_with_cache`].
 pub(crate) fn validate_probe_paths(
     model: &Path,
     config: &Path,
     tokenizer: &Path,
 ) -> Result<(), i32> {
-    let cache = hf_hub::Cache::from_env();
-    validate_probe_paths_with_root(model, config, tokenizer, cache.path())
+    validate_probe_paths_with_cache(&hf_hub::Cache::from_env(), model, config, tokenizer)
 }
 
 /// Result of a model probe — whether the backend can load the model.
@@ -182,7 +181,7 @@ pub(crate) fn compute_probe_exit(result: Result<Result<(), String>, i32>) -> Pro
     match result {
         Err(code) => ProbeExitAction {
             code,
-            message: Some("probe env incomplete: config or tokenizer env var missing".into()),
+            message: Some(format!("probe setup rejected: {}", setup_label(code))),
         },
         Ok(Ok(())) => ProbeExitAction {
             code: 0,
@@ -468,7 +467,8 @@ pub(crate) fn interpret_probe_output(output: &Output) -> Result<ProbeStatus, Pro
     match output.status.code() {
         Some(0) => Ok(ProbeStatus::Available),
         Some(
-            code @ (PROBE_EXIT_CANONICALIZE_FAILED
+            code @ (PROBE_EXIT_ENV_INCOMPLETE
+            | PROBE_EXIT_CANONICALIZE_FAILED
             | PROBE_EXIT_PATH_OUTSIDE_CACHE
             | PROBE_EXIT_CACHE_ROOT_INVALID),
         ) => Err(ProbeError::SetupRejected { code }),
