@@ -328,4 +328,27 @@ mod tests {
         assert_eq!(flat_ids, vec![1, 2, 3, 4]);
         assert_eq!(flat_mask, vec![1, 1, 1, 1]);
     }
+
+    #[test]
+    fn pad_sequences_target_len_extends_when_larger_than_actual_max() {
+        let ids = vec![vec![1, 2], vec![3]];
+        let (flat_ids, flat_mask, batch, max_len) = pad_sequences(&ids, None, Some(5));
+        assert_eq!(batch, 2);
+        assert_eq!(max_len, 5, "target_len 5 > actual_max 2 should extend to 5");
+        assert_eq!(flat_ids, vec![1, 2, 0, 0, 0, 3, 0, 0, 0, 0]);
+        assert_eq!(flat_mask, vec![1, 1, 0, 0, 0, 1, 0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn pad_sequences_target_len_keeps_actual_max_when_smaller() {
+        let ids = vec![vec![1, 2, 3, 4], vec![5, 6]];
+        let (flat_ids, flat_mask, batch, max_len) = pad_sequences(&ids, None, Some(2));
+        assert_eq!(batch, 2);
+        assert_eq!(
+            max_len, 4,
+            "target_len 2 < actual_max 4 must not truncate; actual_max wins"
+        );
+        assert_eq!(flat_ids, vec![1, 2, 3, 4, 5, 6, 0, 0]);
+        assert_eq!(flat_mask, vec![1, 1, 1, 1, 1, 1, 0, 0]);
+    }
 }
