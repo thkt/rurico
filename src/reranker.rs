@@ -9,7 +9,9 @@ mod tests;
 use self::mlx::RerankerInner;
 use crate::artifacts::verify_as_reranker;
 use crate::model_io::{ModelArtifact, ModelPaths, artifacts_if_cached, download_artifacts};
-use crate::model_probe::{ProbeError, ProbeStatus, probe_paths_via_subprocess, resolve_probe_env};
+use crate::model_probe::{
+    ProbeError, ProbeStatus, probe_paths_via_subprocess, resolve_probe_env, validate_probe_paths,
+};
 use std::fmt::{self, Debug, Display, Formatter};
 #[cfg(any(test, feature = "test-support"))]
 use std::path::Path;
@@ -54,7 +56,7 @@ impl CandidateArtifacts {
     ///
     /// Use this when you have raw paths (e.g. from environment variables).
     /// Call [`verify`](Self::verify) before passing the result to [`Reranker::new`].
-    pub fn from_paths(model: PathBuf, config: PathBuf, tokenizer: PathBuf) -> Self {
+    pub(crate) fn from_paths(model: PathBuf, config: PathBuf, tokenizer: PathBuf) -> Self {
         Self {
             paths: ModelPaths {
                 model,
@@ -154,6 +156,7 @@ impl From<ProbeError> for RerankerInitError {
         match e {
             ProbeError::HandlerNotInstalled => RerankerInitError::Backend(e.to_string()),
             ProbeError::ModelLoadFailed { reason } => RerankerInitError::ModelCorrupt { reason },
+            ProbeError::SetupRejected { .. } => RerankerInitError::Backend(e.to_string()),
             ProbeError::SubprocessFailed(msg) => RerankerInitError::Backend(msg),
         }
     }
@@ -385,8 +388,13 @@ pub(crate) fn probe_env_to_paths(
     config: Option<String>,
     tokenizer: Option<String>,
 ) -> Option<Result<CandidateArtifacts, i32>> {
-    resolve_probe_env(model, config, tokenizer)
-        .map(|r| r.map(|(m, c, t)| CandidateArtifacts::from_paths(m, c, t)))
+    resolve_probe_env(model, config, tokenizer).map(|r| {
+        r.and_then(|(m, c, t)| {
+            validate_probe_paths(&m, &c, &t)?;
+            Ok((m, c, t))
+        })
+        .map(|(m, c, t)| CandidateArtifacts::from_paths(m, c, t))
+    })
 }
 
 fn probe_via_subprocess(artifacts: &Artifacts) -> Result<ProbeStatus, RerankerInitError> {

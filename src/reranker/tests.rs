@@ -1,6 +1,8 @@
 use super::mlx::truncate_pair;
 use super::*;
 use crate::model_io::artifacts_from_cache;
+#[cfg(unix)]
+use crate::test_support::setup_fake_hf_cache_with_symlinks;
 use crate::test_support::{VALID_CONFIG_JSON, setup_fake_hf_cache};
 use std::fs;
 
@@ -119,14 +121,82 @@ fn t_015_candidate_verify_returns_invalid_tokenizer_for_bad_tokenizer() {
     );
 }
 
+// T-019: regression — same invariant as T-018 for the reranker module.
+#[cfg(unix)]
+#[test]
+fn t_019_probe_env_to_paths_preserves_snapshot_symlink_filename() {
+    let hf_home = tempfile::tempdir().unwrap();
+    let cache_root = hf_home.path().join("hub");
+    fs::create_dir_all(&cache_root).unwrap();
+    setup_fake_hf_cache_with_symlinks(
+        &cache_root,
+        "org/reranker",
+        "dev",
+        &[
+            ("model.safetensors", b"weights"),
+            ("config.json", b"{}"),
+            ("tokenizer.json", b"{}"),
+        ],
+    );
+    let snapshot_dir = cache_root.join("models--org--reranker/snapshots/abc123");
+    let m = snapshot_dir.join("model.safetensors");
+    let c = snapshot_dir.join("config.json");
+    let t = snapshot_dir.join("tokenizer.json");
+
+    let hf_home_path = hf_home.path().to_path_buf();
+    temp_env::with_vars([("HF_HOME", Some(hf_home_path.to_str().unwrap()))], || {
+        let candidate = super::probe_env_to_paths(
+            Some(m.to_string_lossy().into_owned()),
+            Some(c.to_string_lossy().into_owned()),
+            Some(t.to_string_lossy().into_owned()),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            candidate.paths.model.file_name().and_then(|s| s.to_str()),
+            Some("model.safetensors"),
+            "regression: probe_env_to_paths must preserve snapshot symlink filename"
+        );
+        assert_eq!(
+            candidate.paths.config.file_name().and_then(|s| s.to_str()),
+            Some("config.json")
+        );
+        assert_eq!(
+            candidate
+                .paths
+                .tokenizer
+                .file_name()
+                .and_then(|s| s.to_str()),
+            Some("tokenizer.json")
+        );
+    });
+}
+
 #[test]
 fn probe_env_to_paths_returns_ok_when_all_present() {
-    let result = super::probe_env_to_paths(Some("/m".into()), Some("/c".into()), Some("/t".into()));
-    // CandidateArtifacts is returned — verify it was constructed (path accessible in submodule)
-    let candidate = result.unwrap().unwrap();
-    assert_eq!(candidate.paths.model, PathBuf::from("/m"));
-    assert_eq!(candidate.paths.config, PathBuf::from("/c"));
-    assert_eq!(candidate.paths.tokenizer, PathBuf::from("/t"));
+    let hf_home = tempfile::tempdir().unwrap();
+    let cache_root = hf_home.path().join("hub");
+    fs::create_dir_all(&cache_root).unwrap();
+    let m = cache_root.join("model.safetensors");
+    let c = cache_root.join("config.json");
+    let t = cache_root.join("tokenizer.json");
+    fs::write(&m, b"").unwrap();
+    fs::write(&c, b"{}").unwrap();
+    fs::write(&t, b"{}").unwrap();
+
+    let hf_home_path = hf_home.path().to_path_buf();
+    temp_env::with_vars([("HF_HOME", Some(hf_home_path.to_str().unwrap()))], || {
+        let result = super::probe_env_to_paths(
+            Some(m.to_string_lossy().into_owned()),
+            Some(c.to_string_lossy().into_owned()),
+            Some(t.to_string_lossy().into_owned()),
+        );
+        // CandidateArtifacts is returned with original (non-canonicalized) paths
+        let candidate = result.unwrap().unwrap();
+        assert_eq!(candidate.paths.model, m);
+        assert_eq!(candidate.paths.config, c);
+        assert_eq!(candidate.paths.tokenizer, t);
+    });
 }
 
 #[test]

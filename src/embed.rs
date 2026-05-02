@@ -74,7 +74,7 @@ impl CandidateArtifacts {
     ///
     /// Use this when you have raw paths (e.g. from environment variables).
     /// Call [`verify`](Self::verify) before passing the result to [`Embedder::new`].
-    pub fn from_paths(model: PathBuf, config: PathBuf, tokenizer: PathBuf) -> Self {
+    pub(crate) fn from_paths(model: PathBuf, config: PathBuf, tokenizer: PathBuf) -> Self {
         Self {
             paths: ModelPaths {
                 model,
@@ -290,6 +290,7 @@ impl From<ProbeError> for EmbedInitError {
         match e {
             ProbeError::HandlerNotInstalled => EmbedInitError::Backend(e.to_string()),
             ProbeError::ModelLoadFailed { reason } => EmbedInitError::ModelCorrupt { reason },
+            ProbeError::SetupRejected { .. } => EmbedInitError::Backend(e.to_string()),
             ProbeError::SubprocessFailed(msg) => EmbedInitError::Backend(msg),
         }
     }

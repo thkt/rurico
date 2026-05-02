@@ -47,6 +47,44 @@ pub(crate) fn setup_fake_hf_cache(
     }
 }
 
+/// Like [`setup_fake_hf_cache`] but with snapshot files as symlinks to blob
+/// files, mirroring the production HF Hub cache layout
+/// (`snapshots/<commit>/<file>` -> `../../blobs/<etag>`).
+///
+/// Used by Issue #107 regression tests to exercise the symlink-preserving
+/// invariant: `validate_probe_paths` and `probe_env_to_paths` must NOT
+/// substitute the canonicalized blob path for the snapshot path, because
+/// MLX `load_safetensors` dispatches on the filename extension.
+#[cfg(unix)]
+pub(crate) fn setup_fake_hf_cache_with_symlinks(
+    hub_dir: &Path,
+    repo_id: &str,
+    revision: &str,
+    files: &[(&str, &[u8])],
+) {
+    use std::os::unix::fs::symlink;
+    let repo_slug = repo_id.replace('/', "--");
+    let repo_dir = hub_dir.join(format!("models--{repo_slug}"));
+    let refs_dir = repo_dir.join("refs");
+    fs::create_dir_all(&refs_dir).unwrap();
+    let commit_hash = "abc123";
+    fs::write(refs_dir.join(revision), commit_hash).unwrap();
+
+    let blobs_dir = repo_dir.join("blobs");
+    fs::create_dir_all(&blobs_dir).unwrap();
+    let snapshot_dir = repo_dir.join("snapshots").join(commit_hash);
+    fs::create_dir_all(&snapshot_dir).unwrap();
+    for &(name, content) in files {
+        // Stable etag derived from filename so the blob name is deterministic.
+        let etag = format!("etag-{name}");
+        let blob = blobs_dir.join(&etag);
+        fs::write(&blob, content).unwrap();
+        let snapshot_link = snapshot_dir.join(name);
+        // Relative symlink target: snapshots/<commit>/X -> ../../blobs/<etag>
+        symlink(format!("../../blobs/{etag}"), &snapshot_link).unwrap();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -78,6 +116,33 @@ mod tests {
             b"model-data"
         );
         assert_eq!(fs::read(snapshot_dir.join("config.json")).unwrap(), b"{}");
+    }
+
+    // T-017: setup_fake_hf_cache_with_symlinks builds the production HF cache layout
+    #[cfg(unix)]
+    #[test]
+    fn t_017_setup_fake_hf_cache_with_symlinks_creates_symlink_structure() {
+        let dir = tempfile::tempdir().unwrap();
+        setup_fake_hf_cache_with_symlinks(
+            dir.path(),
+            "org/model",
+            "dev",
+            &[("model.safetensors", b"weights")],
+        );
+
+        let snapshot_link = dir
+            .path()
+            .join("models--org--model/snapshots/abc123/model.safetensors");
+        assert!(
+            snapshot_link.is_symlink(),
+            "snapshot file must be a symlink"
+        );
+        let canon = fs::canonicalize(&snapshot_link).unwrap();
+        assert!(
+            canon.to_string_lossy().contains("blobs/"),
+            "canonicalize must resolve into blobs/: {}",
+            canon.display()
+        );
     }
 
     #[test]
