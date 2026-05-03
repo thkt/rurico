@@ -8,6 +8,7 @@
 //! `reranker::CandidateArtifacts::from_paths`.
 
 use super::*;
+use std::io;
 use std::process::ExitStatus;
 
 // ── Existing tests preserved verbatim ───────────────────────────────────────
@@ -717,5 +718,113 @@ fn t_013b_probe_via_subprocess_with_env_clear_blocks_attacker_env_in_real_child(
                 "child must NOT inherit non-FORWARD parent env; dump:\n{dumped}"
             );
         },
+    );
+}
+
+// ── Issue #94 (probe IO error propagation) tests ────────────────────────────
+//
+// `emit_ack_to` is a testable seam exposed for these tests; production calls
+// `emit_ack` which delegates to `emit_ack_to(&mut io::stdout())`. The new
+// IO-infrastructure exit codes `PROBE_EXIT_ACK_FAILED` (7) and
+// `PROBE_EXIT_STDERR_FAILED` (8) signal that the probe child could not
+// emit its handshake (stdout) or its failure reason (stderr) — distinct
+// from `HandlerNotInstalled` (caller forgot the probe handler) and
+// `ModelLoadFailed` (load itself failed).
+
+// T-023: emit_ack_to writes PROBE_ACK + newline on a valid writer
+#[test]
+fn t_023_emit_ack_to_writes_ack_token_with_newline() {
+    let mut buf: Vec<u8> = Vec::new();
+    let result = super::emit_ack_to(&mut buf);
+    assert!(result.is_ok(), "expected Ok, got {result:?}");
+    assert_eq!(buf, format!("{PROBE_ACK}\n").into_bytes());
+}
+
+// T-024: emit_ack_to propagates IO errors from a failing writer
+//
+// `FailingWriter::write` fails first and `?` short-circuits before `flush`
+// runs, so this test only exercises the write-failure arm. The flush-only
+// arm (write success + flush error) is not unit-tested; in production the
+// pipe-broken case typically surfaces at write time on `io::stdout()`.
+#[test]
+fn t_024_emit_ack_to_propagates_writer_error() {
+    struct FailingWriter;
+    impl io::Write for FailingWriter {
+        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+            Err(io::Error::new(io::ErrorKind::BrokenPipe, "pipe closed"))
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Err(io::Error::new(io::ErrorKind::BrokenPipe, "pipe closed"))
+        }
+    }
+    let err = super::emit_ack_to(&mut FailingWriter)
+        .expect_err("expected emit_ack_to to propagate writer error");
+    assert_eq!(err.kind(), io::ErrorKind::BrokenPipe);
+}
+
+// T-025: interpret_probe_output maps exit 7 to SubprocessFailed even without ACK
+//
+// IO infrastructure failures (ACK write itself failed) MUST be detected
+// before the ACK presence check — otherwise an empty stdout caused by a
+// failed ACK write would be misclassified as `HandlerNotInstalled`.
+#[test]
+fn t_025_interpret_probe_output_maps_exit_7_to_subprocess_failed_even_without_ack() {
+    let output = Output {
+        status: exit_status(super::PROBE_EXIT_ACK_FAILED),
+        stdout: Vec::new(),
+        stderr: Vec::new(),
+    };
+    let err = interpret_probe_output(&output).unwrap_err();
+    let ProbeError::SubprocessFailed(msg) = &err else {
+        panic!("expected SubprocessFailed, got {err}");
+    };
+    assert!(
+        msg.contains("ACK") || msg.contains("handshake"),
+        "expected ACK/handshake mention, got: {msg}"
+    );
+    assert_eq!(super::PROBE_EXIT_ACK_FAILED, 7);
+}
+
+// T-026: interpret_probe_output maps exit 8 to SubprocessFailed when ACK is present
+//
+// `dispatch_probe` only emits exit 8 after `emit_ack` succeeds, so a real
+// probe failure of this kind always carries the ACK in stdout.
+#[test]
+fn t_026_interpret_probe_output_maps_exit_8_to_subprocess_failed() {
+    let output = Output {
+        status: exit_status(super::PROBE_EXIT_STDERR_FAILED),
+        stdout: format!("{PROBE_ACK}\n").into_bytes(),
+        stderr: Vec::new(),
+    };
+    let err = interpret_probe_output(&output).unwrap_err();
+    let ProbeError::SubprocessFailed(msg) = &err else {
+        panic!("expected SubprocessFailed, got {err}");
+    };
+    assert!(
+        msg.contains("stderr") || msg.contains("reason"),
+        "expected stderr/reason mention, got: {msg}"
+    );
+    assert_eq!(super::PROBE_EXIT_STDERR_FAILED, 8);
+}
+
+// T-027: exit 8 without ACK preserves HandlerNotInstalled diagnostic
+//
+// Regression guard: if a host binary lacks the probe handler and happens to
+// exit with code 8, the missing ACK must classify it as
+// `HandlerNotInstalled`, not `SubprocessFailed`. Exit 8 is meaningful only
+// when emitted by `dispatch_probe` after a successful ACK; an exit 8 from
+// any other code path predates the probe contract.
+#[test]
+fn t_027_interpret_probe_output_exit_8_without_ack_is_handler_not_installed() {
+    let output = Output {
+        status: exit_status(super::PROBE_EXIT_STDERR_FAILED),
+        stdout: Vec::new(),
+        stderr: Vec::new(),
+    };
+    let err = interpret_probe_output(&output).unwrap_err();
+    assert!(
+        matches!(err, ProbeError::HandlerNotInstalled),
+        "expected HandlerNotInstalled when exit 8 is emitted without ACK (host \
+         binary lacks probe handler), got {err}"
     );
 }
