@@ -613,15 +613,17 @@ fn t_011d_setup_rejected_display_for_code_3_includes_label() {
 // seam (FR-016 — pure function returning the spawn env map), and the silent
 // skip behavior for undefined FORWARD keys (FR-102).
 
-// T-012: FORWARD list contains exactly the 15 expected keys
+// T-012: FORWARD list contains exactly the 17 expected keys
 #[test]
-fn t_012_forward_list_contains_expected_15_keys() {
+fn t_012_forward_list_contains_expected_17_keys() {
     let expected: &[&str] = &[
         "PATH",
         "HOME",
         "HF_HOME",
         "HF_HUB_CACHE",
         "HF_TOKEN",
+        "SSL_CERT_FILE",
+        "SSL_CERT_DIR",
         "DYLD_LIBRARY_PATH",
         "DYLD_FALLBACK_LIBRARY_PATH",
         "LD_LIBRARY_PATH",
@@ -633,7 +635,7 @@ fn t_012_forward_list_contains_expected_15_keys() {
         "RUST_LOG",
         "RUST_BACKTRACE",
     ];
-    assert_eq!(super::FORWARD.len(), 15);
+    assert_eq!(super::FORWARD.len(), 17);
     for key in expected {
         assert!(
             super::FORWARD.contains(key),

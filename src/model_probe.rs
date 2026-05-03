@@ -298,6 +298,10 @@ pub(super) const FORWARD: &[&str] = &[
     "HF_HUB_CACHE",
     // private repo authentication (optional)
     "HF_TOKEN",
+    // OpenSSL CA bundle / dir — corp proxy with custom CA on Linux native-tls path
+    // (macOS native-tls uses Security framework keychain, ignored there but harmless)
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
     // macOS dynamic linker
     "DYLD_LIBRARY_PATH",
     // macOS dynamic linker fallback
