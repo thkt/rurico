@@ -298,6 +298,17 @@ pub(super) const FORWARD: &[&str] = &[
     "HF_HUB_CACHE",
     // private repo authentication (optional)
     "HF_TOKEN",
+    // HF Hub endpoint override — enterprise / private mirror
+    // (hf-hub-0.5.0 api/{tokio,sync}.rs:248-249)
+    "HF_ENDPOINT",
+    // HTTP(S) proxy — corp proxy on egress. reqwest 0.12 via hyper-util-0.1.20
+    // (matcher.rs:230-234) reads upper- and lowercase pairs; only uppercase
+    // forms are forwarded as they are canonical in modern setups (curl/wget/
+    // pip convention). Add lowercase variants if a legacy setup surfaces.
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "NO_PROXY",
+    "ALL_PROXY",
     // OpenSSL CA bundle / dir — corp proxy with custom CA on Linux native-tls path
     // (macOS native-tls uses Security framework keychain, ignored there but harmless)
     "SSL_CERT_FILE",
