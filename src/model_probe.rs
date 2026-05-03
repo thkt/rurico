@@ -41,6 +41,19 @@ pub(crate) const PROBE_EXIT_PATH_OUTSIDE_CACHE: i32 = 5;
 /// the cache root itself (HF cache directory missing or unreadable).
 pub(crate) const PROBE_EXIT_CACHE_ROOT_INVALID: i32 = 6;
 
+/// Exit code returned by the probe child when emitting the handshake ACK to
+/// stdout fails (e.g., the parent's pipe reader dropped, or `flush()` fails).
+///
+/// Distinct from `HandlerNotInstalled`: this signals an IO infrastructure
+/// failure inside the probe, not a missing handler installation.
+pub(crate) const PROBE_EXIT_ACK_FAILED: i32 = 7;
+
+/// Exit code returned by the probe child when writing the failure-reason
+/// message to stderr fails. The reason is unobservable to the parent in this
+/// case, but the exit code itself signals "stderr write failed" rather than
+/// "model load failed with empty reason".
+pub(crate) const PROBE_EXIT_STDERR_FAILED: i32 = 8;
+
 /// Verify that `model`, `config`, and `tokenizer` paths all canonicalize to
 /// component-wise descendants of `cache_root`. The candidate paths are
 /// not modified — the load step receives the original symlink path so HF
@@ -196,26 +209,42 @@ pub(crate) fn compute_probe_exit(result: Result<Result<(), String>, i32>) -> Pro
 
 /// Execute a probe dispatch: emit ACK, load model, exit with appropriate code.
 ///
-/// Always terminates the process via [`std::process::exit`].
+/// Always terminates the process via [`std::process::exit`]. IO failures
+/// during ACK emission or stderr write surface as the dedicated exit codes
+/// [`PROBE_EXIT_ACK_FAILED`] / [`PROBE_EXIT_STDERR_FAILED`] so the parent
+/// can distinguish them from `HandlerNotInstalled` (caller forgot the probe
+/// handler) or `ModelLoadFailed` (load itself failed with a reason).
 pub(crate) fn dispatch_probe<P, E: fmt::Display>(
     result: Result<P, i32>,
     load: impl FnOnce(P) -> Result<(), E>,
 ) -> ! {
-    emit_ack();
+    if emit_ack().is_err() {
+        process::exit(PROBE_EXIT_ACK_FAILED);
+    }
     let outcome = match result {
         Err(code) => Err(code),
         Ok(candidate) => Ok(load(candidate).map_err(|e| e.to_string())),
     };
     let action = compute_probe_exit(outcome);
-    if let Some(ref msg) = action.message {
-        let _ = write!(io::stderr(), "{msg}");
+    if let Some(ref msg) = action.message
+        && write!(io::stderr(), "{msg}").is_err()
+    {
+        process::exit(PROBE_EXIT_STDERR_FAILED);
     }
     process::exit(action.code);
 }
 
-fn emit_ack() {
-    let _ = writeln!(io::stdout(), "{PROBE_ACK}");
-    let _ = io::stdout().flush();
+fn emit_ack() -> io::Result<()> {
+    emit_ack_to(&mut io::stdout())
+}
+
+/// Testable seam over [`emit_ack`]. Production calls `emit_ack` which writes
+/// to `io::stdout()`; tests inject a `Vec<u8>` or a failing writer via this
+/// entry point to cover the success and IO-failure paths without spawning a
+/// subprocess.
+fn emit_ack_to<W: Write>(stdout: &mut W) -> io::Result<()> {
+    writeln!(stdout, "{PROBE_ACK}")?;
+    stdout.flush()
 }
 
 /// Re-exec the current binary as a probe subprocess with the given env vars.
@@ -446,11 +475,23 @@ fn build_timeout_output() -> Output {
 
 /// Interpret the output of a probe subprocess.
 ///
+/// - Exit [`PROBE_EXIT_ACK_FAILED`] → [`ProbeError::SubprocessFailed`]
+///   (checked before the ACK presence test because the ACK write itself failed)
+/// - No ACK in stdout → [`ProbeError::HandlerNotInstalled`]
+/// - Exit [`PROBE_EXIT_STDERR_FAILED`] with ACK → [`ProbeError::SubprocessFailed`]
+///   (only emitted after `emit_ack` succeeds, so ACK presence is required to
+///   distinguish from a host binary that lacks the probe handler and happens
+///   to exit with code 8)
 /// - Exit 0 with ACK → [`ProbeStatus::Available`]
 /// - Exit non-zero with ACK → [`ProbeError::ModelLoadFailed`]
 /// - Killed by signal with ACK → [`ProbeStatus::BackendUnavailable`]
-/// - No ACK in stdout → [`ProbeError::HandlerNotInstalled`]
 pub(crate) fn interpret_probe_output(output: &Output) -> Result<ProbeStatus, ProbeError> {
+    if output.status.code() == Some(PROBE_EXIT_ACK_FAILED) {
+        return Err(ProbeError::SubprocessFailed(
+            "probe child failed to emit handshake ACK".into(),
+        ));
+    }
+
     let stdout = String::from_utf8_lossy(&output.stdout);
     if !stdout.starts_with(PROBE_ACK) {
         return Err(ProbeError::HandlerNotInstalled);
@@ -466,6 +507,9 @@ pub(crate) fn interpret_probe_output(output: &Output) -> Result<ProbeStatus, Pro
 
     match output.status.code() {
         Some(0) => Ok(ProbeStatus::Available),
+        Some(PROBE_EXIT_STDERR_FAILED) => Err(ProbeError::SubprocessFailed(
+            "probe child failed to write failure reason to stderr".into(),
+        )),
         Some(
             code @ (PROBE_EXIT_ENV_INCOMPLETE
             | PROBE_EXIT_CANONICALIZE_FAILED
