@@ -139,6 +139,91 @@ impl From<ModelIoError> for ArtifactError {
     }
 }
 
+// ── ModelKind trait ──────────────────────────────────────────────────────────
+
+/// Per-kind verifier dispatch for [`CandidateArtifacts`].
+///
+/// Implemented by the kind markers ([`EmbedKind`] / [`RerankerKind`]) so that
+/// `CandidateArtifacts<K>::verify` can hand the paths to the kind-specific
+/// safetensors header check (`verify_as_embed` / `verify_as_reranker`) without
+/// duplicating per-kind glue at the call site.
+pub trait ModelKind: Sized {
+    /// Verify `paths` against this kind's safetensors signature.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same [`ArtifactError`] variants as the underlying
+    /// kind-specific verifier (`verify_as_embed` / `verify_as_reranker`).
+    fn verify(paths: ModelPaths) -> Result<VerifiedArtifacts<Self>, ArtifactError>;
+}
+
+impl ModelKind for EmbedKind {
+    fn verify(paths: ModelPaths) -> Result<VerifiedArtifacts<Self>, ArtifactError> {
+        verify_as_embed(paths)
+    }
+}
+
+impl ModelKind for RerankerKind {
+    fn verify(paths: ModelPaths) -> Result<VerifiedArtifacts<Self>, ArtifactError> {
+        verify_as_reranker(paths)
+    }
+}
+
+// ── CandidateArtifacts ───────────────────────────────────────────────────────
+
+/// Unverified model artifact paths bound to a kind marker `K`.
+///
+/// Construct with [`from_paths`](Self::from_paths) (or [`from_dir`](Self::from_dir)
+/// in test contexts), then call [`verify`](Self::verify) to obtain a
+/// [`VerifiedArtifacts<K>`] that can be passed to the kind's runtime
+/// constructor (e.g. `Embedder::new` / `Reranker::new`).
+pub struct CandidateArtifacts<K> {
+    pub(crate) paths: ModelPaths,
+    _kind: PhantomData<K>,
+}
+
+impl<K> fmt::Debug for CandidateArtifacts<K> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CandidateArtifacts")
+            .field("paths", &self.paths)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<K: ModelKind> CandidateArtifacts<K> {
+    /// Construct from explicit file paths without verification.
+    pub(crate) fn from_paths(model: PathBuf, config: PathBuf, tokenizer: PathBuf) -> Self {
+        Self {
+            paths: ModelPaths {
+                model,
+                config,
+                tokenizer,
+            },
+            _kind: PhantomData,
+        }
+    }
+
+    /// Construct from a directory using standard filenames (`model.safetensors`,
+    /// `config.json`, `tokenizer.json`). Available for development and test use only.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn from_dir(dir: &Path) -> Self {
+        Self {
+            paths: ModelPaths::from_dir(dir),
+            _kind: PhantomData,
+        }
+    }
+
+    /// Verify file existence, config integrity, tokenizer validity, and kind dispatch.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ArtifactError`] for missing files, invalid config, invalid tokenizer,
+    /// or weights that do not match the bound kind `K`.
+    pub fn verify(self) -> Result<VerifiedArtifacts<K>, ArtifactError> {
+        K::verify(self.paths)
+    }
+}
+
 // ── pub(crate) entry points ──────────────────────────────────────────────────
 
 /// Verify `paths` as an embedding model artifact.
@@ -726,5 +811,104 @@ mod tests {
         fs::remove_file(dir.path().join("model.safetensors")).unwrap();
 
         assert!(artifacts.delete_files().is_err());
+    }
+
+    // ── CandidateArtifacts<K> verify dispatch ───────────────────────────────
+
+    use crate::artifacts::CandidateArtifacts;
+
+    // T-001: CandidateArtifacts<EmbedKind>::verify happy path
+    #[test]
+    fn candidate_verify_embed_kind_succeeds_with_valid_artifacts() {
+        let dir = tempfile::tempdir().unwrap();
+        write_fake_safetensors(&dir.path().join("model.safetensors"), &[FAKE_BACKBONE_KEY]);
+        write_valid_config(dir.path());
+        write_valid_tokenizer(dir.path());
+
+        let candidate: CandidateArtifacts<EmbedKind> = CandidateArtifacts::from_dir(dir.path());
+        let result: Result<VerifiedArtifacts<EmbedKind>, ArtifactError> = candidate.verify();
+        assert!(
+            result.is_ok(),
+            "CandidateArtifacts::<EmbedKind>::verify should succeed for backbone-only safetensors + valid config + valid tokenizer; got: {:?}",
+            result.err()
+        );
+    }
+
+    // T-002: CandidateArtifacts<RerankerKind>::verify happy path
+    #[test]
+    fn candidate_verify_reranker_kind_succeeds_with_valid_artifacts() {
+        let dir = tempfile::tempdir().unwrap();
+        write_fake_safetensors(
+            &dir.path().join("model.safetensors"),
+            &[
+                FAKE_BACKBONE_KEY,
+                "classifier.weight",
+                "head.dense.weight",
+                "head.norm.weight",
+            ],
+        );
+        write_valid_config(dir.path());
+        write_valid_tokenizer(dir.path());
+
+        let candidate: CandidateArtifacts<RerankerKind> = CandidateArtifacts::from_dir(dir.path());
+        let result: Result<VerifiedArtifacts<RerankerKind>, ArtifactError> = candidate.verify();
+        assert!(
+            result.is_ok(),
+            "CandidateArtifacts::<RerankerKind>::verify should succeed for backbone+classifier+head safetensors + valid config + valid tokenizer; got: {:?}",
+            result.err()
+        );
+    }
+
+    // T-003: CandidateArtifacts<EmbedKind>::verify rejects reranker weights
+    //        → ArtifactError::WrongModelKind { expected: "embed model", .. }
+    #[test]
+    fn candidate_verify_embed_kind_rejects_reranker_weights() {
+        let dir = tempfile::tempdir().unwrap();
+        // Reranker classifier/head keys without backbone — a reranker-shaped
+        // weights file passed to the embed-kind verifier.
+        write_fake_safetensors(
+            &dir.path().join("model.safetensors"),
+            &["classifier.weight", "head.dense.weight", "head.norm.weight"],
+        );
+        write_valid_config(dir.path());
+        write_valid_tokenizer(dir.path());
+
+        let candidate: CandidateArtifacts<EmbedKind> = CandidateArtifacts::from_dir(dir.path());
+        let err = candidate.verify().unwrap_err();
+        assert!(
+            matches!(
+                err,
+                ArtifactError::WrongModelKind {
+                    expected: "embed model",
+                    ..
+                }
+            ),
+            "expected WrongModelKind {{ expected: \"embed model\", .. }}, got: {err}"
+        );
+    }
+
+    // T-004: CandidateArtifacts<RerankerKind>::verify rejects backbone-only weights
+    //        → ArtifactError::WrongModelKind { expected: "reranker model", .. }
+    #[test]
+    fn candidate_verify_reranker_kind_rejects_backbone_only_weights() {
+        let dir = tempfile::tempdir().unwrap();
+        // Backbone-only — an embed-shaped weights file passed to the
+        // reranker-kind verifier.
+        write_fake_safetensors(&dir.path().join("model.safetensors"), &[FAKE_BACKBONE_KEY]);
+        write_valid_config(dir.path());
+        write_valid_tokenizer(dir.path());
+
+        let candidate: CandidateArtifacts<RerankerKind> = CandidateArtifacts::from_dir(dir.path());
+        let err = candidate.verify().unwrap_err();
+        assert!(
+            matches!(
+                err,
+                ArtifactError::WrongModelKind {
+                    expected: "reranker model",
+                    ..
+                }
+            ),
+            "expected WrongModelKind {{ expected: \"reranker model\", .. }}, got: {err}"
+        );
     }
 }

@@ -9,6 +9,8 @@ use std::path::{Path, PathBuf};
 use hf_hub::api::sync::Api;
 use serde::de::DeserializeOwned;
 
+use crate::artifacts::ModelKind;
+
 /// EOS (end of sequence) token ID for ruri-v3 models.
 pub(crate) const EOS_TOKEN_ID: u32 = 2;
 
@@ -53,7 +55,14 @@ pub(crate) fn truncate_with_eos(ids: &mut Vec<u32>, mask: &mut Vec<u32>, max_len
 }
 
 /// Implemented by model ID enums to provide HuggingFace repository metadata.
+///
+/// The `Kind` associated type binds the identifier to a model kind marker so
+/// that `download_model::<Id>` and `cached_artifacts::<Id>` can return
+/// `VerifiedArtifacts<Id::Kind>` without taking a redundant kind parameter and
+/// without admitting wrong-kind combinations at the call site.
 pub trait ModelArtifact: Copy {
+    /// Kind marker bound to this identifier (e.g. `EmbedKind` for embed model IDs).
+    type Kind: ModelKind;
     /// HuggingFace repository ID (e.g., `"cl-nagoya/ruri-v3-310m"`).
     fn repo_id(self) -> &'static str;
     /// Pinned commit hash for reproducible downloads.
@@ -350,5 +359,30 @@ mod tests {
         );
         assert_eq!(flat_ids, vec![1, 2, 3, 4, 5, 6, 0, 0]);
         assert_eq!(flat_mask, vec![1, 1, 1, 1, 1, 1, 0, 0]);
+    }
+
+    // ── ModelArtifact::Kind associated type ─────────────────────────────────
+
+    // T-009: <ModelId as ModelArtifact>::Kind == EmbedKind
+    //        and <RerankerModelId as ModelArtifact>::Kind == RerankerKind
+    #[test]
+    fn model_artifact_kind_associated_type_is_fixed_per_id() {
+        use crate::artifacts::{EmbedKind, RerankerKind};
+        use crate::embed::ModelId;
+        use crate::reranker::RerankerModelId;
+
+        // Compile-time type-equality assertion: the `where` clause forces the
+        // type checker to confirm `<I as ModelArtifact>::Kind` resolves to `K`.
+        fn assert_kind<I, K>()
+        where
+            I: ModelArtifact<Kind = K>,
+        {
+        }
+
+        assert_kind::<ModelId, EmbedKind>();
+        assert_kind::<RerankerModelId, RerankerKind>();
+
+        // Force at least one runtime assertion so the test body is not empty.
+        assert_eq!(ModelId::default().repo_id(), "cl-nagoya/ruri-v3-310m");
     }
 }

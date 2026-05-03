@@ -9,8 +9,12 @@ pub mod dispatch;
 pub mod embed;
 /// Process-global MLX cache lock shared by embed and reranker.
 pub(crate) mod mlx_cache;
+/// Unified [`ModelInitError`](model_init::ModelInitError) for embed and reranker constructors.
+pub mod model_init;
 /// Shared model I/O utilities (config, tokenizer, constants).
 pub(crate) mod model_io;
+/// Generic model lifecycle entry points: download / cache lookup / probe-env resolution.
+pub mod model_lifecycle;
 /// Shared subprocess probe infrastructure for model loading verification.
 pub mod model_probe;
 /// ModernBERT transformer implementation on MLX.
