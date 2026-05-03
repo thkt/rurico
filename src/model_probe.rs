@@ -5,6 +5,24 @@
 //! needs to know about both embed and reranker domains. Individual modules
 //! (embed, reranker) call [`probe_via_subprocess`] to re-exec the current
 //! binary as an isolated probe.
+//!
+//! # Probe child exit codes
+//!
+//! | Code | Constant                          | Parent's interpretation              |
+//! | ---- | --------------------------------- | ------------------------------------ |
+//! | 0    | (success)                         | `ProbeStatus::Available`             |
+//! | 1    | (model load failed)               | `ProbeError::ModelLoadFailed`        |
+//! | 3    | `PROBE_EXIT_ENV_INCOMPLETE`       | `ProbeError::SetupRejected`          |
+//! | 4    | `PROBE_EXIT_CANONICALIZE_FAILED`  | `ProbeError::SetupRejected`          |
+//! | 5    | `PROBE_EXIT_PATH_OUTSIDE_CACHE`   | `ProbeError::SetupRejected`          |
+//! | 6    | `PROBE_EXIT_CACHE_ROOT_INVALID`   | `ProbeError::SetupRejected`          |
+//! | 7    | `PROBE_EXIT_ACK_FAILED`           | `ProbeError::SubprocessFailed` (IO)  |
+//! | 8    | `PROBE_EXIT_STDERR_FAILED`        | `ProbeError::SubprocessFailed` (IO)  |
+//!
+//! Code 2 is intentionally unused. Killed by signal (no exit code) maps to
+//! `ProbeStatus::BackendUnavailable`. Missing handshake ACK in stdout maps to
+//! `ProbeError::HandlerNotInstalled` regardless of exit code (except code 7,
+//! which is checked first because the ACK write itself failed).
 
 use std::collections::HashMap;
 use std::env;
