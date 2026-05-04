@@ -3,6 +3,10 @@
 use std::fs;
 use std::path::Path;
 
+use crate::model_init::ModelInitError;
+use crate::model_io::{ModelArtifact, artifacts_from_cache};
+use crate::model_probe::ProbeError;
+
 /// Valid ModernBERT config JSON with all required fields, for use in tests
 /// that need to bypass config parsing errors and reach later verification stages.
 ///
@@ -83,6 +87,75 @@ pub(crate) fn setup_fake_hf_cache_with_symlinks(
         // Relative symlink target: snapshots/<commit>/X -> ../../blobs/<etag>
         symlink(format!("../../blobs/{etag}"), &snapshot_link).unwrap();
     }
+}
+
+// ── Generic lifecycle test helpers (Phase 2 / FR-009 / FR-010) ─────────────
+
+/// Generic helper for `cache_lookup_returns_some_when_all_files_present`.
+///
+/// Stages a fake HF cache with the three artifact files (placeholder content),
+/// invokes [`artifacts_from_cache`](artifacts_from_cache), and
+/// asserts that the returned paths end with the standard filenames.
+///
+/// Callable for any kind whose ID type implements
+/// [`ModelArtifact`](crate::model_io::ModelArtifact).
+pub(crate) fn assert_cache_lookup_returns_some_when_all_files_present<Id: ModelArtifact>(
+    model: Id,
+) {
+    let dir = tempfile::tempdir().unwrap();
+    setup_fake_hf_cache(
+        dir.path(),
+        model.repo_id(),
+        model.revision(),
+        &[
+            ("model.safetensors", b"fake"),
+            ("config.json", b"{}"),
+            ("tokenizer.json", b"{}"),
+        ],
+    );
+    let cache = hf_hub::Cache::new(dir.path().to_path_buf());
+    let result = artifacts_from_cache(&cache, model).unwrap();
+    let paths = result.expect("should return Some when all files cached");
+    assert!(paths.model.ends_with("model.safetensors"));
+    assert!(paths.config.ends_with("config.json"));
+    assert!(paths.tokenizer.ends_with("tokenizer.json"));
+}
+
+/// Generic helper for `cache_lookup_returns_none_when_empty`.
+pub(crate) fn assert_cache_lookup_returns_none_when_empty<Id: ModelArtifact>(model: Id) {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = hf_hub::Cache::new(dir.path().to_path_buf());
+    let result = artifacts_from_cache(&cache, model).unwrap();
+    assert!(result.is_none());
+}
+
+/// Generic helper for `from_probe_error_maps_correctly`.
+///
+/// Asserts that all four [`ProbeError`](crate::model_probe::ProbeError) variants
+/// map to the expected [`ModelInitError`](crate::model_init::ModelInitError)
+/// variant. Kind-agnostic because `ModelInitError` is unified across embed and
+/// reranker (FR-002).
+pub(crate) fn assert_from_probe_error_maps_correctly() {
+    let err: ModelInitError = ProbeError::HandlerNotInstalled.into();
+    assert!(
+        matches!(err, ModelInitError::Backend(ref m) if m.contains("probe handler not installed")),
+        "{err}"
+    );
+
+    let err: ModelInitError = ProbeError::ModelLoadFailed {
+        reason: "bad weights".into(),
+    }
+    .into();
+    assert!(
+        matches!(err, ModelInitError::ModelCorrupt { ref reason } if reason == "bad weights"),
+        "{err}"
+    );
+
+    let err: ModelInitError = ProbeError::SubprocessFailed("spawn failed".into()).into();
+    assert!(
+        matches!(err, ModelInitError::Backend(ref m) if m == "spawn failed"),
+        "{err}"
+    );
 }
 
 #[cfg(test)]

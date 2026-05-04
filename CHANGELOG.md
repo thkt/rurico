@@ -4,6 +4,32 @@
 
 ### Breaking Changes
 
+- **`EmbedInitError` and `RerankerInitError` removed; replaced by single
+  `ModelInitError` (`rurico::model_init::ModelInitError`).** Variant set
+  (`Backend(String)` and `ModelCorrupt { reason: String }`) is unchanged;
+  callers that previously matched on the per-kind enum must rename the type
+  only. `embed::Embedder::new` / `embed::Embedder::probe` /
+  `reranker::Reranker::new` / `reranker::Reranker::probe` now return
+  `Result<_, ModelInitError>`.
+- **`download_model` and `cached_artifacts` signatures changed.** Both
+  functions are now generic over `ModelArtifact` and live in
+  `rurico::model_lifecycle`: `pub fn download_model<Id: ModelArtifact>(model: Id)
+  -> Result<VerifiedArtifacts<Id::Kind>, ArtifactError>` and
+  `pub fn cached_artifacts<Id: ModelArtifact>(model: Id)
+  -> Result<Option<VerifiedArtifacts<Id::Kind>>, ArtifactError>`.
+  `embed::download_model` / `embed::cached_artifacts` /
+  `reranker::download_model` / `reranker::cached_artifacts` are kept as
+  re-exports so existing call sites continue to compile.
+- **`ModelArtifact` trait gains an `Kind: ModelKind` associated type.**
+  Implementors must now specify `type Kind = EmbedKind;` (or `RerankerKind`).
+  This binds the model identifier to its kind so wrong-kind combinations
+  (e.g. `download_model::<EmbedKind, _>(RerankerModelId::default())`) are
+  no longer expressible at the call site.
+- **`CandidateArtifacts` is now generic over a kind marker.**
+  `rurico::artifacts::CandidateArtifacts<K>` is the canonical definition;
+  `embed::CandidateArtifacts` and `reranker::CandidateArtifacts` are now
+  type aliases for `CandidateArtifacts<EmbedKind>` /
+  `CandidateArtifacts<RerankerKind>` respectively.
 - **`embed_document` returns `ChunkedEmbedding` instead of `Vec<f32>`.** Long
   documents are split into overlapping chunks. Short documents return
   `chunks.len() == 1` with an identical embedding value.

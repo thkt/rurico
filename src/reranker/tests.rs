@@ -1,11 +1,14 @@
 use super::mlx::truncate_pair;
 use super::*;
 use crate::artifacts::RerankerKind;
-use crate::model_io::artifacts_from_cache;
 use crate::model_lifecycle::probe_env_to_paths;
 #[cfg(unix)]
 use crate::test_support::setup_fake_hf_cache_with_symlinks;
-use crate::test_support::{VALID_CONFIG_JSON, setup_fake_hf_cache};
+use crate::test_support::{
+    VALID_CONFIG_JSON, assert_cache_lookup_returns_none_when_empty,
+    assert_cache_lookup_returns_some_when_all_files_present,
+    assert_from_probe_error_maps_correctly,
+};
 use std::fs;
 
 #[test]
@@ -67,32 +70,12 @@ fn t_007b_sort_results_ties_break_by_original_index() {
 
 #[test]
 fn t_013_cache_lookup_returns_some_when_all_files_present() {
-    let dir = tempfile::tempdir().unwrap();
-    let model = RerankerModelId::RuriV3Reranker310m;
-    setup_fake_hf_cache(
-        dir.path(),
-        model.repo_id(),
-        model.revision(),
-        &[
-            ("model.safetensors", b"fake"),
-            ("config.json", b"{}"),
-            ("tokenizer.json", b"{}"),
-        ],
-    );
-    let cache = hf_hub::Cache::new(dir.path().to_path_buf());
-    let result = artifacts_from_cache(&cache, model).unwrap();
-    let paths = result.expect("should be Some");
-    assert!(paths.model.ends_with("model.safetensors"));
-    assert!(paths.config.ends_with("config.json"));
-    assert!(paths.tokenizer.ends_with("tokenizer.json"));
+    assert_cache_lookup_returns_some_when_all_files_present(RerankerModelId::RuriV3Reranker310m);
 }
 
 #[test]
 fn t_021_cache_lookup_returns_none_when_cache_empty() {
-    let dir = tempfile::tempdir().unwrap();
-    let cache = hf_hub::Cache::new(dir.path().to_path_buf());
-    let result = artifacts_from_cache(&cache, RerankerModelId::default()).unwrap();
-    assert!(result.is_none());
+    assert_cache_lookup_returns_none_when_empty(RerankerModelId::default());
 }
 
 #[test]
@@ -245,28 +228,7 @@ fn sort_results_handles_nan_without_panic() {
 
 #[test]
 fn from_probe_error_maps_correctly() {
-    use crate::model_probe::ProbeError;
-
-    let err: ModelInitError = ProbeError::HandlerNotInstalled.into();
-    assert!(
-        matches!(err, ModelInitError::Backend(ref m) if m.contains("probe handler not installed")),
-        "{err}"
-    );
-
-    let err: ModelInitError = ProbeError::ModelLoadFailed {
-        reason: "bad weights".into(),
-    }
-    .into();
-    assert!(
-        matches!(err, ModelInitError::ModelCorrupt { ref reason } if reason == "bad weights"),
-        "{err}"
-    );
-
-    let err: ModelInitError = ProbeError::SubprocessFailed("spawn failed".into()).into();
-    assert!(
-        matches!(err, ModelInitError::Backend(ref m) if m == "spawn failed"),
-        "{err}"
-    );
+    assert_from_probe_error_maps_correctly();
 }
 
 use super::mlx::sigmoid;

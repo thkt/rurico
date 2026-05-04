@@ -3,9 +3,13 @@ use super::*;
 use crate::artifacts::EmbedKind;
 use crate::model_io::{EOS_TOKEN_ID, artifacts_from_cache, load_tokenizer};
 use crate::model_lifecycle::probe_env_to_paths;
-use crate::test_support::setup_fake_hf_cache;
 #[cfg(unix)]
 use crate::test_support::setup_fake_hf_cache_with_symlinks;
+use crate::test_support::{
+    assert_cache_lookup_returns_none_when_empty,
+    assert_cache_lookup_returns_some_when_all_files_present,
+    assert_from_probe_error_maps_correctly, setup_fake_hf_cache,
+};
 use std::fs;
 use std::path::Path;
 
@@ -36,22 +40,12 @@ fn setup_fake_cache_for(hub_dir: &Path, model: ModelId) {
 
 #[test]
 fn cache_lookup_returns_none_when_empty() {
-    let dir = tempfile::tempdir().unwrap();
-    let cache = hf_hub::Cache::new(dir.path().to_path_buf());
-    let result = artifacts_from_cache(&cache, ModelId::default()).unwrap();
-    assert!(result.is_none());
+    assert_cache_lookup_returns_none_when_empty(ModelId::default());
 }
 
 #[test]
 fn cache_lookup_returns_some_when_all_files_present() {
-    let dir = tempfile::tempdir().unwrap();
-    setup_fake_cache_for(dir.path(), ModelId::default());
-    let cache = hf_hub::Cache::new(dir.path().to_path_buf());
-    let result = artifacts_from_cache(&cache, ModelId::default()).unwrap();
-    let paths = result.expect("should return Some when all files cached");
-    assert!(paths.model.ends_with("model.safetensors"));
-    assert!(paths.config.ends_with("config.json"));
-    assert!(paths.tokenizer.ends_with("tokenizer.json"));
+    assert_cache_lookup_returns_some_when_all_files_present(ModelId::default());
 }
 
 #[test]
@@ -508,26 +502,5 @@ fn embed_text_propagates_error() {
 
 #[test]
 fn from_probe_error_maps_correctly() {
-    use crate::model_probe::ProbeError;
-
-    let err: ModelInitError = ProbeError::HandlerNotInstalled.into();
-    assert!(
-        matches!(err, ModelInitError::Backend(ref m) if m.contains("probe handler not installed")),
-        "{err}"
-    );
-
-    let err: ModelInitError = ProbeError::ModelLoadFailed {
-        reason: "bad weights".into(),
-    }
-    .into();
-    assert!(
-        matches!(err, ModelInitError::ModelCorrupt { ref reason } if reason == "bad weights"),
-        "{err}"
-    );
-
-    let err: ModelInitError = ProbeError::SubprocessFailed("spawn failed".into()).into();
-    assert!(
-        matches!(err, ModelInitError::Backend(ref m) if m == "spawn failed"),
-        "{err}"
-    );
+    assert_from_probe_error_maps_correctly();
 }
