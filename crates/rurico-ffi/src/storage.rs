@@ -1,6 +1,9 @@
 //! Safe wrapper for sqlite-vec FFI registration.
 
-use rusqlite::ffi::sqlite3_auto_extension;
+use std::mem::transmute;
+use std::os::raw::{c_char, c_int};
+
+use rusqlite::ffi::{sqlite3, sqlite3_api_routines, sqlite3_auto_extension};
 use sqlite_vec::sqlite3_vec_init;
 
 /// Register sqlite-vec as a process-global SQLite auto-extension.
@@ -17,13 +20,13 @@ pub fn sqlite_vec_register() -> i32 {
     // are C fn pointers with compatible calling conventions; SQLite calls the
     // function with the correct arguments at connection open time.
     unsafe {
-        sqlite3_auto_extension(Some(std::mem::transmute::<
+        sqlite3_auto_extension(Some(transmute::<
             unsafe extern "C" fn(),
             unsafe extern "C" fn(
-                *mut rusqlite::ffi::sqlite3,
-                *mut *mut std::os::raw::c_char,
-                *const rusqlite::ffi::sqlite3_api_routines,
-            ) -> std::os::raw::c_int,
+                *mut sqlite3,
+                *mut *mut c_char,
+                *const sqlite3_api_routines,
+            ) -> c_int,
         >(sqlite3_vec_init)))
     }
 }

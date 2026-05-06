@@ -1,6 +1,53 @@
 [workspace]
 members = [".", "crates/rurico-ffi"]
 
+[workspace.dependencies]
+bytemuck = "1"
+hf-hub = "0.5"
+mlx-rs = "0.25"
+mlx-sys = "0.2"
+rand = "0.10"
+rand_chacha = "0.10"
+rusqlite = { version = "0.39", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlite-vec = "0.1.9"
+thiserror = "2"
+tokenizers = { version = "0.23", default-features = false, features = ["onig"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+unicode-normalization = "0.1"
+
+# dev-only (members consume under [dev-dependencies])
+serial_test = "3"
+temp-env = "0.3"
+tempfile = "3"
+tracing-test = "0.2"
+
+[workspace.lints.rust]
+# `deny` (not `forbid`) so the FFI crate can keep `#[allow(unsafe_code)]` on
+# the few `unsafe extern` blocks it owns, while `unsafe` written in any other
+# member fails the build.
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+# absolute paths
+absolute_paths = "deny"
+# idiomatic iterators
+cast_possible_truncation = "deny"
+redundant_closure_for_method_calls = "deny"
+filter_map_next = "deny"
+flat_map_option = "deny"
+manual_filter_map = "deny"
+manual_find_map = "deny"
+# imports
+wildcard_imports = "deny"
+enum_glob_use = "deny"
+# strings
+str_to_string = "deny"
+# arguments
+needless_pass_by_value = "deny"
+
 [package]
 name = "rurico"
 version = "0.2.0"
@@ -29,47 +76,29 @@ name = "mlx_smoke"
 required-features = ["smoke"]
 
 [dependencies]
-bytemuck = "1"
-hf-hub = "0.5"
-mlx-rs = "0.25"
-rand = "0.10"
-rand_chacha = "0.10"
-rusqlite = { version = "0.39", features = ["bundled"] }
+bytemuck = { workspace = true }
+hf-hub = { workspace = true }
+mlx-rs = { workspace = true }
+rand = { workspace = true }
+rand_chacha = { workspace = true }
+rusqlite = { workspace = true }
 rurico-ffi = { path = "crates/rurico-ffi" }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-thiserror = "2"
-tokenizers = { version = "0.23", default-features = false, features = ["onig"] }
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }
-unicode-normalization = "0.1"
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokenizers = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, optional = true }
+unicode-normalization = { workspace = true }
 
 [dev-dependencies]
-serial_test = "3"
-temp-env = "0.3"
-tempfile = "3"
-tracing-test = "0.2"
+serial_test = { workspace = true }
+temp-env = { workspace = true }
+tempfile = { workspace = true }
+tracing-test = { workspace = true }
 
-[lints.rust]
-unsafe_code = "forbid"
-
-[lints.clippy]
-# absolute paths
-absolute_paths = "deny"
-# idiomatic iterators
-cast_possible_truncation = "deny"
-redundant_closure_for_method_calls = "deny"
-filter_map_next = "deny"
-flat_map_option = "deny"
-manual_filter_map = "deny"
-manual_find_map = "deny"
-# imports
-wildcard_imports = "deny"
-enum_glob_use = "deny"
-# strings
-str_to_string = "deny"
-# arguments
-needless_pass_by_value = "deny"
+[lints]
+workspace = true
 
 [profile.release]
 opt-level = 3
