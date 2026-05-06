@@ -1,7 +1,8 @@
 use super::{Artifacts, ModelInitError, RerankerError};
 use crate::mlx_cache::release_inference_output;
 use crate::model_io::{
-    BUCKET_BOUNDS, MAX_SEQ_LEN, assign_bucket, pad_sequences, truncate_with_eos,
+    BUCKET_BOUNDS, MAX_SEQ_LEN, assign_bucket, compute_sub_batch_size, pad_sequences,
+    truncate_with_eos,
 };
 use crate::modernbert::{Config, ModernBert, layer_norm_eps_f32};
 
@@ -33,6 +34,13 @@ impl RerankerInner {
         Ok(Self { model, tokenizer })
     }
 
+    /// Score every `(query, document)` pair in `pairs`.
+    ///
+    /// Pairs are tokenised and bucketed by maximum length, then forwarded in
+    /// sub-batches sized so each forward pass stays under the shared
+    /// [`crate::model_io::TOKEN_BUDGET`] ceiling. Sub-batching mirrors the
+    /// embed path so a large `pairs.len()` cannot allocate an unbounded
+    /// `[N × bucket_len]` flat tensor.
     pub(super) fn score_batch(
         &mut self,
         pairs: &[(&str, &str)],
@@ -54,8 +62,39 @@ impl RerankerInner {
 
         let raw_max = all_ids.iter().map(Vec::len).max().unwrap_or(0);
         let bucket_idx = assign_bucket(raw_max);
+        let bucket_len = BUCKET_BOUNDS[bucket_idx];
+        let sub_batch_size = compute_sub_batch_size(bucket_len);
+
+        let total_pairs = pairs.len();
+        let sub_batch_count = total_pairs.div_ceil(sub_batch_size);
+        tracing::debug!(
+            batch_size = total_pairs,
+            sub_batch_count,
+            sub_batch_size,
+            bucket_len,
+            "reranker score_batch dispatch",
+        );
+
+        let mut all_scores = Vec::with_capacity(total_pairs);
+        for (ids_chunk, masks_chunk) in all_ids
+            .chunks(sub_batch_size)
+            .zip(all_masks.chunks(sub_batch_size))
+        {
+            let sub_scores = self.forward_sub_batch(ids_chunk, masks_chunk, bucket_len)?;
+            all_scores.extend(sub_scores);
+        }
+        Ok(all_scores)
+    }
+
+    /// Forward one sub-batch and map logits to `[0, 1]` via sigmoid.
+    fn forward_sub_batch(
+        &mut self,
+        ids_chunk: &[Vec<u32>],
+        masks_chunk: &[Vec<u32>],
+        bucket_len: usize,
+    ) -> Result<Vec<f32>, RerankerError> {
         let (flat_ids, flat_mask, batch_size, max_len) =
-            pad_sequences(&all_ids, Some(&all_masks), Some(BUCKET_BOUNDS[bucket_idx]));
+            pad_sequences(ids_chunk, Some(masks_chunk), Some(bucket_len));
 
         let batch_size_i32 = i32::try_from(batch_size).expect("batch_size fits in i32");
         let max_len_i32 = i32::try_from(max_len).expect("max_len fits in i32");

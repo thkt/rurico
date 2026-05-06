@@ -243,6 +243,22 @@ pub(crate) fn artifacts_from_cache<Id: ModelArtifact>(
     }))
 }
 
+/// Token-count ceiling for a single forward pass through the bucketed
+/// inference path.
+///
+/// Embed and reranker callers both size their sub-batches against this budget
+/// so memory consumption is bounded by the same ceiling regardless of which
+/// path drives a given call.
+pub(crate) const TOKEN_BUDGET: usize = 256_000;
+
+/// Sub-batch size that keeps each forward pass under [`TOKEN_BUDGET`] when
+/// every item sits at the bucket boundary. Callers iterate
+/// `items.chunks(sub_batch_size)`. Floors at 1 so the loop progresses for
+/// `bucket_len > TOKEN_BUDGET`.
+pub(crate) fn compute_sub_batch_size(bucket_len: usize) -> usize {
+    (TOKEN_BUDGET / bucket_len).max(1)
+}
+
 /// Pad variable-length token sequences into contiguous flat arrays for batched inference.
 ///
 /// Zero-pads shorter sequences to `max_len`. When `target_len` is `None`,
@@ -394,6 +410,39 @@ mod tests {
         );
         assert_eq!(flat_ids, vec![1, 2, 3, 4, 5, 6, 0, 0]);
         assert_eq!(flat_mask, vec![1, 1, 1, 1, 1, 1, 0, 0]);
+    }
+
+    // ── compute_sub_batch_size tests ────────────────────────────────────────
+
+    // Pin the canonical sub-batch formula `(TOKEN_BUDGET / bucket_len).max(1)`
+    // so embed and reranker callers cannot drift apart silently.
+    #[test]
+    fn compute_sub_batch_size_matches_formula_per_bucket() {
+        assert_eq!(
+            compute_sub_batch_size(BUCKET_BOUNDS[0]),
+            TOKEN_BUDGET / BUCKET_BOUNDS[0],
+        );
+        assert_eq!(
+            compute_sub_batch_size(BUCKET_BOUNDS[1]),
+            TOKEN_BUDGET / BUCKET_BOUNDS[1],
+        );
+        assert_eq!(
+            compute_sub_batch_size(BUCKET_BOUNDS[2]),
+            TOKEN_BUDGET / BUCKET_BOUNDS[2],
+        );
+        assert_eq!(
+            compute_sub_batch_size(BUCKET_BOUNDS[3]),
+            TOKEN_BUDGET / BUCKET_BOUNDS[3],
+        );
+    }
+
+    // `max(1)` floor: pathological bucket_len > TOKEN_BUDGET cannot happen in
+    // production (BUCKET_BOUNDS[3]=8192 < 256_000), but the guard keeps callers
+    // from looping over zero-sized chunks if BUCKET_BOUNDS is later widened.
+    #[test]
+    fn compute_sub_batch_size_returns_one_when_bucket_exceeds_token_budget() {
+        assert_eq!(compute_sub_batch_size(TOKEN_BUDGET + 1), 1);
+        assert_eq!(compute_sub_batch_size(usize::MAX), 1);
     }
 
     // ── ModelArtifact::Kind associated type ─────────────────────────────────
