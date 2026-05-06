@@ -72,7 +72,6 @@ impl RerankerInner {
             sub_batch_count,
             sub_batch_size,
             bucket_len,
-            bucket_idx,
             "reranker score_batch dispatch",
         );
 
@@ -87,11 +86,7 @@ impl RerankerInner {
         Ok(all_scores)
     }
 
-    /// Forward a single sub-batch and produce per-pair sigmoid scores.
-    ///
-    /// Caller pre-bucketed and pre-sized the chunk against
-    /// [`compute_sub_batch_size`] so this pass stays within the shared
-    /// `TOKEN_BUDGET`. The pair count returned matches `ids_chunk.len()`.
+    /// Forward one sub-batch and map logits to `[0, 1]` via sigmoid.
     fn forward_sub_batch(
         &mut self,
         ids_chunk: &[Vec<u32>],

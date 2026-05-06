@@ -251,15 +251,10 @@ pub(crate) fn artifacts_from_cache<Id: ModelArtifact>(
 /// path drives a given call.
 pub(crate) const TOKEN_BUDGET: usize = 256_000;
 
-/// Compute the sub-batch size for a bucket of length `bucket_len`.
-///
-/// Returns `(TOKEN_BUDGET / bucket_len).max(1)`. Callers iterate
-/// `items.chunks(sub_batch_size)` so each forward pass stays under the
-/// [`TOKEN_BUDGET`] ceiling even when every item sits at the bucket boundary.
-/// The `max(1)` floor keeps the loop progressing if a future widening of
-/// [`BUCKET_BOUNDS`] makes a bucket exceed [`TOKEN_BUDGET`]; production
-/// callers always pass `BUCKET_BOUNDS[i]` (≤ 8192) so that branch never
-/// fires today.
+/// Sub-batch size that keeps each forward pass under [`TOKEN_BUDGET`] when
+/// every item sits at the bucket boundary. Callers iterate
+/// `items.chunks(sub_batch_size)`. Floors at 1 so the loop progresses for
+/// `bucket_len > TOKEN_BUDGET`.
 pub(crate) fn compute_sub_batch_size(bucket_len: usize) -> usize {
     (TOKEN_BUDGET / bucket_len).max(1)
 }
@@ -419,10 +414,10 @@ mod tests {
 
     // ── compute_sub_batch_size tests ────────────────────────────────────────
 
-    // Pin the embed-side sub-batch formula `(TOKEN_BUDGET / bucket_len).max(1)`
-    // so any second caller cannot drift from embed silently.
+    // Pin the canonical sub-batch formula `(TOKEN_BUDGET / bucket_len).max(1)`
+    // so embed and reranker callers cannot drift apart silently.
     #[test]
-    fn compute_sub_batch_size_matches_embed_formula_per_bucket() {
+    fn compute_sub_batch_size_matches_formula_per_bucket() {
         assert_eq!(
             compute_sub_batch_size(BUCKET_BOUNDS[0]),
             TOKEN_BUDGET / BUCKET_BOUNDS[0],

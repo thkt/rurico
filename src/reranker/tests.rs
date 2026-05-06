@@ -371,17 +371,9 @@ mod mlx_runtime_tests {
         );
     }
 
-    // Large-batch score_batch must not OOM.
-    //
-    // Without sub-batching, `RerankerInner::score_batch` would build a single
-    // `[N × bucket_len]` flat tensor and forward it in one pass. With N=5000
-    // short pairs that land in bucket 0 (≤128 tokens), the resulting
-    // `5000 × 128 = 640_000` token matrix exhausts GPU memory on most M-series
-    // devices.
-    //
-    // Sub-batching fans the same input out to `compute_sub_batch_size(128) =
-    // 2000` pairs per forward, so each pass stays under the
-    // `TOKEN_BUDGET = 256_000` ceiling shared with the embed path.
+    // Without sub-batching, 5000 short pairs in bucket 0 build a single
+    // `5000 × 128 = 640_000` token matrix that exhausts GPU memory on most
+    // M-series devices. Pins the OOM regression that motivated sub-batching.
     #[test]
     #[ignore = "requires unsandboxed MLX runtime"]
     #[serial]
@@ -404,17 +396,10 @@ mod mlx_runtime_tests {
         }
     }
 
-    // 50 pairs (bucket 0) latency observation.
-    //
-    // At sub_batch_size = compute_sub_batch_size(128) = 2000, the post-fix
-    // chunks(2000) loop produces exactly one iteration. The forward path is
-    // therefore identical to the pre-fix single-pass behaviour; added cost is
-    // bounded by one tracing::debug! line plus one extra function-call frame.
-    // The observation here pins the small-N path's latency floor so a future
-    // refactor that introduces real per-call work shows up immediately.
-    //
-    // Median of `RUNS` runs is printed via `--nocapture` for human inspection;
-    // device-dependent absolute thresholds are intentionally not asserted.
+    // Pin small-N (50 pairs, single sub-batch) latency floor as a smoke signal.
+    // A future refactor that introduces real per-call work in score_batch shows
+    // up here. Median printed via --nocapture; thresholds intentionally not
+    // asserted (device-dependent).
     #[test]
     #[ignore = "requires unsandboxed MLX runtime"]
     #[serial]
@@ -451,18 +436,15 @@ mod mlx_runtime_tests {
     #[test]
     #[ignore = "requires unsandboxed MLX runtime"]
     #[serial]
-    fn t_score_batch_emits_dispatch_log_with_structured_fields() {
+    fn t_score_batch_emits_dispatch_log() {
         require_unsandboxed_mlx_runtime();
         let reranker = Reranker::new(&load_cached_artifacts()).unwrap();
 
         let pairs: Vec<(&str, &str)> = vec![("query", "doc"); 3];
         reranker.score_batch(&pairs).unwrap();
 
-        assert!(
-            logs_contain("reranker score_batch dispatch"),
-            "dispatch log message must be emitted",
-        );
-        assert!(logs_contain("batch_size=3"), "batch_size field must be 3");
+        assert!(logs_contain("reranker score_batch dispatch"));
+        assert!(logs_contain("batch_size=3"));
         assert!(
             logs_contain("sub_batch_count=1"),
             "3 pairs in bucket 0 fit a single sub-batch",
