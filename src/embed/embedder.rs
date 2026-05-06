@@ -3,7 +3,7 @@ use std::sync::{Mutex, MutexGuard};
 
 use super::metrics::BatchMetrics;
 use super::mlx::EmbedderInner;
-use super::{Artifacts, ChunkedEmbedding, Embed, EmbedError, EmbedInitError, QUERY_PREFIX};
+use super::{Artifacts, ChunkedEmbedding, Embed, EmbedError, ModelInitError, QUERY_PREFIX};
 use crate::model_probe::ProbeStatus;
 
 /// Thread-safe embedding model backed by MLX. Wraps the backend in a [`Mutex`].
@@ -30,10 +30,11 @@ impl Embedder {
     ///
     /// # Errors
     ///
-    /// Returns [`EmbedInitError::Backend`] if MLX model construction or weight loading fails.
-    pub fn new(artifacts: &Artifacts) -> Result<Self, EmbedInitError> {
+    /// Returns [`ModelInitError::Backend`] if MLX model construction or weight loading fails.
+    pub fn new(artifacts: &Artifacts) -> Result<Self, ModelInitError> {
         let inner = EmbedderInner::new(artifacts)?;
         let embedding_dims = inner.embedding_dims();
+        tracing::info!(embedding_dims, "embedder: model loaded");
         Ok(Self {
             inner: Mutex::new(inner),
             embedding_dims,
@@ -81,18 +82,22 @@ impl Embedder {
     /// # Errors
     ///
     /// Returns:
-    /// - [`EmbedInitError::Backend`] if the probe subprocess cannot be spawned
+    /// - [`ModelInitError::Backend`] if the probe subprocess cannot be spawned
     ///   or the probe handler is not installed in the host binary
-    /// - [`EmbedInitError::ModelCorrupt`] if the subprocess exits non-zero after
+    /// - [`ModelInitError::ModelCorrupt`] if the subprocess exits non-zero after
     ///   starting successfully
-    pub fn probe(artifacts: &Artifacts) -> Result<ProbeStatus, EmbedInitError> {
+    pub fn probe(artifacts: &Artifacts) -> Result<ProbeStatus, ModelInitError> {
         super::probe::probe_via_subprocess(artifacts)
     }
 
     fn lock_inner(&self) -> Result<MutexGuard<'_, EmbedderInner>, EmbedError> {
-        self.inner
-            .lock()
-            .map_err(|_| EmbedError::inference("embedder lock poisoned"))
+        self.inner.lock().map_err(|e| {
+            tracing::error!(
+                error = %e,
+                "embedder: mutex poisoned (prior panic in critical section)"
+            );
+            EmbedError::inference("embedder lock poisoned")
+        })
     }
 }
 

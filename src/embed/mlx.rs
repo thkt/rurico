@@ -5,9 +5,9 @@ use mlx_rs::Array;
 use super::Artifacts;
 use super::metrics::{BatchMetrics, PhaseMetrics};
 use super::{
-    CHUNK_OVERLAP_TOKENS, ChunkedEmbedding, DOCUMENT_PREFIX, EmbedError, EmbedInitError,
-    MAX_SEQ_LEN, extract_prefix_tokens, gpu_pool_and_normalize, max_content, tokenize_with_prefix,
-    truncate_for_query,
+    CHUNK_OVERLAP_TOKENS, ChunkedEmbedding, DOCUMENT_PREFIX, EmbedError, MAX_SEQ_LEN,
+    ModelInitError, extract_prefix_tokens, gpu_pool_and_normalize, max_content,
+    tokenize_with_prefix, truncate_for_query,
 };
 use crate::mlx_cache::{clear_inference_cache, release_inference_output};
 use crate::model_io::{BUCKET_BOUNDS, assign_bucket, pad_sequences};
@@ -98,15 +98,15 @@ pub(super) struct EmbedderInner {
 }
 
 impl EmbedderInner {
-    pub(super) fn new(artifacts: &Artifacts) -> Result<Self, EmbedInitError> {
+    pub(super) fn new(artifacts: &Artifacts) -> Result<Self, ModelInitError> {
         let config = &artifacts.config;
         let tokenizer = artifacts.tokenizer.clone();
 
         let model =
-            ModernBert::load(&artifacts.paths.model, config).map_err(EmbedInitError::backend)?;
+            ModernBert::load(&artifacts.paths.model, config).map_err(ModelInitError::backend)?;
 
         let doc_prefix_tokens =
-            extract_prefix_tokens(&tokenizer, DOCUMENT_PREFIX).map_err(EmbedInitError::backend)?;
+            extract_prefix_tokens(&tokenizer, DOCUMENT_PREFIX).map_err(ModelInitError::backend)?;
         let embedding_dims = config.hidden_size;
 
         Ok(Self {

@@ -7,6 +7,8 @@
 
 use std::env;
 
+use crate::artifacts::{EmbedKind, RerankerKind};
+use crate::model_lifecycle;
 use crate::{embed, model_probe, reranker};
 
 /// Single entry point for probe subprocess dispatch in host binaries.
@@ -33,7 +35,7 @@ pub fn handle_probe_if_needed_with<F>(get: F)
 where
     F: Fn(&str) -> Option<String>,
 {
-    if let Some(result) = embed::probe_env_to_paths(
+    if let Some(result) = model_lifecycle::probe_env_to_paths::<EmbedKind>(
         get(embed::PROBE_ENV_MODEL),
         get(embed::PROBE_ENV_CONFIG),
         get(embed::PROBE_ENV_TOKENIZER),
@@ -46,7 +48,7 @@ where
         });
     }
 
-    if let Some(result) = reranker::probe_env_to_paths(
+    if let Some(result) = model_lifecycle::probe_env_to_paths::<RerankerKind>(
         get(reranker::PROBE_ENV_MODEL),
         get(reranker::PROBE_ENV_CONFIG),
         get(reranker::PROBE_ENV_TOKENIZER),

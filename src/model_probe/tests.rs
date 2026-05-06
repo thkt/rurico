@@ -441,28 +441,24 @@ fn t_006_validate_probe_paths_with_root_rejects_string_prefix_sibling() {
 // prefix. After the Green change, this assertion will pass; before the Green
 // change, the assertion fails on the `pub fn` line.
 #[test]
-fn t_016_from_paths_is_declared_pub_crate_in_embed_and_reranker_modules() {
-    // Arrange
-    let embed_src = fs::read_to_string("src/embed.rs").unwrap();
-    let reranker_src = fs::read_to_string("src/reranker.rs").unwrap();
+fn t_016_from_paths_is_declared_pub_crate_in_artifacts_module() {
+    // After Phase 1 Unit 1.1, the single `CandidateArtifacts<K>::from_paths`
+    // definition lives in `src/artifacts.rs` and is consumed by
+    // `model_lifecycle::probe_env_to_paths<K>`. The downstream-visible aliases
+    // `embed::CandidateArtifacts` / `reranker::CandidateArtifacts` are typedefs
+    // and carry no `from_paths` declaration of their own. This text-based audit
+    // therefore targets the canonical definition site.
+    let artifacts_src = fs::read_to_string("src/artifacts.rs").unwrap();
 
-    // Assert
     assert!(
-        embed_src.contains("pub(crate) fn from_paths("),
-        "embed::CandidateArtifacts::from_paths must be declared `pub(crate) fn from_paths(`"
+        artifacts_src.contains("pub(crate) fn from_paths("),
+        "artifacts::CandidateArtifacts::from_paths must be declared `pub(crate) fn from_paths(`"
     );
+    // Negative assertion: bare `pub fn from_paths(` must not exist on the
+    // canonical definition.
     assert!(
-        reranker_src.contains("pub(crate) fn from_paths("),
-        "reranker::CandidateArtifacts::from_paths must be declared `pub(crate) fn from_paths(`"
-    );
-    // Negative assertion: bare `pub fn from_paths(` must not exist.
-    assert!(
-        !embed_src.contains("\n    pub fn from_paths("),
-        "embed::CandidateArtifacts::from_paths must not be declared `pub fn`"
-    );
-    assert!(
-        !reranker_src.contains("\n    pub fn from_paths("),
-        "reranker::CandidateArtifacts::from_paths must not be declared `pub fn`"
+        !artifacts_src.contains("\n    pub fn from_paths("),
+        "artifacts::CandidateArtifacts::from_paths must not be declared `pub fn`"
     );
 }
 

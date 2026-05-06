@@ -7,18 +7,15 @@ mod test_support;
 mod tests;
 
 use self::mlx::RerankerInner;
-use crate::artifacts::verify_as_reranker;
-use crate::model_io::{ModelArtifact, ModelPaths, artifacts_if_cached, download_artifacts};
-use crate::model_probe::{
-    ProbeError, ProbeStatus, probe_paths_via_subprocess, resolve_probe_env, validate_probe_paths,
-};
+use crate::artifacts;
+use crate::model_io::ModelArtifact;
+use crate::model_probe::{ProbeStatus, probe_paths_via_subprocess};
 use std::fmt::{self, Debug, Display, Formatter};
-#[cfg(any(test, feature = "test-support"))]
-use std::path::Path;
-use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
 
 pub use crate::artifacts::{ArtifactError, RerankerKind, VerifiedArtifacts};
+pub use crate::model_init::ModelInitError;
+pub use crate::model_lifecycle::{cached_artifacts, download_model};
 #[cfg(any(test, feature = "test-support"))]
 pub use test_support::MockReranker;
 
@@ -43,53 +40,10 @@ pub type Artifacts = VerifiedArtifacts<RerankerKind>;
 
 /// Unverified reranker model artifact paths.
 ///
-/// Construct with [`from_paths`](Self::from_paths) (or [`from_dir`](Self::from_dir)
-/// in test contexts), then call [`verify`](Self::verify) to obtain
-/// [`Artifacts`] that can be passed to [`Reranker::new`].
-#[derive(Debug)]
-pub struct CandidateArtifacts {
-    paths: ModelPaths,
-}
-
-impl CandidateArtifacts {
-    /// Construct from explicit file paths without any verification.
-    ///
-    /// Use this when you have raw paths (e.g. from environment variables).
-    /// Call [`verify`](Self::verify) before passing the result to [`Reranker::new`].
-    pub(crate) fn from_paths(model: PathBuf, config: PathBuf, tokenizer: PathBuf) -> Self {
-        Self {
-            paths: ModelPaths {
-                model,
-                config,
-                tokenizer,
-            },
-        }
-    }
-
-    /// Construct from a directory using standard filenames (`model.safetensors`,
-    /// `config.json`, `tokenizer.json`).
-    ///
-    /// Available for development and test use only.
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn from_dir(dir: &Path) -> Self {
-        Self {
-            paths: ModelPaths::from_dir(dir),
-        }
-    }
-
-    /// Verify file existence, config integrity, tokenizer validity, and reranker model kind.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ArtifactError`] for any of the following:
-    /// - A required file is missing ([`ArtifactError::MissingFile`])
-    /// - `config.json` cannot be parsed ([`ArtifactError::InvalidConfig`])
-    /// - `tokenizer.json` cannot be loaded ([`ArtifactError::InvalidTokenizer`])
-    /// - Weights are for an embed model, not a reranker ([`ArtifactError::WrongModelKind`])
-    pub fn verify(self) -> Result<Artifacts, ArtifactError> {
-        verify_as_reranker(self.paths)
-    }
-}
+/// Type alias for [`crate::artifacts::CandidateArtifacts<RerankerKind>`] so the
+/// downstream-visible name `reranker::CandidateArtifacts` keeps working while
+/// the underlying definition lives in `artifacts.rs` (single source of truth).
+pub type CandidateArtifacts = artifacts::CandidateArtifacts<RerankerKind>;
 
 // ── RerankerModelId ───────────────────────────────────────────────────────────
 
@@ -117,48 +71,14 @@ impl RerankerModelId {
 }
 
 impl ModelArtifact for RerankerModelId {
+    type Kind = RerankerKind;
+
     fn repo_id(self) -> &'static str {
         RerankerModelId::repo_id(self)
     }
 
     fn revision(self) -> &'static str {
         self.revision()
-    }
-}
-
-// ── RerankerInitError ─────────────────────────────────────────────────────────
-
-/// Errors from initialising the reranker backend ([`Reranker::new`], [`Reranker::probe`]).
-///
-/// These errors occur after artifact verification has already succeeded. They
-/// indicate a failure during MLX backend setup or model weight loading.
-#[derive(Debug, thiserror::Error)]
-pub enum RerankerInitError {
-    /// MLX backend initialisation, weight loading, or subprocess probe failure.
-    #[error("reranker init failed: {0}")]
-    Backend(String),
-    /// Model weights loaded but are corrupt or incompatible with the expected architecture.
-    #[error("model load failed: {reason}")]
-    ModelCorrupt {
-        /// Failure detail from the backend.
-        reason: String,
-    },
-}
-
-impl RerankerInitError {
-    pub(crate) fn backend(e: impl Display) -> Self {
-        Self::Backend(e.to_string())
-    }
-}
-
-impl From<ProbeError> for RerankerInitError {
-    fn from(e: ProbeError) -> Self {
-        match e {
-            ProbeError::HandlerNotInstalled => RerankerInitError::Backend(e.to_string()),
-            ProbeError::ModelLoadFailed { reason } => RerankerInitError::ModelCorrupt { reason },
-            ProbeError::SetupRejected { .. } => RerankerInitError::Backend(e.to_string()),
-            ProbeError::SubprocessFailed(msg) => RerankerInitError::Backend(msg),
-        }
     }
 }
 
@@ -246,8 +166,8 @@ impl Reranker {
     ///
     /// # Errors
     ///
-    /// Returns [`RerankerInitError::Backend`] if MLX model construction or weight loading fails.
-    pub fn new(artifacts: &Artifacts) -> Result<Self, RerankerInitError> {
+    /// Returns [`ModelInitError::Backend`] if MLX model construction or weight loading fails.
+    pub fn new(artifacts: &Artifacts) -> Result<Self, ModelInitError> {
         let inner = RerankerInner::new(artifacts)?;
         Ok(Self {
             inner: Mutex::new(inner),
@@ -306,14 +226,18 @@ impl Reranker {
     /// The host binary must call
     /// [`model_probe::handle_probe_if_needed`](crate::model_probe::handle_probe_if_needed)
     /// at the start of `main()`.
-    pub fn probe(artifacts: &Artifacts) -> Result<ProbeStatus, RerankerInitError> {
+    pub fn probe(artifacts: &Artifacts) -> Result<ProbeStatus, ModelInitError> {
         probe_via_subprocess(artifacts)
     }
 
     fn lock_inner(&self) -> Result<MutexGuard<'_, RerankerInner>, RerankerError> {
-        self.inner
-            .lock()
-            .map_err(|_| RerankerError::inference("reranker lock poisoned"))
+        self.inner.lock().map_err(|e| {
+            tracing::error!(
+                error = %e,
+                "reranker: mutex poisoned (prior panic in critical section)"
+            );
+            RerankerError::inference("reranker lock poisoned")
+        })
     }
 }
 
@@ -345,59 +269,9 @@ fn sort_results(scores: &[f32]) -> Vec<RankedResult> {
     results
 }
 
-// ── Public API: download / cache ──────────────────────────────────────────────
-
-/// Download reranker model files from Hugging Face Hub and verify them as reranker artifacts.
-///
-/// # Errors
-///
-/// Returns [`ArtifactError::DownloadFailed`] if the Hugging Face client cannot be
-/// initialised or any required artifact download fails.
-/// Returns other [`ArtifactError`] variants if verification of the downloaded
-/// files fails.
-pub fn download_model(model: RerankerModelId) -> Result<Artifacts, ArtifactError> {
-    let paths = download_artifacts(model)?;
-    verify_as_reranker(paths)
-}
-
-/// Check whether reranker model files exist in the local HF Hub cache and verify them.
-///
-/// Returns `Ok(Some(artifacts))` if all three files are cached and pass
-/// verification, `Ok(None)` otherwise. Never accesses the network.
-///
-/// # Errors
-///
-/// Returns [`ArtifactError`] if cached files fail verification.
-/// Cache misses are reported as `Ok(None)`.
-pub fn cached_artifacts(model: RerankerModelId) -> Result<Option<Artifacts>, ArtifactError> {
-    let Some(paths) = artifacts_if_cached(model)? else {
-        return Ok(None);
-    };
-    verify_as_reranker(paths).map(Some)
-}
-
 // ── Probe infrastructure ──────────────────────────────────────────────────────
 
-/// Resolve reranker probe env vars into a [`CandidateArtifacts`].
-///
-/// Returns `None` if this is not a probe invocation (primary model env var absent).
-/// Returns `Some(Ok(candidate))` if all three vars are set.
-/// Returns `Some(Err(3))` if the model var is set but config or tokenizer is missing.
-pub(crate) fn probe_env_to_paths(
-    model: Option<String>,
-    config: Option<String>,
-    tokenizer: Option<String>,
-) -> Option<Result<CandidateArtifacts, i32>> {
-    resolve_probe_env(model, config, tokenizer).map(|r| {
-        r.and_then(|(m, c, t)| {
-            validate_probe_paths(&m, &c, &t)?;
-            Ok((m, c, t))
-        })
-        .map(|(m, c, t)| CandidateArtifacts::from_paths(m, c, t))
-    })
-}
-
-fn probe_via_subprocess(artifacts: &Artifacts) -> Result<ProbeStatus, RerankerInitError> {
+fn probe_via_subprocess(artifacts: &Artifacts) -> Result<ProbeStatus, ModelInitError> {
     probe_paths_via_subprocess(
         &artifacts.paths,
         PROBE_ENV_MODEL,

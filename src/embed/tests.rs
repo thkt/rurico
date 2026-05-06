@@ -1,11 +1,17 @@
 use super::mlx::shrink_chunk_to_fit;
-use super::probe::probe_env_to_paths;
 use super::*;
+use crate::artifacts::EmbedKind;
 use crate::model_io::{EOS_TOKEN_ID, artifacts_from_cache, load_tokenizer};
-use crate::test_support::setup_fake_hf_cache;
+use crate::model_lifecycle::probe_env_to_paths;
 #[cfg(unix)]
 use crate::test_support::setup_fake_hf_cache_with_symlinks;
+use crate::test_support::{
+    assert_cache_lookup_returns_none_when_empty,
+    assert_cache_lookup_returns_some_when_all_files_present,
+    assert_from_probe_error_maps_correctly, setup_fake_hf_cache,
+};
 use std::fs;
+use std::path::Path;
 
 #[test]
 fn validate_partial_download_reports_missing_file() {
@@ -34,22 +40,12 @@ fn setup_fake_cache_for(hub_dir: &Path, model: ModelId) {
 
 #[test]
 fn cache_lookup_returns_none_when_empty() {
-    let dir = tempfile::tempdir().unwrap();
-    let cache = hf_hub::Cache::new(dir.path().to_path_buf());
-    let result = artifacts_from_cache(&cache, ModelId::default()).unwrap();
-    assert!(result.is_none());
+    assert_cache_lookup_returns_none_when_empty(ModelId::default());
 }
 
 #[test]
 fn cache_lookup_returns_some_when_all_files_present() {
-    let dir = tempfile::tempdir().unwrap();
-    setup_fake_cache_for(dir.path(), ModelId::default());
-    let cache = hf_hub::Cache::new(dir.path().to_path_buf());
-    let result = artifacts_from_cache(&cache, ModelId::default()).unwrap();
-    let paths = result.expect("should return Some when all files cached");
-    assert!(paths.model.ends_with("model.safetensors"));
-    assert!(paths.config.ends_with("config.json"));
-    assert!(paths.tokenizer.ends_with("tokenizer.json"));
+    assert_cache_lookup_returns_some_when_all_files_present(ModelId::default());
 }
 
 #[test]
@@ -144,7 +140,7 @@ fn t_018_probe_env_to_paths_preserves_snapshot_symlink_filename() {
 
     let hf_home_path = hf_home.path().to_path_buf();
     temp_env::with_vars([("HF_HOME", Some(hf_home_path.to_str().unwrap()))], || {
-        let candidate = probe_env_to_paths(
+        let candidate = probe_env_to_paths::<EmbedKind>(
             Some(m.to_string_lossy().into_owned()),
             Some(c.to_string_lossy().into_owned()),
             Some(t.to_string_lossy().into_owned()),
@@ -188,7 +184,7 @@ fn probe_env_to_paths_returns_paths_when_all_present() {
 
     let hf_home_path = hf_home.path().to_path_buf();
     temp_env::with_vars([("HF_HOME", Some(hf_home_path.to_str().unwrap()))], || {
-        let candidate = probe_env_to_paths(
+        let candidate = probe_env_to_paths::<EmbedKind>(
             Some(m.to_string_lossy().into_owned()),
             Some(c.to_string_lossy().into_owned()),
             Some(t.to_string_lossy().into_owned()),
@@ -506,26 +502,5 @@ fn embed_text_propagates_error() {
 
 #[test]
 fn from_probe_error_maps_correctly() {
-    use crate::model_probe::ProbeError;
-
-    let err: EmbedInitError = ProbeError::HandlerNotInstalled.into();
-    assert!(
-        matches!(err, EmbedInitError::Backend(ref m) if m.contains("probe handler not installed")),
-        "{err}"
-    );
-
-    let err: EmbedInitError = ProbeError::ModelLoadFailed {
-        reason: "bad weights".into(),
-    }
-    .into();
-    assert!(
-        matches!(err, EmbedInitError::ModelCorrupt { ref reason } if reason == "bad weights"),
-        "{err}"
-    );
-
-    let err: EmbedInitError = ProbeError::SubprocessFailed("spawn failed".into()).into();
-    assert!(
-        matches!(err, EmbedInitError::Backend(ref m) if m == "spawn failed"),
-        "{err}"
-    );
+    assert_from_probe_error_maps_correctly();
 }

@@ -26,20 +26,15 @@ pub use test_support::{
 };
 
 pub use crate::artifacts::{ArtifactError, EmbedKind, VerifiedArtifacts};
+pub use crate::model_init::ModelInitError;
+pub use crate::model_lifecycle::{cached_artifacts, download_model};
 pub use embedder::Embedder;
 pub use metrics::BatchMetrics;
 pub use pooling::gpu_pool_and_normalize;
-pub(crate) use probe::probe_env_to_paths;
 
-use crate::artifacts::verify_as_embed;
-use crate::model_io::{
-    ModelArtifact, ModelPaths, artifacts_if_cached, download_artifacts, truncate_with_eos,
-};
-use crate::model_probe::ProbeError;
+use crate::artifacts;
+use crate::model_io::{ModelArtifact, truncate_with_eos};
 use std::fmt;
-#[cfg(any(test, feature = "test-support"))]
-use std::path::Path;
-use std::path::PathBuf;
 
 /// Probe env-var key for the embedding model weights path.
 pub(crate) const PROBE_ENV_MODEL: &str = "__RURICO_PROBE_MODEL";
@@ -62,52 +57,10 @@ pub type Artifacts = VerifiedArtifacts<EmbedKind>;
 
 /// Unverified embedding model artifact paths.
 ///
-/// Construct with [`from_paths`](Self::from_paths) (or [`from_dir`](Self::from_dir)
-/// in test contexts), then call [`verify`](Self::verify) to obtain
-/// [`Artifacts`] that can be passed to [`Embedder::new`].
-pub struct CandidateArtifacts {
-    paths: ModelPaths,
-}
-
-impl CandidateArtifacts {
-    /// Construct from explicit file paths without any verification.
-    ///
-    /// Use this when you have raw paths (e.g. from environment variables).
-    /// Call [`verify`](Self::verify) before passing the result to [`Embedder::new`].
-    pub(crate) fn from_paths(model: PathBuf, config: PathBuf, tokenizer: PathBuf) -> Self {
-        Self {
-            paths: ModelPaths {
-                model,
-                config,
-                tokenizer,
-            },
-        }
-    }
-
-    /// Construct from a directory using standard filenames (`model.safetensors`,
-    /// `config.json`, `tokenizer.json`).
-    ///
-    /// Available for development and test use only.
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn from_dir(dir: &Path) -> Self {
-        Self {
-            paths: ModelPaths::from_dir(dir),
-        }
-    }
-
-    /// Verify file existence, config integrity, tokenizer validity, and embed model kind.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ArtifactError`] for any of the following:
-    /// - A required file is missing ([`ArtifactError::MissingFile`])
-    /// - `config.json` cannot be parsed ([`ArtifactError::InvalidConfig`])
-    /// - `tokenizer.json` cannot be loaded ([`ArtifactError::InvalidTokenizer`])
-    /// - Weights are for a reranker, not an embed model ([`ArtifactError::WrongModelKind`])
-    pub fn verify(self) -> Result<Artifacts, ArtifactError> {
-        verify_as_embed(self.paths)
-    }
-}
+/// Type alias for [`crate::artifacts::CandidateArtifacts<EmbedKind>`] so the
+/// downstream-visible name `embed::CandidateArtifacts` keeps working while the
+/// underlying definition lives in `artifacts.rs` (single source of truth).
+pub type CandidateArtifacts = artifacts::CandidateArtifacts<EmbedKind>;
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -251,6 +204,8 @@ impl ModelId {
 }
 
 impl ModelArtifact for ModelId {
+    type Kind = EmbedKind;
+
     fn repo_id(self) -> &'static str {
         ModelId::repo_id(self)
     }
@@ -261,40 +216,6 @@ impl ModelArtifact for ModelId {
 }
 
 // ── EmbedInitError ────────────────────────────────────────────────────────────
-
-/// Errors from initialising the embedding backend ([`Embedder::new`], [`Embedder::probe`]).
-///
-/// These errors occur after artifact verification has already succeeded. They
-/// indicate a failure during MLX backend setup or model weight loading.
-#[derive(Debug, thiserror::Error)]
-pub enum EmbedInitError {
-    /// MLX backend initialisation, weight loading, or subprocess probe failure.
-    #[error("embed init failed: {0}")]
-    Backend(String),
-    /// Model weights loaded but are corrupt or incompatible with the expected architecture.
-    #[error("model load failed: {reason}")]
-    ModelCorrupt {
-        /// Failure detail from the backend.
-        reason: String,
-    },
-}
-
-impl EmbedInitError {
-    pub(crate) fn backend(e: impl fmt::Display) -> Self {
-        Self::Backend(e.to_string())
-    }
-}
-
-impl From<ProbeError> for EmbedInitError {
-    fn from(e: ProbeError) -> Self {
-        match e {
-            ProbeError::HandlerNotInstalled => EmbedInitError::Backend(e.to_string()),
-            ProbeError::ModelLoadFailed { reason } => EmbedInitError::ModelCorrupt { reason },
-            ProbeError::SetupRejected { .. } => EmbedInitError::Backend(e.to_string()),
-            ProbeError::SubprocessFailed(msg) => EmbedInitError::Backend(msg),
-        }
-    }
-}
 
 // ── EmbedError (runtime) ──────────────────────────────────────────────────────
 
@@ -392,37 +313,6 @@ pub trait Embed: Send + Sync {
     /// such as tokenization, inference, or output post-processing.
     /// Callers should not rely on exact error message text.
     fn embed_text(&self, text: &str, prefix: &str) -> Result<Vec<f32>, EmbedError>;
-}
-
-// ── Public API: download / cache ──────────────────────────────────────────────
-
-/// Download model files from Hugging Face Hub and verify them as embed artifacts.
-///
-/// # Errors
-///
-/// Returns [`ArtifactError::DownloadFailed`] if the Hugging Face client cannot be
-/// initialised or any required artifact download fails.
-/// Returns other [`ArtifactError`] variants if verification of the downloaded
-/// files fails.
-pub fn download_model(model: ModelId) -> Result<Artifacts, ArtifactError> {
-    let paths = download_artifacts(model)?;
-    verify_as_embed(paths)
-}
-
-/// Check whether embed model files exist in the local HF Hub cache and verify them.
-///
-/// Returns `Ok(Some(artifacts))` if all three files are cached and pass
-/// verification, `Ok(None)` otherwise. Never accesses the network.
-///
-/// # Errors
-///
-/// Returns [`ArtifactError`] if cached files fail verification.
-/// Cache misses are reported as `Ok(None)`.
-pub fn cached_artifacts(model: ModelId) -> Result<Option<Artifacts>, ArtifactError> {
-    let Some(paths) = artifacts_if_cached(model)? else {
-        return Ok(None);
-    };
-    verify_as_embed(paths).map(Some)
 }
 
 // ── TokenizedInput ────────────────────────────────────────────────────────────

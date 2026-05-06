@@ -1,4 +1,4 @@
-use super::{Artifacts, RerankerError, RerankerInitError};
+use super::{Artifacts, ModelInitError, RerankerError};
 use crate::mlx_cache::release_inference_output;
 use crate::model_io::{
     BUCKET_BOUNDS, MAX_SEQ_LEN, assign_bucket, pad_sequences, truncate_with_eos,
@@ -22,13 +22,14 @@ pub(super) struct RerankerInner {
 }
 
 impl RerankerInner {
-    pub(super) fn new(artifacts: &Artifacts) -> Result<Self, RerankerInitError> {
+    pub(super) fn new(artifacts: &Artifacts) -> Result<Self, ModelInitError> {
         let config = &artifacts.config;
         let tokenizer = artifacts.tokenizer.clone();
 
-        let model = RerankerModel::load(&artifacts.paths.model, config)
-            .map_err(RerankerInitError::backend)?;
+        let model =
+            RerankerModel::load(&artifacts.paths.model, config).map_err(ModelInitError::backend)?;
 
+        tracing::info!(hidden_size = config.hidden_size, "reranker: model loaded");
         Ok(Self { model, tokenizer })
     }
 
