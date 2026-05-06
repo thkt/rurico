@@ -29,6 +29,7 @@ impl RerankerInner {
         let model =
             RerankerModel::load(&artifacts.paths.model, config).map_err(ModelInitError::backend)?;
 
+        tracing::info!(hidden_size = config.hidden_size, "reranker: model loaded");
         Ok(Self { model, tokenizer })
     }
 

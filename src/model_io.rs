@@ -5,11 +5,23 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
+use std::thread;
+use std::time::Duration;
 
 use hf_hub::api::sync::Api;
 use serde::de::DeserializeOwned;
 
 use crate::artifacts::ModelKind;
+
+/// Hard upper bound for a full `download_model` call (init + 3 file downloads).
+///
+/// Guards against an unreachable HF Hub endpoint or stalled corporate proxy
+/// from blocking the calling thread indefinitely. The download thread itself
+/// is detached on timeout and continues until the OS reclaims it on process
+/// exit; the user-visible behaviour is a deterministic `ModelIoError::Download`
+/// after the deadline.
+const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// EOS (end of sequence) token ID for ruri-v3 models.
 pub(crate) const EOS_TOKEN_ID: u32 = 2;
@@ -137,11 +149,11 @@ pub fn load_tokenizer(path: &Path) -> Result<tokenizers::Tokenizer, ModelIoError
     tokenizers::Tokenizer::from_file(path).map_err(|e| ModelIoError::Tokenizer(e.to_string()))
 }
 
-fn model_repo_for<Id: ModelArtifact>(model: Id) -> hf_hub::Repo {
+fn make_repo(repo_id: &str, revision: &str) -> hf_hub::Repo {
     hf_hub::Repo::with_revision(
-        model.repo_id().to_owned(),
+        repo_id.to_owned(),
         hf_hub::RepoType::Model,
-        model.revision().to_owned(),
+        revision.to_owned(),
     )
 }
 
@@ -162,19 +174,42 @@ fn model_repo_for<Id: ModelArtifact>(model: Id) -> hf_hub::Repo {
 /// On the next invocation, [`artifacts_if_cached`] finds no valid pointer and
 /// returns `None`, so the download retries cleanly — no manual cache cleanup needed.
 pub fn download_artifacts<Id: ModelArtifact>(model: Id) -> Result<ModelPaths, ModelIoError> {
-    let api = Api::new().map_err(|e| ModelIoError::Download(format!("HF Hub init failed: {e}")))?;
-    let repo = api.repo(model_repo_for(model));
+    // Extract `&'static str` identifiers up-front so the worker closure does
+    // not need to carry the generic `Id` across the thread boundary (which
+    // would force a `Send + 'static` bound on every caller).
+    let repo_id: &'static str = model.repo_id();
+    let revision: &'static str = model.revision();
 
-    let get = |name: &str| {
-        repo.get(name)
-            .map_err(|e| ModelIoError::Download(format!("{name} download failed: {e}")))
-    };
+    let (tx, rx) = mpsc::sync_channel(1);
+    thread::spawn(move || {
+        let result = (|| -> Result<ModelPaths, ModelIoError> {
+            let api = Api::new()
+                .map_err(|e| ModelIoError::Download(format!("HF Hub init failed: {e}")))?;
+            let repo = api.repo(make_repo(repo_id, revision));
 
-    Ok(ModelPaths {
-        model: get("model.safetensors")?,
-        config: get("config.json")?,
-        tokenizer: get("tokenizer.json")?,
-    })
+            let get = |name: &str| {
+                repo.get(name)
+                    .map_err(|e| ModelIoError::Download(format!("{name} download failed: {e}")))
+            };
+
+            Ok(ModelPaths {
+                model: get("model.safetensors")?,
+                config: get("config.json")?,
+                tokenizer: get("tokenizer.json")?,
+            })
+        })();
+        let _ = tx.send(result);
+    });
+
+    rx.recv_timeout(DOWNLOAD_TIMEOUT).map_err(|e| match e {
+        mpsc::RecvTimeoutError::Timeout => ModelIoError::Download(format!(
+            "download exceeded {} second timeout (HF Hub may be unreachable or proxy stalled)",
+            DOWNLOAD_TIMEOUT.as_secs()
+        )),
+        mpsc::RecvTimeoutError::Disconnected => {
+            ModelIoError::Download("download worker terminated unexpectedly".to_owned())
+        }
+    })?
 }
 
 /// Check whether model files exist in the local HF Hub cache.
@@ -191,7 +226,7 @@ pub(crate) fn artifacts_from_cache<Id: ModelArtifact>(
     cache: &hf_hub::Cache,
     model: Id,
 ) -> Result<Option<ModelPaths>, ModelIoError> {
-    let repo = cache.repo(model_repo_for(model));
+    let repo = cache.repo(make_repo(model.repo_id(), model.revision()));
     let Some(model_weights) = repo.get("model.safetensors") else {
         return Ok(None);
     };

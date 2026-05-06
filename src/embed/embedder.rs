@@ -34,6 +34,7 @@ impl Embedder {
     pub fn new(artifacts: &Artifacts) -> Result<Self, ModelInitError> {
         let inner = EmbedderInner::new(artifacts)?;
         let embedding_dims = inner.embedding_dims();
+        tracing::info!(embedding_dims, "embedder: model loaded");
         Ok(Self {
             inner: Mutex::new(inner),
             embedding_dims,
@@ -90,9 +91,13 @@ impl Embedder {
     }
 
     fn lock_inner(&self) -> Result<MutexGuard<'_, EmbedderInner>, EmbedError> {
-        self.inner
-            .lock()
-            .map_err(|_| EmbedError::inference("embedder lock poisoned"))
+        self.inner.lock().map_err(|e| {
+            tracing::error!(
+                error = %e,
+                "embedder: mutex poisoned (prior panic in critical section)"
+            );
+            EmbedError::inference("embedder lock poisoned")
+        })
     }
 }
 

@@ -28,7 +28,6 @@ pub enum ModelInitError {
 }
 
 impl ModelInitError {
-    #[allow(dead_code)] // wired up by Phase 1 Unit 1.2 (embed) / 1.3 (reranker)
     pub(crate) fn backend(e: impl Display) -> Self {
         Self::Backend(e.to_string())
     }

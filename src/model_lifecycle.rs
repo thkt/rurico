@@ -25,8 +25,17 @@ use crate::model_probe::{resolve_probe_env, validate_probe_paths};
 pub fn download_model<Id: ModelArtifact>(
     model: Id,
 ) -> Result<VerifiedArtifacts<Id::Kind>, ArtifactError> {
+    let repo_id = model.repo_id();
+    let revision = model.revision();
+    tracing::info!(
+        repo_id,
+        revision,
+        "model_lifecycle: downloading artifacts from HF Hub"
+    );
     let paths = download_artifacts(model)?;
-    Id::Kind::verify(paths)
+    let verified = Id::Kind::verify(paths)?;
+    tracing::debug!(repo_id, "model_lifecycle: artifacts verified");
+    Ok(verified)
 }
 
 /// Check whether model files exist in the local HF Hub cache and verify them.
@@ -41,10 +50,14 @@ pub fn download_model<Id: ModelArtifact>(
 pub fn cached_artifacts<Id: ModelArtifact>(
     model: Id,
 ) -> Result<Option<VerifiedArtifacts<Id::Kind>>, ArtifactError> {
+    let repo_id = model.repo_id();
     let Some(paths) = artifacts_if_cached(model)? else {
+        tracing::debug!(repo_id, "model_lifecycle: cache miss");
         return Ok(None);
     };
-    Id::Kind::verify(paths).map(Some)
+    let verified = Id::Kind::verify(paths)?;
+    tracing::info!(repo_id, "model_lifecycle: loaded from cache");
+    Ok(Some(verified))
 }
 
 /// Resolve probe env vars into a [`CandidateArtifacts<K>`].
@@ -54,7 +67,6 @@ pub fn cached_artifacts<Id: ModelArtifact>(
 /// Returns `Some(Err(_))` if the model var is set but config or tokenizer is
 /// missing or the paths fail validation (exit code from
 /// [`validate_probe_paths`]).
-#[allow(dead_code)] // wired up by Phase 1 Unit 1.2 (embed) / 1.3 (reranker)
 pub(crate) fn probe_env_to_paths<K: ModelKind>(
     model: Option<String>,
     config: Option<String>,
@@ -81,74 +93,14 @@ mod tests {
     use crate::model_io::ModelArtifact;
     use crate::model_lifecycle::{cached_artifacts, download_model, probe_env_to_paths};
     use crate::reranker::RerankerModelId;
-    use crate::test_support::{VALID_CONFIG_JSON, setup_fake_hf_cache};
-
-    /// Minimal BPE tokenizer JSON accepted by tokenizers 0.22+.
-    /// Mirrors `artifacts::tests::MINIMAL_TOKENIZER_JSON` (kept local to
-    /// preserve the existing `artifacts.rs` tests untouched per Unit 1.1
-    /// scope).
-    const MINIMAL_TOKENIZER_JSON: &str = r#"{
-        "version": "1.0",
-        "model": {"type": "BPE", "vocab": {}, "merges": []},
-        "added_tokens": [],
-        "normalizer": null,
-        "pre_tokenizer": null,
-        "post_processor": null,
-        "decoder": null,
-        "truncation": null,
-        "padding": null
-    }"#;
-
-    /// Representative backbone tensor key satisfying the `MODERNBERT_KEY_PREFIXES`
-    /// any-of check in `artifacts.rs`.
-    const FAKE_BACKBONE_KEY: &str = "layers.0.attn.Wo.weight";
+    use crate::test_support::{
+        FAKE_BACKBONE_KEY, MINIMAL_TOKENIZER_JSON, VALID_CONFIG_JSON, setup_fake_hf_cache,
+        write_fake_safetensors,
+    };
 
     /// Build an embed-kind safetensors file (backbone-only keys).
     fn write_embed_safetensors(path: &Path) {
         write_fake_safetensors(path, &[FAKE_BACKBONE_KEY]);
-    }
-
-    /// Build a reranker-kind safetensors file (backbone + classifier + head keys).
-    fn write_reranker_safetensors(path: &Path) {
-        write_fake_safetensors(
-            path,
-            &[
-                FAKE_BACKBONE_KEY,
-                "classifier.weight",
-                "head.dense.weight",
-                "head.norm.weight",
-            ],
-        );
-    }
-
-    /// Write a minimal but structurally valid safetensors file containing the
-    /// given tensor keys. Each tensor has one `f32` element of weight data.
-    fn write_fake_safetensors(path: &Path, tensor_keys: &[&str]) {
-        let mut header_obj = serde_json::Map::new();
-        header_obj.insert("__metadata__".to_owned(), serde_json::json!({}));
-        let mut offset = 0usize;
-        for &key in tensor_keys {
-            let end = offset + 4;
-            header_obj.insert(
-                key.to_owned(),
-                serde_json::json!({
-                    "dtype": "F32",
-                    "shape": [1],
-                    "data_offsets": [offset, end]
-                }),
-            );
-            offset = end;
-        }
-        let header_json = serde_json::to_vec(&header_obj).unwrap();
-        let header_len = header_json.len() as u64;
-
-        let mut data = Vec::new();
-        data.extend_from_slice(&header_len.to_le_bytes());
-        data.extend_from_slice(&header_json);
-        for _ in tensor_keys {
-            data.extend_from_slice(&0f32.to_le_bytes());
-        }
-        fs::write(path, data).unwrap();
     }
 
     /// Compile-time signature assertion helper. The function body is unused;
@@ -303,8 +255,6 @@ mod tests {
                 inner.is_ok(),
                 "expected Ok(CandidateArtifacts<RerankerKind>) for three valid paths"
             );
-            // Sanity-check helpers exist; otherwise unused-import noise.
-            let _ = write_reranker_safetensors;
         });
     }
 }

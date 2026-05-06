@@ -427,39 +427,7 @@ fn read_safetensors_keys(path: &Path) -> Result<Vec<String>, ArtifactError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// Representative backbone tensor key that satisfies `MODERNBERT_KEY_PREFIXES`.
-    const FAKE_BACKBONE_KEY: &str = "layers.0.attn.Wo.weight";
-
-    /// Write a minimal but structurally valid safetensors file containing the given
-    /// tensor keys. Each tensor has one `f32` element of weight data.
-    fn write_fake_safetensors(path: &Path, tensor_keys: &[&str]) {
-        let mut header_obj = serde_json::Map::new();
-        header_obj.insert("__metadata__".to_owned(), serde_json::json!({}));
-        let mut offset = 0usize;
-        for &key in tensor_keys {
-            let end = offset + 4; // 4 bytes per f32
-            header_obj.insert(
-                key.to_owned(),
-                serde_json::json!({
-                    "dtype": "F32",
-                    "shape": [1],
-                    "data_offsets": [offset, end]
-                }),
-            );
-            offset = end;
-        }
-        let header_json = serde_json::to_vec(&header_obj).unwrap();
-        let header_len = header_json.len() as u64;
-
-        let mut data = Vec::new();
-        data.extend_from_slice(&header_len.to_le_bytes());
-        data.extend_from_slice(&header_json);
-        for _ in tensor_keys {
-            data.extend_from_slice(&0f32.to_le_bytes());
-        }
-        fs::write(path, data).unwrap();
-    }
+    use crate::test_support::{FAKE_BACKBONE_KEY, write_fake_safetensors};
 
     #[test]
     fn read_safetensors_keys_returns_expected_keys() {
@@ -663,20 +631,7 @@ mod tests {
 
     // ── TC-002 / TC-003: verify_as_embed / verify_as_reranker happy-path ────
 
-    /// Minimal BPE tokenizer JSON accepted by tokenizers 0.22+.
-    const MINIMAL_TOKENIZER_JSON: &str = r#"{
-        "version": "1.0",
-        "model": {"type": "BPE", "vocab": {}, "merges": []},
-        "added_tokens": [],
-        "normalizer": null,
-        "pre_tokenizer": null,
-        "post_processor": null,
-        "decoder": null,
-        "truncation": null,
-        "padding": null
-    }"#;
-
-    use crate::test_support::VALID_CONFIG_JSON;
+    use crate::test_support::{MINIMAL_TOKENIZER_JSON, VALID_CONFIG_JSON};
 
     fn write_valid_config(dir: &Path) {
         fs::write(dir.join("config.json"), VALID_CONFIG_JSON.as_bytes()).unwrap();

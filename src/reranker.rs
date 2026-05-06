@@ -231,9 +231,13 @@ impl Reranker {
     }
 
     fn lock_inner(&self) -> Result<MutexGuard<'_, RerankerInner>, RerankerError> {
-        self.inner
-            .lock()
-            .map_err(|_| RerankerError::inference("reranker lock poisoned"))
+        self.inner.lock().map_err(|e| {
+            tracing::error!(
+                error = %e,
+                "reranker: mutex poisoned (prior panic in critical section)"
+            );
+            RerankerError::inference("reranker lock poisoned")
+        })
     }
 }
 
