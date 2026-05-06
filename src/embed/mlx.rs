@@ -10,7 +10,7 @@ use super::{
     tokenize_with_prefix, truncate_for_query,
 };
 use crate::mlx_cache::{clear_inference_cache, release_inference_output};
-use crate::model_io::{BUCKET_BOUNDS, assign_bucket, pad_sequences};
+use crate::model_io::{BUCKET_BOUNDS, assign_bucket, compute_sub_batch_size, pad_sequences};
 use crate::modernbert::ModernBert;
 
 /// Per-chunk metadata carried through bucket forward so the flat output can be
@@ -85,10 +85,6 @@ fn build_indexed_chunks(
     );
     result
 }
-
-/// Token-count ceiling for a single forward pass. Matches the pre-bucketing
-/// value so the memory budget is unchanged by bucketing.
-const TOKEN_BUDGET: usize = 256_000;
 
 pub(super) struct EmbedderInner {
     model: ModernBert,
@@ -266,7 +262,7 @@ impl EmbedderInner {
             // sub_batch_size against the bucket ceiling keeps every possible
             // sub-batch under TOKEN_BUDGET even when every chunk is at the
             // bucket_max boundary, matching the pre-bucketing OOM guarantee.
-            let sub_batch_size = (TOKEN_BUDGET / BUCKET_BOUNDS[bucket_idx]).max(1);
+            let sub_batch_size = compute_sub_batch_size(BUCKET_BOUNDS[bucket_idx]);
             for sub_batch in bucket.chunks(sub_batch_size) {
                 self.forward_sub_batch(sub_batch, bucket_idx, &mut out, &mut metrics)?;
             }

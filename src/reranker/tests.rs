@@ -270,7 +270,10 @@ fn mock_reranker_score_returns_configured_value() {
 /// outside Codex seatbelt.
 #[cfg(feature = "test-mlx")]
 mod mlx_runtime_tests {
+    use std::time::Instant;
+
     use serial_test::serial;
+    use tracing_test::traced_test;
 
     use super::*;
     use crate::sandbox::require_unsandboxed_mlx_runtime;
@@ -365,6 +368,108 @@ mod mlx_runtime_tests {
             result.is_ok(),
             "Reranker::new should succeed: {:?}",
             result.err()
+        );
+    }
+
+    // Large-batch score_batch must not OOM.
+    //
+    // Without sub-batching, `RerankerInner::score_batch` would build a single
+    // `[N × bucket_len]` flat tensor and forward it in one pass. With N=5000
+    // short pairs that land in bucket 0 (≤128 tokens), the resulting
+    // `5000 × 128 = 640_000` token matrix exhausts GPU memory on most M-series
+    // devices.
+    //
+    // Sub-batching fans the same input out to `compute_sub_batch_size(128) =
+    // 2000` pairs per forward, so each pass stays under the
+    // `TOKEN_BUDGET = 256_000` ceiling shared with the embed path.
+    #[test]
+    #[ignore = "requires unsandboxed MLX runtime"]
+    #[serial]
+    fn t_score_batch_5000_pairs_short_docs_completes_without_oom() {
+        require_unsandboxed_mlx_runtime();
+        let reranker = Reranker::new(&load_cached_artifacts()).unwrap();
+
+        let pairs: Vec<(&str, &str)> = (0..5000).map(|_| ("query", "doc")).collect();
+        let scores = reranker
+            .score_batch(&pairs)
+            .expect("5000 short pairs must not OOM after sub-batching");
+
+        assert_eq!(scores.len(), 5000, "one score per input pair");
+        for (i, &s) in scores.iter().enumerate() {
+            assert!(s.is_finite(), "score[{i}] = {s} must be finite");
+            assert!(
+                (0.0..=1.0).contains(&s),
+                "score[{i}] = {s} must be in [0,1]"
+            );
+        }
+    }
+
+    // 50 pairs (bucket 0) latency observation.
+    //
+    // At sub_batch_size = compute_sub_batch_size(128) = 2000, the post-fix
+    // chunks(2000) loop produces exactly one iteration. The forward path is
+    // therefore identical to the pre-fix single-pass behaviour; added cost is
+    // bounded by one tracing::debug! line plus one extra function-call frame.
+    // The observation here pins the small-N path's latency floor so a future
+    // refactor that introduces real per-call work shows up immediately.
+    //
+    // Median of `RUNS` runs is printed via `--nocapture` for human inspection;
+    // device-dependent absolute thresholds are intentionally not asserted.
+    #[test]
+    #[ignore = "requires unsandboxed MLX runtime"]
+    #[serial]
+    fn t_score_batch_50_pairs_small_n_latency_smoke() {
+        require_unsandboxed_mlx_runtime();
+        let reranker = Reranker::new(&load_cached_artifacts()).unwrap();
+
+        let pairs: Vec<(&str, &str)> = (0..50).map(|_| ("query", "doc")).collect();
+
+        const WARMUP: usize = 3;
+        const RUNS: usize = 30;
+        for _ in 0..WARMUP {
+            reranker.score_batch(&pairs).unwrap();
+        }
+
+        let mut times_us: Vec<u128> = Vec::with_capacity(RUNS);
+        for _ in 0..RUNS {
+            let t0 = Instant::now();
+            reranker.score_batch(&pairs).unwrap();
+            times_us.push(t0.elapsed().as_micros());
+        }
+        times_us.sort_unstable();
+        let p50 = times_us[RUNS / 2];
+        let p95 = times_us[(RUNS * 95) / 100];
+
+        println!("score_batch(50 pairs, bucket=128) p50={p50}µs p95={p95}µs over {RUNS} runs",);
+        assert!(p50 > 0, "timing must be non-zero (sanity)");
+    }
+
+    // Pin the dispatch log emission so a future refactor cannot silently drop
+    // the per-call sub-batching telemetry. Field names are part of the
+    // contract subscribers consume; renaming them must update this assertion.
+    #[traced_test]
+    #[test]
+    #[ignore = "requires unsandboxed MLX runtime"]
+    #[serial]
+    fn t_score_batch_emits_dispatch_log_with_structured_fields() {
+        require_unsandboxed_mlx_runtime();
+        let reranker = Reranker::new(&load_cached_artifacts()).unwrap();
+
+        let pairs: Vec<(&str, &str)> = vec![("query", "doc"); 3];
+        reranker.score_batch(&pairs).unwrap();
+
+        assert!(
+            logs_contain("reranker score_batch dispatch"),
+            "dispatch log message must be emitted",
+        );
+        assert!(logs_contain("batch_size=3"), "batch_size field must be 3");
+        assert!(
+            logs_contain("sub_batch_count=1"),
+            "3 pairs in bucket 0 fit a single sub-batch",
+        );
+        assert!(
+            logs_contain("bucket_len=128"),
+            "short pairs must land in bucket 0 (len=128)",
         );
     }
 }
