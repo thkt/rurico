@@ -1,8 +1,8 @@
 [advisories]
 version = 2
 ignore = [
-    # paste is archived (no safe upgrade); used transitively by tokenizers and mlx-rs.
-    # Suppress until upstream crates migrate away from it.
+    # paste archived (no safe upgrade); transitive via tokenizers and mlx-rs.
+    # Review by: 2026-11-07.
     "RUSTSEC-2024-0436",
 ]
 
@@ -25,8 +25,12 @@ allow = [
 ]
 
 [bans]
+# Warn, not deny: dedup blocked on upstream consolidation
+# (tokenizers / hf-hub / mlx-rs). Tracked: #95 follow-up.
 multiple-versions = "warn"
-wildcards = "allow"
+wildcards = "deny"
+# Path deps omit a version field; keeps `wildcards = "deny"` scoped to crates.io.
+allow-wildcard-paths = true
 
 [sources]
 unknown-registry = "deny"
