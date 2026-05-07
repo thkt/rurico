@@ -1,8 +1,17 @@
 //! Codex seatbelt sandbox detection for MLX runtime gating.
 //!
-//! MLX / Metal initialization aborts in Codex Desktop's seatbelt sandbox.
-//! Smoke binaries self-skip with [`SEATBELT_SKIP_EXIT`] via [`exit_if_seatbelt`],
-//! and `test-mlx` runtime tests bail via [`require_unsandboxed_mlx_runtime`].
+//! MLX / Metal initialization aborts under Codex Desktop's seatbelt sandbox,
+//! so any consumer driving MLX through rurico must opt out of MLX-touching
+//! code paths when that environment is detected.
+//!
+//! # Operational contract
+//!
+//! - Smoke / verification binaries call `exit_if_seatbelt` near `main` and
+//!   exit cleanly with `SEATBELT_SKIP_EXIT` (BSD `EX_CONFIG`) so test
+//!   harnesses can distinguish "skipped under sandbox" from a real failure.
+//! - Runtime tests that require live MLX (e.g. behind a `test-mlx` feature)
+//!   call `require_unsandboxed_mlx_runtime` to bail loudly rather than crash
+//!   inside Metal.
 
 use std::env;
 use std::process;

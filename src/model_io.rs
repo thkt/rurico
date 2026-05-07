@@ -128,7 +128,7 @@ impl ModelPaths {
 /// # Errors
 ///
 /// Returns [`ModelIoError::Config`] on IO failure or JSON parse error.
-pub fn read_config<T: DeserializeOwned>(path: &Path) -> Result<T, ModelIoError> {
+pub(crate) fn read_config<T: DeserializeOwned>(path: &Path) -> Result<T, ModelIoError> {
     let text = fs::read_to_string(path).map_err(|e| ModelIoError::Config {
         path: path.to_path_buf(),
         reason: e.to_string(),

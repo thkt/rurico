@@ -9,10 +9,20 @@
 //! also supply their own `impl Aggregator` for domain-specific dedupers.
 
 use std::collections::HashMap;
+use std::f64::consts::LN_2;
 
 use serde::{Deserialize, Serialize};
 
-use crate::storage::recency_decay;
+/// Exponential recency decay: 1.0 at age=0, 0.5 at one half-life, approaching 0.0.
+///
+/// Negative `age_days` is clamped to 0 (returns 1.0).
+/// Returns 0.0 when `half_life_days <= 0.0` (avoids division by zero).
+pub(crate) fn recency_decay(age_days: f64, half_life_days: f64) -> f64 {
+    if half_life_days <= 0.0 {
+        return 0.0;
+    }
+    (-LN_2 * age_days.max(0.0) / half_life_days).exp()
+}
 
 /// Source of a Stage 1 candidate hit (ADR 0004 Stage 1 output).
 ///
@@ -476,6 +486,48 @@ impl Aggregator for TopKAverageAggregator {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // T-007: age_zero_returns_one
+    #[test]
+    fn age_zero_returns_one() {
+        let result = recency_decay(0.0, 30.0);
+        assert!((result - 1.0).abs() < f64::EPSILON);
+    }
+
+    // T-008: one_half_life_returns_half
+    #[test]
+    fn one_half_life_returns_half() {
+        let result = recency_decay(30.0, 30.0);
+        assert!((result - 0.5).abs() < 0.01);
+    }
+
+    // T-009: two_half_lives_returns_quarter
+    #[test]
+    fn two_half_lives_returns_quarter() {
+        let result = recency_decay(60.0, 30.0);
+        assert!((result - 0.25).abs() < 0.01);
+    }
+
+    // T-010: zero_half_life_returns_zero
+    #[test]
+    fn zero_half_life_returns_zero() {
+        let result = recency_decay(0.0, 0.0);
+        assert!((result - 0.0).abs() < f64::EPSILON);
+    }
+
+    // T-010b: negative_half_life_returns_zero
+    #[test]
+    fn negative_half_life_returns_zero() {
+        let result = recency_decay(5.0, -1.0);
+        assert!((result - 0.0).abs() < f64::EPSILON);
+    }
+
+    // T-010c: negative_age_clamped_to_one
+    #[test]
+    fn negative_age_clamped_to_one() {
+        let result = recency_decay(-5.0, 30.0);
+        assert!((result - 1.0).abs() < f64::EPSILON);
+    }
 
     fn hit(id: &str, score: f64) -> MergedHit {
         MergedHit {
