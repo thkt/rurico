@@ -1,6 +1,6 @@
 # ADR 0001: Adopt a Typed FTS Query Contract in `rurico`
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-03-28
 - Confidence: high - The current API contract is ambiguous, and the migration path across downstream crates is clear.
 
@@ -31,9 +31,16 @@ The storage API will move toward these types:
 The first step is:
 
 1. Change `sanitize_fts_query` from `String` to `Result<SanitizedFtsQuery, SanitizeError>`.
-2. Define `SanitizeError` with two variants:
+2. Define `SanitizeError`. Initially scoped to two variants:
    `EmptyInput`
    `NoSearchableTerms`
+   Later expanded to four variants when `prepare_match_query` was parameterized
+   over `vocab_table` (PR #38) and the failure modes for invalid identifiers
+   and SQLite lookup errors needed to be distinguished:
+   `EmptyInput`
+   `NoSearchableTerms`
+   `InvalidVocabTable(String)`
+   `VocabLookupFailed(String)`
 3. Preserve operator-like keywords (`AND`, `OR`, `NOT`) as literal terms during sanitization.
 4. Change `fts_expand_short_terms` to accept `&SanitizedFtsQuery` instead of raw `&str`.
 5. Return a typed value for final `MATCH` usage, either via `MatchFtsQuery` or a helper such as `build_match_fts_query`.
@@ -100,14 +107,21 @@ Negative:
 
 ## Migration Plan
 
-1. Update `rurico` storage API and tests.
-2. Migrate `recall` from local sanitization to `rurico`.
-3. Migrate `sae` from local sanitization to `rurico`.
-4. Add sanitization to `yomu` before short-term expansion.
-5. Run `cargo test` and `cargo clippy --all-targets --all-features -- -D warnings` in all affected crates.
+1. Update `rurico` storage API and tests. **Done 2026-03-28 (PR #9 typed result, PR #13 public API consolidation; later refined by PR #38 with `vocab_table` parameterization on 2026-04-21).**
+2. Migrate `recall` from local sanitization to `rurico`. **Done in downstream `recall` repo follow-up.**
+3. Migrate `sae` from local sanitization to `rurico`. **Done in downstream `sae` repo follow-up.**
+4. Add sanitization to `yomu` before short-term expansion. **Done in downstream `yomu` repo follow-up.**
+5. Run `cargo test` and `cargo clippy --all-targets --all-features -- -D warnings` in all affected crates. **Done as part of each step's PR gate.**
 
 ## Reassessment Triggers
 
-- A downstream crate needs more detailed failure causes than `EmptyInput` and `NoSearchableTerms`
+- A downstream crate needs more detailed failure causes than the four current variants
 - FTS query construction grows beyond sanitize plus expansion into a true parser/validator
 - another storage backend with different query semantics is added
+
+## Notes
+
+The original migration tracking note lived at
+`docs/issues/typed-fts-query-contract-migration.md`. That path is
+`.gitignore`d (the entire `docs/issues/` tree is excluded), so this ADR's
+Migration Plan above is the canonical, in-repo record of step status.
