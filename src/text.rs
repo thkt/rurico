@@ -31,8 +31,9 @@ pub fn split_text(text: &str, max_bytes: usize) -> Vec<&str> {
 mod tests {
     use crate::text::split_text;
 
+    // T-011: splits_large_text_into_bounded_fragments
     #[test]
-    fn t011_splits_large_text_into_bounded_fragments() {
+    fn splits_large_text_into_bounded_fragments() {
         let text = "a".repeat(20_000);
         let fragments = split_text(&text, 16_000);
         assert_eq!(fragments.len(), 2);
@@ -45,8 +46,9 @@ mod tests {
         }
     }
 
+    // T-012: splits_at_paragraph_boundary
     #[test]
-    fn t012_splits_at_paragraph_boundary() {
+    fn splits_at_paragraph_boundary() {
         let text = "paragraph one\n\nparagraph two\n\nparagraph three";
         let max = "paragraph one\n\nparagraph two".len();
         let fragments = split_text(text, max);
@@ -54,8 +56,9 @@ mod tests {
         assert!(!fragments[0].ends_with("\n\np"));
     }
 
+    // T-013: falls_back_to_line_boundary
     #[test]
-    fn t013_falls_back_to_line_boundary() {
+    fn falls_back_to_line_boundary() {
         let text = "line one\nline two\nline three\nline four";
         let max = "line one\nline two".len();
         let fragments = split_text(text, max);
@@ -63,24 +66,27 @@ mod tests {
         assert!(!fragments[0].contains("line three"));
     }
 
+    // T-015: no_split_when_under_limit
     #[test]
-    fn t015_no_split_when_under_limit() {
+    fn no_split_when_under_limit() {
         let text = "short text";
         let fragments = split_text(text, 1000);
         assert_eq!(fragments.len(), 1);
         assert_eq!(fragments[0], text);
     }
 
+    // T-016: max_bytes_below_4_returns_input_as_is
     #[test]
-    fn t016_max_bytes_below_4_returns_input_as_is() {
+    fn max_bytes_below_4_returns_input_as_is() {
         let text = "hello world";
         let fragments = split_text(text, 3);
         assert_eq!(fragments.len(), 1);
         assert_eq!(fragments[0], text);
     }
 
+    // T-011b: char_boundary_fallback_no_newlines
     #[test]
-    fn t011b_char_boundary_fallback_no_newlines() {
+    fn char_boundary_fallback_no_newlines() {
         let text = "あいうえおか"; // 6 chars, 18 bytes
         let fragments = split_text(text, 10);
         assert!(
@@ -102,8 +108,9 @@ mod tests {
         );
     }
 
+    // T-015b: exact_boundary_no_split
     #[test]
-    fn t015b_exact_boundary_no_split() {
+    fn exact_boundary_no_split() {
         let text = "abcdefghij"; // 10 bytes
         let fragments = split_text(text, 10);
         assert_eq!(fragments.len(), 1);
