@@ -64,7 +64,7 @@ mod tests {
     // coercion below fails to typecheck and this test refuses to compile —
     // which is the intended regression signal for AC-3.
     #[test]
-    fn t_004_gpu_pool_signature_consumes_hidden_by_value() {
+    fn gpu_pool_signature_consumes_hidden_by_value() {
         let _coerce: fn(Array, &Array) -> Result<Array, Exception> = gpu_pool_and_normalize;
     }
 
@@ -99,7 +99,7 @@ mod tests {
         #[test]
         #[ignore = "requires unsandboxed MLX runtime"]
         #[serial]
-        fn t_001_small_shape_pool_yields_unit_norm_rows() {
+        fn small_shape_pool_yields_unit_norm_rows() {
             require_unsandboxed_mlx_runtime();
             let hidden = make_hidden(2, 4, 3);
             let mask = Array::from_slice(&[1u32, 1, 0, 0, 1, 1, 1, 0], &[2, 4]);
@@ -132,7 +132,7 @@ mod tests {
         #[test]
         #[ignore = "requires unsandboxed MLX runtime"]
         #[serial]
-        fn t_003_large_w1_shape_produces_finite_output() {
+        fn large_w1_shape_produces_finite_output() {
             require_unsandboxed_mlx_runtime();
             let batch = 1i32;
             let seq = 8192i32;
@@ -186,7 +186,7 @@ mod tests {
         #[test]
         #[ignore = "requires unsandboxed MLX runtime"]
         #[serial]
-        fn t_005_u32_mask_cast_to_f32_succeeds() {
+        fn u32_mask_cast_to_f32_succeeds() {
             require_unsandboxed_mlx_runtime();
             let hidden = make_hidden(1, 3, 2);
             let mask = Array::from_slice(&[1u32, 0, 1], &[1, 3]);
@@ -220,7 +220,7 @@ mod tests {
         #[test]
         #[ignore = "requires unsandboxed MLX runtime"]
         #[serial]
-        fn t_011_all_zero_mask_propagates_nan_without_internal_guard() {
+        fn all_zero_mask_propagates_nan_without_internal_guard() {
             require_unsandboxed_mlx_runtime();
             let hidden = make_hidden(2, 3, 4);
             let mask = Array::from_slice(&[1u32, 1, 0, 0, 0, 0], &[2, 3]);

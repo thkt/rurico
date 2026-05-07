@@ -320,7 +320,7 @@ fn write_three_artifacts(dir: &Path) -> (PathBuf, PathBuf, PathBuf) {
 
 // T-001: validate_probe_paths_with_root happy path -- 3 cached files inside cache root return Ok(())
 #[test]
-fn t_001_validate_probe_paths_with_root_returns_ok_when_all_paths_under_cache_root() {
+fn validate_probe_paths_with_root_returns_ok_when_all_paths_under_cache_root() {
     // Arrange
     let cache_dir = tempfile::tempdir().unwrap();
     let (model, config, tokenizer) = write_three_artifacts(cache_dir.path());
@@ -335,7 +335,7 @@ fn t_001_validate_probe_paths_with_root_returns_ok_when_all_paths_under_cache_ro
 
 // T-002: validate_probe_paths_with_root rejects path outside cache_root with Err(5)
 #[test]
-fn t_002_validate_probe_paths_with_root_rejects_path_outside_cache_root() {
+fn validate_probe_paths_with_root_rejects_path_outside_cache_root() {
     // Arrange
     let cache_dir = tempfile::tempdir().unwrap();
     let outside_dir = tempfile::tempdir().unwrap();
@@ -359,7 +359,7 @@ fn t_002_validate_probe_paths_with_root_rejects_path_outside_cache_root() {
 
 // T-003: validate_probe_paths_with_root reports canonicalize failure with Err(4)
 #[test]
-fn t_003_validate_probe_paths_with_root_returns_err_4_for_nonexistent_candidate_path() {
+fn validate_probe_paths_with_root_returns_err_4_for_nonexistent_candidate_path() {
     // Arrange
     let cache_dir = tempfile::tempdir().unwrap();
     let (_, config, tokenizer) = write_three_artifacts(cache_dir.path());
@@ -382,7 +382,7 @@ fn t_003_validate_probe_paths_with_root_returns_err_4_for_nonexistent_candidate_
 
 // T-004: validate_probe_paths_with_root reports invalid cache root with Err(6)
 #[test]
-fn t_004_validate_probe_paths_with_root_returns_err_6_for_nonexistent_cache_root() {
+fn validate_probe_paths_with_root_returns_err_6_for_nonexistent_cache_root() {
     // Arrange
     let cache_dir = tempfile::tempdir().unwrap();
     let (model, config, tokenizer) = write_three_artifacts(cache_dir.path());
@@ -408,7 +408,7 @@ fn t_004_validate_probe_paths_with_root_returns_err_6_for_nonexistent_cache_root
 // by FR-005's type-level constraint, exercised here through behavior).
 #[cfg(unix)]
 #[test]
-fn t_005_validate_probe_paths_with_root_accepts_symlink_under_cache_root() {
+fn validate_probe_paths_with_root_accepts_symlink_under_cache_root() {
     // Arrange: HF cache layout — blobs/<etag> is the real file, snapshots/<commit>/<name>
     // is a symlink pointing at the blob.
     let cache_dir = tempfile::tempdir().unwrap();
@@ -448,7 +448,7 @@ fn t_005_validate_probe_paths_with_root_accepts_symlink_under_cache_root() {
 // component comparison; the test guards against a regression to byte-prefix
 // comparison.
 #[test]
-fn t_006_validate_probe_paths_with_root_rejects_string_prefix_sibling() {
+fn validate_probe_paths_with_root_rejects_string_prefix_sibling() {
     // Arrange: two sibling tempdirs, "cache_x" and "cache_x_evil".
     let workspace = tempfile::tempdir().unwrap();
     let cache_root = workspace.path().join("cache_x");
@@ -488,7 +488,7 @@ fn t_006_validate_probe_paths_with_root_rejects_string_prefix_sibling() {
 // prefix. After the Green change, this assertion will pass; before the Green
 // change, the assertion fails on the `pub fn` line.
 #[test]
-fn t_016_from_paths_is_declared_pub_crate_in_artifacts_module() {
+fn from_paths_is_declared_pub_crate_in_artifacts_module() {
     // After Phase 1 Unit 1.1, the single `CandidateArtifacts<K>::from_paths`
     // definition lives in `src/artifacts.rs` and is consumed by
     // `model_lifecycle::probe_env_to_paths<K>`. The downstream-visible aliases
@@ -522,7 +522,7 @@ fn t_016_from_paths_is_declared_pub_crate_in_artifacts_module() {
 // poison parallel tests (the first caller fixes the value crate-wide).
 #[cfg(unix)]
 #[test]
-fn t_021_validate_probe_paths_falls_back_to_home_when_hf_home_unset() {
+fn validate_probe_paths_falls_back_to_home_when_hf_home_unset() {
     // Arrange: tempdir + HF cache layout under <tempdir>/.cache/huggingface/hub.
     let home_dir = tempfile::tempdir().unwrap();
     let hub_dir = home_dir.path().join(".cache/huggingface/hub");
@@ -610,7 +610,7 @@ fn setup_rejected_display_includes_code_and_label_per_variant() {
 
 // T-012: FORWARD list contains exactly the 22 expected keys
 #[test]
-fn t_012_forward_list_contains_expected_22_keys() {
+fn forward_list_contains_expected_22_keys() {
     let expected: &[&str] = &[
         "PATH",
         "HOME",
@@ -646,7 +646,7 @@ fn t_012_forward_list_contains_expected_22_keys() {
 
 // T-013: child_env_for_spawn forwards HF_HOME, drops attacker-injected env
 #[test]
-fn t_013_child_env_for_spawn_drops_attacker_env_keeps_forward() {
+fn child_env_for_spawn_drops_attacker_env_keeps_forward() {
     temp_env::with_vars(
         [
             ("HF_HOME", Some("/tmp/test_hf")),
@@ -669,7 +669,7 @@ fn t_013_child_env_for_spawn_drops_attacker_env_keeps_forward() {
 
 // T-022: child_env_for_spawn skips undefined FORWARD keys silently (FR-102)
 #[test]
-fn t_022_child_env_for_spawn_skips_undefined_forward_keys() {
+fn child_env_for_spawn_skips_undefined_forward_keys() {
     temp_env::with_vars([("HF_HOME", None::<&str>)], || {
         let env = super::child_env_for_spawn(&[]);
         assert!(
@@ -685,7 +685,7 @@ fn t_022_child_env_for_spawn_skips_undefined_forward_keys() {
 // keys propagate.
 #[cfg(unix)]
 #[test]
-fn t_013b_probe_via_subprocess_with_env_clear_blocks_attacker_env_in_real_child() {
+fn probe_via_subprocess_with_env_clear_blocks_attacker_env_in_real_child() {
     use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::tempdir().unwrap();
     let env_dump = dir.path().join("env_dump.txt");
@@ -735,7 +735,7 @@ fn t_013b_probe_via_subprocess_with_env_clear_blocks_attacker_env_in_real_child(
 
 // T-023: emit_ack_to writes PROBE_ACK + newline on a valid writer
 #[test]
-fn t_023_emit_ack_to_writes_ack_token_with_newline() {
+fn emit_ack_to_writes_ack_token_with_newline() {
     let mut buf: Vec<u8> = Vec::new();
     let result = super::emit_ack_to(&mut buf);
     assert!(result.is_ok(), "expected Ok, got {result:?}");
@@ -749,7 +749,7 @@ fn t_023_emit_ack_to_writes_ack_token_with_newline() {
 // arm (write success + flush error) is not unit-tested; in production the
 // pipe-broken case typically surfaces at write time on `io::stdout()`.
 #[test]
-fn t_024_emit_ack_to_propagates_writer_error() {
+fn emit_ack_to_propagates_writer_error() {
     let err = super::emit_ack_to(&mut test_writers::FailingWriter)
         .expect_err("expected emit_ack_to to propagate writer error");
     assert_eq!(err.kind(), io::ErrorKind::BrokenPipe);
@@ -761,7 +761,7 @@ fn t_024_emit_ack_to_propagates_writer_error() {
 // before the ACK presence check — otherwise an empty stdout caused by a
 // failed ACK write would be misclassified as `HandlerNotInstalled`.
 #[test]
-fn t_025_interpret_probe_output_maps_exit_7_to_subprocess_failed_even_without_ack() {
+fn interpret_probe_output_maps_exit_7_to_subprocess_failed_even_without_ack() {
     let output = Output {
         status: exit_status(super::PROBE_EXIT_ACK_FAILED),
         stdout: Vec::new(),
@@ -783,7 +783,7 @@ fn t_025_interpret_probe_output_maps_exit_7_to_subprocess_failed_even_without_ac
 // `dispatch_probe` only emits exit 8 after `emit_ack` succeeds, so a real
 // probe failure of this kind always carries the ACK in stdout.
 #[test]
-fn t_026_interpret_probe_output_maps_exit_8_to_subprocess_failed() {
+fn interpret_probe_output_maps_exit_8_to_subprocess_failed() {
     let output = Output {
         status: exit_status(super::PROBE_EXIT_STDERR_FAILED),
         stdout: format!("{PROBE_ACK}\n").into_bytes(),
@@ -808,7 +808,7 @@ fn t_026_interpret_probe_output_maps_exit_8_to_subprocess_failed() {
 // when emitted by `dispatch_probe` after a successful ACK; an exit 8 from
 // any other code path predates the probe contract.
 #[test]
-fn t_027_interpret_probe_output_exit_8_without_ack_is_handler_not_installed() {
+fn interpret_probe_output_exit_8_without_ack_is_handler_not_installed() {
     let output = Output {
         status: exit_status(super::PROBE_EXIT_STDERR_FAILED),
         stdout: Vec::new(),
@@ -826,7 +826,7 @@ fn t_027_interpret_probe_output_exit_8_without_ack_is_handler_not_installed() {
 
 // T-028: emit_failure_to writes msg and calls flush on success
 #[test]
-fn t_028_emit_failure_to_writes_message_and_flushes() {
+fn emit_failure_to_writes_message_and_flushes() {
     let mut w = test_writers::FlushTrackingWriter::default();
     super::emit_failure_to(&mut w, "model load failed: bad weights").unwrap();
     assert_eq!(w.buf, b"model load failed: bad weights");
@@ -838,7 +838,7 @@ fn t_028_emit_failure_to_writes_message_and_flushes() {
 
 // T-029: emit_failure_to propagates writer error
 #[test]
-fn t_029_emit_failure_to_propagates_writer_error() {
+fn emit_failure_to_propagates_writer_error() {
     let err = super::emit_failure_to(&mut test_writers::FailingWriter, "anything")
         .expect_err("expected emit_failure_to to propagate writer error");
     assert_eq!(err.kind(), io::ErrorKind::BrokenPipe);
@@ -848,7 +848,7 @@ fn t_029_emit_failure_to_propagates_writer_error() {
 // failure mode `emit_failure_to` exists to detect (bytes accepted into a
 // buffer but never delivered to the kernel before `process::exit`).
 #[test]
-fn t_030_emit_failure_to_surfaces_flush_error_after_successful_write() {
+fn emit_failure_to_surfaces_flush_error_after_successful_write() {
     let mut w = test_writers::FlushFailingWriter::default();
     let err = super::emit_failure_to(&mut w, "msg")
         .expect_err("expected emit_failure_to to surface flush error");
@@ -862,7 +862,7 @@ fn t_030_emit_failure_to_surfaces_flush_error_after_successful_write() {
 // T-031: join returns promptly after recv succeeds (reaping invariant on
 // `collect_pipe` happy path).
 #[test]
-fn t_031_spawn_drain_pipe_thread_is_joinable_after_recv() {
+fn spawn_drain_pipe_thread_is_joinable_after_recv() {
     use std::io::Cursor;
     let pipe = Cursor::new(b"drained bytes".to_vec());
     let handle =
@@ -882,7 +882,7 @@ fn t_031_spawn_drain_pipe_thread_is_joinable_after_recv() {
 
 // T-032: spawn_drain_pipe returns None when no pipe is provided.
 #[test]
-fn t_032_spawn_drain_pipe_returns_none_for_none_input() {
+fn spawn_drain_pipe_returns_none_for_none_input() {
     let handle = super::spawn_drain_pipe::<io::Empty>(None, "test");
     assert!(
         handle.is_none(),

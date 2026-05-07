@@ -119,7 +119,7 @@ fn candidate_verify_returns_invalid_config_for_malformed_config() {
 // extension-based dispatch across all standard HF cache usage.
 #[cfg(unix)]
 #[test]
-fn t_018_probe_env_to_paths_preserves_snapshot_symlink_filename() {
+fn probe_env_to_paths_preserves_snapshot_symlink_filename() {
     assert_probe_env_to_paths_preserves_snapshot_symlink_filename::<EmbedKind>();
 }
 
@@ -182,8 +182,9 @@ fn shrink_chunk_to_fit_short_text_returns_immediately() {
 
 // --- T-001: max_content computation ---
 
+// T-001: max_content_equals_max_seq_len_minus_2_minus_prefix_len
 #[test]
-fn t_001_max_content_equals_max_seq_len_minus_2_minus_prefix_len() {
+fn max_content_equals_max_seq_len_minus_2_minus_prefix_len() {
     // [T-001] FR-001, FR-002: max_content(10) == 8180, 8180 + 10 + 2 == 8192
     assert_eq!(max_content(10), 8180);
     assert_eq!(8180 + 10 + 2, MAX_SEQ_LEN);
@@ -198,8 +199,9 @@ fn g_001_real_tokenizer_extract_prefix_tokens() {
     assert!(!prefix_tokens.is_empty());
 }
 
+// T-008: truncate_for_query_shortens_to_max_len
 #[test]
-fn t_008_truncate_for_query_shortens_to_max_len() {
+fn truncate_for_query_shortens_to_max_len() {
     // [T-008] FR-005: query truncation
     let input_ids: Vec<u32> = (0..100).collect();
     let first_token = input_ids[0];
@@ -216,8 +218,9 @@ fn t_008_truncate_for_query_shortens_to_max_len() {
     assert_eq!(ids[0], first_token);
 }
 
+// T-008b: truncate_for_query_noop_when_short
 #[test]
-fn t_008b_truncate_for_query_noop_when_short() {
+fn truncate_for_query_noop_when_short() {
     let input_ids: Vec<u32> = vec![1, 10, 20, 2]; // BOS, text, text, EOS
     let attention_mask = vec![1u32; 4];
     let expected_ids = input_ids.clone();
@@ -229,8 +232,9 @@ fn t_008b_truncate_for_query_noop_when_short() {
     assert_eq!(mask, expected_mask);
 }
 
+// T-008c: truncate_for_query_noop_at_exact_boundary
 #[test]
-fn t_008c_truncate_for_query_noop_at_exact_boundary() {
+fn truncate_for_query_noop_at_exact_boundary() {
     // [TC-003] Boundary: len == max_len → no truncation
     let max_len = 50;
     #[allow(clippy::cast_possible_truncation)]
@@ -245,8 +249,9 @@ fn t_008c_truncate_for_query_noop_at_exact_boundary() {
     assert_eq!(mask, expected_mask);
 }
 
+// T-008e: truncate_for_query_max_len_1_produces_eos_only
 #[test]
-fn t_008e_truncate_for_query_max_len_1_produces_eos_only() {
+fn truncate_for_query_max_len_1_produces_eos_only() {
     // [TC-003] max_len=1: the only slot is overwritten with EOS → output is [EOS]
     let input_ids: Vec<u32> = vec![1, 100, 200, 2]; // BOS, text, text, EOS
     let attention_mask = vec![1u32; 4];
@@ -257,8 +262,9 @@ fn t_008e_truncate_for_query_max_len_1_produces_eos_only() {
     assert_eq!(mask.len(), 1);
 }
 
+// T-008d: truncate_for_query_zero_max_len_returns_unchanged
 #[test]
-fn t_008d_truncate_for_query_zero_max_len_returns_unchanged() {
+fn truncate_for_query_zero_max_len_returns_unchanged() {
     let input_ids: Vec<u32> = vec![1, 100, 200, 2];
     let attention_mask = vec![1u32; 4];
     let expected_ids = input_ids.clone();
@@ -270,8 +276,9 @@ fn t_008d_truncate_for_query_zero_max_len_returns_unchanged() {
     assert_eq!(mask, expected_mask);
 }
 
+// T-014: mock_chunked_embedder_returns_multi_chunk
 #[test]
-fn t_014_mock_chunked_embedder_returns_multi_chunk() {
+fn mock_chunked_embedder_returns_multi_chunk() {
     let embedder = super::MockChunkedEmbedder::new(3);
     let result = embedder.embed_document("some text").unwrap();
     assert_eq!(result.chunks.len(), 3);
