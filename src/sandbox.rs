@@ -27,7 +27,14 @@ const SEATBELT_VALUE: &str = "seatbelt";
 
 /// Returns `true` when running under Codex Desktop's seatbelt sandbox.
 pub fn codex_seatbelt_sandbox_active() -> bool {
-    env::var(ENV_VAR).is_ok_and(|v| v == SEATBELT_VALUE)
+    is_seatbelt_env(env::var(ENV_VAR).ok().as_deref())
+}
+
+/// Pure decision function for sandbox detection — separated from `env::var`
+/// so unit tests can pin behavior without mutating process environment
+/// (Rust 2024 made `env::set_var` unsafe).
+pub(crate) fn is_seatbelt_env(value: Option<&str>) -> bool {
+    value == Some(SEATBELT_VALUE)
 }
 
 /// Exit the current smoke binary with [`SEATBELT_SKIP_EXIT`] when the Codex
@@ -55,4 +62,27 @@ pub fn require_unsandboxed_mlx_runtime() {
         !codex_seatbelt_sandbox_active(),
         "MLX runtime tests must run outside Codex seatbelt sandbox"
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // T-106-001: is_seatbelt_env
+    #[test]
+    fn is_seatbelt_env_returns_true_when_value_matches() {
+        assert!(is_seatbelt_env(Some(SEATBELT_VALUE)));
+    }
+
+    // T-106-002: is_seatbelt_env
+    #[test]
+    fn is_seatbelt_env_returns_false_when_absent() {
+        assert!(!is_seatbelt_env(None));
+    }
+
+    // T-106-003: is_seatbelt_env
+    #[test]
+    fn is_seatbelt_env_returns_false_for_other_value() {
+        assert!(!is_seatbelt_env(Some("1")));
+    }
 }
