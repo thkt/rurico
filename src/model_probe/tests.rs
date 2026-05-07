@@ -11,6 +11,53 @@ use super::*;
 use std::io;
 use std::process::ExitStatus;
 
+mod test_writers {
+    use std::io;
+
+    pub struct FailingWriter;
+    impl io::Write for FailingWriter {
+        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+            Err(io::Error::new(io::ErrorKind::BrokenPipe, "pipe closed"))
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Err(io::Error::new(io::ErrorKind::BrokenPipe, "pipe closed"))
+        }
+    }
+
+    #[derive(Default)]
+    pub struct FlushTrackingWriter {
+        pub buf: Vec<u8>,
+        pub flush_count: usize,
+    }
+    impl io::Write for FlushTrackingWriter {
+        fn write(&mut self, data: &[u8]) -> io::Result<usize> {
+            self.buf.extend_from_slice(data);
+            Ok(data.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            self.flush_count += 1;
+            Ok(())
+        }
+    }
+
+    #[derive(Default)]
+    pub struct FlushFailingWriter {
+        pub buf: Vec<u8>,
+    }
+    impl io::Write for FlushFailingWriter {
+        fn write(&mut self, data: &[u8]) -> io::Result<usize> {
+            self.buf.extend_from_slice(data);
+            Ok(data.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "flush after write failed",
+            ))
+        }
+    }
+}
+
 // ── Existing tests preserved verbatim ───────────────────────────────────────
 
 #[test]
@@ -751,16 +798,7 @@ fn t_023_emit_ack_to_writes_ack_token_with_newline() {
 // pipe-broken case typically surfaces at write time on `io::stdout()`.
 #[test]
 fn t_024_emit_ack_to_propagates_writer_error() {
-    struct FailingWriter;
-    impl io::Write for FailingWriter {
-        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
-            Err(io::Error::new(io::ErrorKind::BrokenPipe, "pipe closed"))
-        }
-        fn flush(&mut self) -> io::Result<()> {
-            Err(io::Error::new(io::ErrorKind::BrokenPipe, "pipe closed"))
-        }
-    }
-    let err = super::emit_ack_to(&mut FailingWriter)
+    let err = super::emit_ack_to(&mut test_writers::FailingWriter)
         .expect_err("expected emit_ack_to to propagate writer error");
     assert_eq!(err.kind(), io::ErrorKind::BrokenPipe);
 }
@@ -833,34 +871,11 @@ fn t_027_interpret_probe_output_exit_8_without_ack_is_handler_not_installed() {
 }
 
 // ── Issue #124 (probe IPC contract: drain join + stderr flush) tests ───────
-//
-// `emit_failure_to` is the testable seam for the failure-message stderr write
-// path, symmetric to `emit_ack_to`. The probe IPC contract requires `flush`
-// to complete before `process::exit` so that a future change to stderr
-// buffering policy in the standard library cannot silently drop bytes
-// observed by the parent's `collect_pipe`.
 
 // T-028: emit_failure_to writes msg and calls flush on success
 #[test]
 fn t_028_emit_failure_to_writes_message_and_flushes() {
-    struct FlushTrackingWriter {
-        buf: Vec<u8>,
-        flush_count: usize,
-    }
-    impl io::Write for FlushTrackingWriter {
-        fn write(&mut self, data: &[u8]) -> io::Result<usize> {
-            self.buf.extend_from_slice(data);
-            Ok(data.len())
-        }
-        fn flush(&mut self) -> io::Result<()> {
-            self.flush_count += 1;
-            Ok(())
-        }
-    }
-    let mut w = FlushTrackingWriter {
-        buf: Vec::new(),
-        flush_count: 0,
-    };
+    let mut w = test_writers::FlushTrackingWriter::default();
     super::emit_failure_to(&mut w, "model load failed: bad weights").unwrap();
     assert_eq!(w.buf, b"model load failed: bad weights");
     assert_eq!(
@@ -872,43 +887,17 @@ fn t_028_emit_failure_to_writes_message_and_flushes() {
 // T-029: emit_failure_to propagates writer error
 #[test]
 fn t_029_emit_failure_to_propagates_writer_error() {
-    struct FailingWriter;
-    impl io::Write for FailingWriter {
-        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
-            Err(io::Error::new(io::ErrorKind::BrokenPipe, "pipe closed"))
-        }
-        fn flush(&mut self) -> io::Result<()> {
-            Err(io::Error::new(io::ErrorKind::BrokenPipe, "pipe closed"))
-        }
-    }
-    let err = super::emit_failure_to(&mut FailingWriter, "anything")
+    let err = super::emit_failure_to(&mut test_writers::FailingWriter, "anything")
         .expect_err("expected emit_failure_to to propagate writer error");
     assert_eq!(err.kind(), io::ErrorKind::BrokenPipe);
 }
 
-// T-030: emit_failure_to surfaces flush errors after a successful write
-//
-// Exercises the flush-error-only arm: write succeeds but flush fails. This
-// is the failure mode `emit_failure_to` exists to detect — bytes accepted
-// into a buffer but never delivered to the kernel before `process::exit`.
+// T-030: emit_failure_to surfaces flush errors after a successful write — the
+// failure mode `emit_failure_to` exists to detect (bytes accepted into a
+// buffer but never delivered to the kernel before `process::exit`).
 #[test]
 fn t_030_emit_failure_to_surfaces_flush_error_after_successful_write() {
-    struct FlushFailingWriter {
-        buf: Vec<u8>,
-    }
-    impl io::Write for FlushFailingWriter {
-        fn write(&mut self, data: &[u8]) -> io::Result<usize> {
-            self.buf.extend_from_slice(data);
-            Ok(data.len())
-        }
-        fn flush(&mut self) -> io::Result<()> {
-            Err(io::Error::new(
-                io::ErrorKind::BrokenPipe,
-                "flush after write failed",
-            ))
-        }
-    }
-    let mut w = FlushFailingWriter { buf: Vec::new() };
+    let mut w = test_writers::FlushFailingWriter::default();
     let err = super::emit_failure_to(&mut w, "msg")
         .expect_err("expected emit_failure_to to surface flush error");
     assert_eq!(err.kind(), io::ErrorKind::BrokenPipe);
@@ -918,16 +907,8 @@ fn t_030_emit_failure_to_surfaces_flush_error_after_successful_write() {
     );
 }
 
-// T-031: spawn_drain_pipe returns a DrainHandle whose thread is reapable
-//        immediately after recv succeeds.
-//
-// Semantic guard for the parent IPC contract: `collect_pipe` joins the reader
-// thread on `recv` success, preventing thread accumulation across O(N) probes.
-// `recv` succeeds only after `tx.send(buf)` runs, which is the last statement
-// in the reader thread body — so `join` must return promptly without blocking.
-//
-// Cursor<Vec<u8>>::read_to_end returns immediately on EOF, simulating the
-// happy path where the child closes its pipe and the reader thread completes.
+// T-031: join returns promptly after recv succeeds (reaping invariant on
+// `collect_pipe` happy path).
 #[test]
 fn t_031_spawn_drain_pipe_thread_is_joinable_after_recv() {
     use std::io::Cursor;
@@ -941,9 +922,6 @@ fn t_031_spawn_drain_pipe_thread_is_joinable_after_recv() {
         .expect("reader thread must send buf after read_to_end completes");
     assert_eq!(buf, b"drained bytes");
 
-    // join must return without blocking — recv success implies tx.send ran,
-    // which means the reader closure reached its end. A blocking join here
-    // would indicate the reaping invariant is broken.
     handle
         .join
         .join()

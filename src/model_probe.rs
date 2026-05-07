@@ -270,8 +270,7 @@ fn emit_ack_to<W: Write>(stdout: &mut W) -> io::Result<()> {
 /// Symmetric to [`emit_ack_to`] for the failure path. Probe IPC contract:
 /// the child must complete `flush` before [`std::process::exit`] so the
 /// parent's `collect_pipe` observes the full message regardless of stderr's
-/// buffering policy. Production calls this with `&mut io::stderr()`; tests
-/// inject a writer that tracks `flush` calls or fails on `write` / `flush`.
+/// buffering policy.
 fn emit_failure_to<W: Write>(stderr: &mut W, msg: &str) -> io::Result<()> {
     write!(stderr, "{msg}")?;
     stderr.flush()
@@ -436,13 +435,9 @@ where
 
 /// Upper bound on how long `collect_pipe` waits for a reader thread's buffer.
 ///
-/// If a grandchild inherited the probe's pipe FDs, the reader's `read_to_end`
-/// never observes EOF even after the direct child exits. Cap the wait here
-/// and return a best-effort empty buffer. In that path the reader thread is
-/// still blocked on `read_to_end` and **must not be `join`ed** — `join` would
-/// inherit the same indefinite block. Leak is acceptable because grandchild
-/// FD inheritance is itself an exceptional scenario; the happy path reaps
-/// the thread immediately on `recv` success.
+/// Capped because a grandchild that inherited the pipe FDs prevents EOF on
+/// the reader's `read_to_end` even after the direct child exits. See
+/// `probe_via_subprocess_with` for the full IPC contract (parent + child).
 const COLLECT_PIPE_TIMEOUT: Duration = Duration::from_secs(2);
 
 fn collect_pipe(handle: Option<DrainHandle>, label: &str) -> Vec<u8> {
