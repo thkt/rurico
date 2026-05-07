@@ -1,6 +1,6 @@
 # ADR 0002: GPU-side Pooling for the embed Pipeline
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-04-24
 - Confidence: medium. The mlx-rs 0.25.3 Array API surface for reduction + broadcasting divide is unconfirmed, and the empirical precision margin over NFR-001 is unmeasured pre-prototype.
 
@@ -116,16 +116,16 @@ Positive:
 
 Negative:
 
-- `src/embed/pooling.rs` grows from 85 lines to roughly 165 lines while both variants coexist. Phase 3c cleanup removes the CPU variant after rewiring stabilises, but Phase 3b to 3c leaves a dead-code window.
+- `src/embed/pooling.rs` grows from 85 lines to roughly 165 lines while both variants coexist. Phase 3c cleanup removes the CPU variant after rewiring stabilises, but Phase 3b to 3c leaves a dead-code window. **Resolved 2026-04-25 (PR #64): CPU `mean_pooling` / `l2_normalize` / `postprocess_embedding` removed after Phase 3b stabilised; the dead-code window closed inside the same review burst.**
 - Approach is conditional on mlx-rs 0.25.3 exposing reduction + broadcasting ops. If not, Phase 3 is deferred until a bindings update or an alternative (f64 intermediate, CPU-hybrid) is chosen.
 - Probe bin is additional binary target surface that must be kept green until Phase 3c deletes it.
 - FR-001a invariant is now distributed across `validate_attention_mask` (upstream rejection) and the probe bin (`is_finite` defensive guard). A regression that removes either location would leave a NaN-pathway silently open. Mitigation: T-011 is re-typed as an integration scenario on the probe bin; any replacement wiring must add an equivalent guard at the new direct-caller site.
 
 ## Migration Plan
 
-1. Phase 3a. Add `src/bin/gpu_pool_probe.rs` and `gpu_pool_and_normalize` in `src/embed/pooling.rs`. Probe bin measures `max_abs_diff` and `cosine_sim` on W1 single chunk. Production paths unchanged.
-2. Phase 3b. If probe passes the 10x margin, rewire `forward_sub_batch` and `embed_query_truncated`. Delete `unpack_batch_output`. CPU variants in `pooling.rs` become dead code but are not yet removed.
-3. Phase 3c. Remove the CPU variants (`mean_pooling`, `l2_normalize`, `postprocess_embedding`), remove the probe bin, write `docs/benchmarks/phase3_result.md` with measured readback reduction and Phase 2 aspirational recovery status.
+1. Phase 3a. Add `src/bin/gpu_pool_probe.rs` and `gpu_pool_and_normalize` in `src/embed/pooling.rs`. Probe bin measures `max_abs_diff` and `cosine_sim` on W1 single chunk. Production paths unchanged. **Done 2026-04-25 (PR #62).**
+2. Phase 3b. If probe passes the 10x margin, rewire `forward_sub_batch` and `embed_query_truncated`. Delete `unpack_batch_output`. CPU variants in `pooling.rs` become dead code but are not yet removed. **Done 2026-04-25 (PR #63).**
+3. Phase 3c. Remove the CPU variants (`mean_pooling`, `l2_normalize`, `postprocess_embedding`), remove the probe bin, write `docs/benchmarks/phase3_result.md` with measured readback reduction and Phase 2 aspirational recovery status. **Done 2026-04-25 (PR #64); `docs/benchmarks/phase3_result.md` shipped in the same PR.**
 
 ## Reassessment Triggers
 
