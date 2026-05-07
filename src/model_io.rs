@@ -174,44 +174,56 @@ fn make_repo(repo_id: &str, revision: &str) -> hf_hub::Repo {
 /// On the next invocation, [`artifacts_if_cached`] finds no valid pointer and
 /// returns `None`, so the download retries cleanly — no manual cache cleanup needed.
 pub fn download_artifacts<Id: ModelArtifact>(model: Id) -> Result<ModelPaths, ModelIoError> {
-    // Extract `&'static str` identifiers up-front so the worker closure does
-    // not need to carry the generic `Id` across the thread boundary (which
-    // would force a `Send + 'static` bound on every caller).
+    download_artifacts_with(model, DOWNLOAD_TIMEOUT, |repo_id, revision| {
+        let api =
+            Api::new().map_err(|e| ModelIoError::Download(format!("HF Hub init failed: {e}")))?;
+        let repo = api.repo(make_repo(repo_id, revision));
+        let get = |name: &str| {
+            repo.get(name)
+                .map_err(|e| ModelIoError::Download(format!("{name} download failed: {e}")))
+        };
+        Ok(ModelPaths {
+            model: get("model.safetensors")?,
+            config: get("config.json")?,
+            tokenizer: get("tokenizer.json")?,
+        })
+    })
+}
+
+/// Generic seam — worker closure decides how to materialize `ModelPaths`.
+///
+/// The orchestration (thread spawn / mpsc / `recv_timeout`) and the actual
+/// download are split here so unit tests can pin worker success / failure /
+/// timeout paths without driving real HF Hub I/O. Production calls go
+/// through [`download_artifacts`].
+pub(crate) fn download_artifacts_with<Id, F>(
+    model: Id,
+    timeout: Duration,
+    download: F,
+) -> Result<ModelPaths, ModelIoError>
+where
+    Id: ModelArtifact,
+    F: FnOnce(&str, &str) -> Result<ModelPaths, ModelIoError> + Send + 'static,
+{
     let repo_id: &'static str = model.repo_id();
     let revision: &'static str = model.revision();
 
     let (tx, rx) = mpsc::sync_channel(1);
     thread::spawn(move || {
-        let result = (|| -> Result<ModelPaths, ModelIoError> {
-            let api = Api::new()
-                .map_err(|e| ModelIoError::Download(format!("HF Hub init failed: {e}")))?;
-            let repo = api.repo(make_repo(repo_id, revision));
-
-            let get = |name: &str| {
-                repo.get(name)
-                    .map_err(|e| ModelIoError::Download(format!("{name} download failed: {e}")))
-            };
-
-            Ok(ModelPaths {
-                model: get("model.safetensors")?,
-                config: get("config.json")?,
-                tokenizer: get("tokenizer.json")?,
-            })
-        })();
-        let _ = tx.send(result);
+        let _ = tx.send(download(repo_id, revision));
     });
 
-    rx.recv_timeout(DOWNLOAD_TIMEOUT).map_err(|e| match e {
+    rx.recv_timeout(timeout).map_err(|e| match e {
         mpsc::RecvTimeoutError::Timeout => {
             tracing::error!(
                 repo_id,
                 revision,
-                timeout_secs = DOWNLOAD_TIMEOUT.as_secs(),
+                timeout_secs = timeout.as_secs(),
                 "download_artifacts: HF Hub download timed out"
             );
             ModelIoError::Download(format!(
                 "download exceeded {} second timeout (HF Hub may be unreachable or proxy stalled)",
-                DOWNLOAD_TIMEOUT.as_secs()
+                timeout.as_secs()
             ))
         }
         mpsc::RecvTimeoutError::Disconnected => {
@@ -481,5 +493,57 @@ mod tests {
 
         // Force at least one runtime assertion so the test body is not empty.
         assert_eq!(ModelId::default().repo_id(), "cl-nagoya/ruri-v3-310m");
+    }
+
+    // ── download_artifacts_with seam tests ──────────────────────────────────
+
+    use crate::embed::ModelId;
+
+    // T-106-004: download_artifacts_with
+    #[test]
+    fn download_artifacts_with_routes_success_to_caller() {
+        let dir = tempfile::tempdir().unwrap();
+        let fake = ModelPaths::from_dir(dir.path());
+        let expected = fake.model.clone();
+        let result = download_artifacts_with(
+            ModelId::default(),
+            DOWNLOAD_TIMEOUT,
+            move |_repo_id, _revision| Ok(fake),
+        )
+        .unwrap();
+        assert_eq!(result.model, expected);
+    }
+
+    // T-106-005: download_artifacts_with
+    #[test]
+    fn download_artifacts_with_routes_error_to_caller() {
+        let err = download_artifacts_with(
+            ModelId::default(),
+            DOWNLOAD_TIMEOUT,
+            |_repo_id, _revision| Err(ModelIoError::Download("simulated".to_owned())),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, ModelIoError::Download(ref s) if s == "simulated"),
+            "{err}"
+        );
+    }
+
+    // T-106-006: download_artifacts_with
+    #[test]
+    fn download_artifacts_with_returns_timeout_when_worker_exceeds_budget() {
+        let err = download_artifacts_with(
+            ModelId::default(),
+            Duration::from_millis(50),
+            |_repo_id, _revision| {
+                thread::sleep(Duration::from_secs(2));
+                Err(ModelIoError::Download("unreachable".to_owned()))
+            },
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, ModelIoError::Download(ref s) if s.contains("timeout")),
+            "expected timeout message, got: {err}"
+        );
     }
 }
