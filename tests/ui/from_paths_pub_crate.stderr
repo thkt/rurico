@@ -1,0 +1,10 @@
+error[E0624]: associated function `from_paths` is private
+  --> tests/ui/from_paths_pub_crate.rs:10:84
+   |
+10 |     let _ = rurico::artifacts::CandidateArtifacts::<rurico::artifacts::EmbedKind>::from_paths(
+   |                                                                                    ^^^^^^^^^^ private associated function
+   |
+  ::: src/artifacts.rs
+   |
+   |     pub(crate) fn from_paths(model: PathBuf, config: PathBuf, tokenizer: PathBuf) -> Self {
+   |     ------------------------------------------------------------------------------------- private associated function defined here

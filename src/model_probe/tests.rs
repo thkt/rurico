@@ -2,10 +2,10 @@
 //!
 //! Existing tests cover `resolve_probe_env`, `interpret_probe_output`,
 //! `compute_probe_exit`, and the wait/spawn machinery. New tests added for
-//! Issue #107 Phase 1 (AC-1, AC-4) cover `validate_probe_paths_with_root`,
-//! the production wrapper `validate_probe_paths`, and the visibility
-//! downgrade of `embed::CandidateArtifacts::from_paths` /
-//! `reranker::CandidateArtifacts::from_paths`.
+//! Issue #107 Phase 1 (AC-1, AC-4) cover `validate_probe_paths_with_root`
+//! and the production wrapper `validate_probe_paths`. The visibility
+//! downgrade of `from_paths` is verified by `tests/ui/from_paths_pub_crate.rs`
+//! (trybuild compile-fail; Issue #118).
 
 use super::*;
 use std::io;
@@ -473,41 +473,10 @@ fn validate_probe_paths_with_root_rejects_string_prefix_sibling() {
     );
 }
 
-// T-016: CandidateArtifacts::from_paths visibility -- pub(crate) downgrade
-//
-// Build verification: source-level inspection at red phase shows `from_paths`
-// is currently `pub`. The Phase 1 Green change downgrades to `pub(crate)`.
-// This test does not discriminate visibility levels at runtime (a `pub`
-// function and a `pub(crate)` function both compile from inside the crate);
-// the discriminator lives in the source check below and in downstream
-// `cargo build --workspace` after rev bump (covered by AC-4-3, out of scope
-// for this in-crate test file).
-//
-// To make T-016 a meaningful Red signal in the source-level sense, this test
-// reads the current declaration and asserts the expected `pub(crate) fn`
-// prefix. After the Green change, this assertion will pass; before the Green
-// change, the assertion fails on the `pub fn` line.
-#[test]
-fn from_paths_is_declared_pub_crate_in_artifacts_module() {
-    // After Phase 1 Unit 1.1, the single `CandidateArtifacts<K>::from_paths`
-    // definition lives in `src/artifacts.rs` and is consumed by
-    // `model_lifecycle::probe_env_to_paths<K>`. The downstream-visible aliases
-    // `embed::CandidateArtifacts` / `reranker::CandidateArtifacts` are typedefs
-    // and carry no `from_paths` declaration of their own. This text-based audit
-    // therefore targets the canonical definition site.
-    let artifacts_src = fs::read_to_string("src/artifacts.rs").unwrap();
-
-    assert!(
-        artifacts_src.contains("pub(crate) fn from_paths("),
-        "artifacts::CandidateArtifacts::from_paths must be declared `pub(crate) fn from_paths(`"
-    );
-    // Negative assertion: bare `pub fn from_paths(` must not exist on the
-    // canonical definition.
-    assert!(
-        !artifacts_src.contains("\n    pub fn from_paths("),
-        "artifacts::CandidateArtifacts::from_paths must not be declared `pub fn`"
-    );
-}
+// T-016: replaced by `tests/ui/from_paths_pub_crate.rs` (trybuild compile-fail).
+// Visibility verification now lives in the integration-test surface so the
+// compiler — not a source-string match — enforces the `pub(crate)` boundary.
+// See Issue #118.
 
 // T-021: validate_probe_paths (production wrapper) HF_HOME unset fallback (FR-101 + FR-006)
 //

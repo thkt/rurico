@@ -23,6 +23,7 @@ serial_test = "3"
 temp-env = "0.3"
 tempfile = "3"
 tracing-test = "0.2"
+trybuild = "1"
 
 [workspace.lints.rust]
 # `deny` (not `forbid`) so the FFI crate can keep `#[allow(unsafe_code)]` on
@@ -96,6 +97,7 @@ serial_test = { workspace = true }
 temp-env = { workspace = true }
 tempfile = { workspace = true }
 tracing-test = { workspace = true }
+trybuild = { workspace = true }
 
 [lints]
 workspace = true
