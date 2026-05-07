@@ -65,27 +65,53 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
     use std::collections::HashMap;
 
-    fn lookup_from(map: &HashMap<&'static str, &'static str>) -> impl Fn(&str) -> Option<String> {
-        let owned: HashMap<String, String> = map
-            .iter()
-            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
-            .collect();
-        move |key: &str| owned.get(key).cloned()
-    }
+    /// Per-kind query count from `handle_probe_if_needed_with`: every kind
+    /// reads `model`, `config`, and `tokenizer` regardless of branch outcome.
+    /// With embed + reranker dispatched in sequence, the lookup is called
+    /// `2 * 3 = 6` times when neither kind triggers a probe.
+    const NO_DISPATCH_LOOKUP_COUNT: usize = 6;
 
     #[test]
     fn handle_probe_if_needed_with_returns_when_no_env_set() {
-        let map: HashMap<&'static str, &'static str> = HashMap::new();
-        handle_probe_if_needed_with(lookup_from(&map));
+        let calls = Cell::new(0_usize);
+        handle_probe_if_needed_with(|_key| {
+            calls.set(calls.get() + 1);
+            None
+        });
+        // The function returned (no `process::exit` from `dispatch_probe`)
+        // and still consulted every PROBE_ENV_* var — the empty env path
+        // short-circuits at `probe_env_to_paths` returning None for both kinds.
+        assert_eq!(
+            calls.get(),
+            NO_DISPATCH_LOOKUP_COUNT,
+            "lookup must be queried for embed + reranker × {{model, config, tokenizer}}"
+        );
     }
 
     #[test]
     fn handle_probe_if_needed_with_skips_paths_without_primary_keys() {
-        let mut map = HashMap::new();
-        map.insert(embed::PROBE_ENV_CONFIG, "/tmp/c");
-        map.insert(reranker::PROBE_ENV_TOKENIZER, "/tmp/t");
-        handle_probe_if_needed_with(lookup_from(&map));
+        let calls = Cell::new(0_usize);
+        let map: HashMap<&'static str, &'static str> = [
+            (embed::PROBE_ENV_CONFIG, "/tmp/c"),
+            (reranker::PROBE_ENV_TOKENIZER, "/tmp/t"),
+        ]
+        .into_iter()
+        .collect();
+        handle_probe_if_needed_with(|key| {
+            calls.set(calls.get() + 1);
+            map.get(key).map(|v| (*v).to_owned())
+        });
+        // PROBE_ENV_MODEL is absent for both kinds, so `resolve_probe_env`
+        // returns None and dispatch is skipped — guards against a regression
+        // where setting only secondary keys tricks the function into spawning
+        // a probe.
+        assert_eq!(
+            calls.get(),
+            NO_DISPATCH_LOOKUP_COUNT,
+            "lookup must be queried for all three vars per kind even when only secondary keys are set"
+        );
     }
 }
