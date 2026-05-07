@@ -116,4 +116,15 @@ mod tests {
         assert_eq!(fragments.len(), 1);
         assert_eq!(fragments[0], text);
     }
+
+    // T-105-007: split_text_returns_single_empty_fragment_for_empty_input
+    #[test]
+    fn split_text_returns_single_empty_fragment_for_empty_input() {
+        let fragments = split_text("", 100);
+        assert_eq!(
+            fragments,
+            vec![""],
+            "empty input must yield a single empty fragment, not Vec::new()"
+        );
+    }
 }

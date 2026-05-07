@@ -106,9 +106,18 @@ pub(crate) const fn max_content(prefix_len: usize) -> usize {
 /// chunks distinguishable through Stage 1 candidates and Stage 2 fusion. The
 /// vector length is always equal to `chunks.len()`; constructors enforce this
 /// invariant.
+///
+/// `ChunkedEmbedding::new` is non-fallible: producers (`Embed::embed_document`
+/// and friends) are expected to deliver at least one chunk, but the
+/// constructor does not enforce non-emptiness. Callers are responsible for
+/// avoiding `new(vec![])` — the resulting value is structurally valid (with
+/// `chunks` and `chunk_ids` both empty) and will not panic, but downstream
+/// code that assumes "always non-empty" must justify that assumption itself.
 #[derive(Debug, Clone)]
 pub struct ChunkedEmbedding {
-    /// One embedding vector per chunk. Always non-empty.
+    /// One embedding vector per chunk. Producers always return at least one
+    /// chunk; [`ChunkedEmbedding::new`] does not enforce this — see the type
+    /// doc for caller responsibility.
     pub chunks: Vec<Vec<f32>>,
     /// Stable identifier per chunk. Same length as `chunks`. Auto-generated
     /// as `"c0"`, `"c1"`, … by [`ChunkedEmbedding::new`]; persistence formats
@@ -122,6 +131,11 @@ impl ChunkedEmbedding {
     /// `"c1"`, …). The default label scheme keeps producers (the MLX
     /// embedder, mocks, persistence loaders) consistent without forcing each
     /// caller to mint its own scheme.
+    ///
+    /// Non-fallible by design: passing an empty `chunks` vector returns a
+    /// value with both `chunks` and `chunk_ids` empty rather than panicking
+    /// or returning a `Result`. See the type-level doc for the
+    /// caller-responsibility contract.
     pub fn new(chunks: Vec<Vec<f32>>) -> Self {
         let chunk_ids = (0..chunks.len()).map(|i| format!("c{i}")).collect();
         Self { chunks, chunk_ids }
