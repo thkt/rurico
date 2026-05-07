@@ -4,6 +4,8 @@
 - Date: 2026-04-25
 - Confidence: medium-high. Reference composition pattern is empirically established in `recall/src/hybrid.rs`; statistical significance via bootstrap CI on 140+ query fixtures is a well-known IR convention; the unknown is whether mlx inference f32 drift across machines / mlx-rs versions stays inside the regeneration tolerance already adopted by ADR 0002.
 
+> **Note (2026-05-08)**: `rrf_merge` references in this ADR are superseded by issue #104. The canonical RRF primitive is now `retrieval::WeightedRrf` (configurable via `HybridSearchConfig`, `WeightedRrf::default()` is bit-equal to the removed legacy fn).
+
 ## Context
 
 Issue #53 splits search-quality improvement into Phase 1〜6, where Phase 1 builds the evaluation harness used by all later phases to detect regressions and validate improvements. Issue #65 is the Phase 1 implementation issue.

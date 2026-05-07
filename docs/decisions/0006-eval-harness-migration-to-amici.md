@@ -4,6 +4,8 @@
 - Date: 2026-04-27
 - Confidence: high. The cyclic-dependency constraint that justified inlining the reference composition in ADR 0003 does not apply to `amici` (`amici/Cargo.toml:14` already pins `rurico`); the production wiring that the harness mirrors lives in `amici` today; embedder and reranker primitives remain in `rurico` and are called by `amici` unchanged, so the regenerated baseline is expected to match the existing `rurico/tests/fixtures/eval/baseline.json` bit-identically modulo the per-metric tolerance envelope already established in ADR 0003.
 
+> **Note (2026-05-08)**: `rrf_merge` listed in §3 ("Stay in `rurico`") is superseded by issue #104 — the primitive was deleted in favor of `retrieval::WeightedRrf` (the canonical Stage-2 strategy from ADR 0004).
+
 ## Context
 
 ADR 0003 placed an inline reference composition inside `rurico/src/eval/pipeline.rs` to evaluate `rurico` primitives in a `recall`-shape hybrid pipeline without forming a `rurico → recall` cyclic dependency. Since ADR 0003 was accepted, three signals shifted the calculus:

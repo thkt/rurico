@@ -4,6 +4,14 @@
 
 ### Breaking Changes
 
+- **`storage::rrf_merge` and `RRF_K` constant removed.** The free function and
+  its hardcoded `RRF_K = 60.0` are deleted; `retrieval::WeightedRrf` is now
+  the canonical RRF primitive (configurable `rrf_k` via `HybridSearchConfig`,
+  multi-source weights, recency support). For drop-in replacement of the
+  legacy behavior, use `WeightedRrf::default().merge(&candidates)` — bit-equal
+  to the removed `rrf_merge` (default `rrf_k = 60.0`, weight = 1.0, including
+  the `doc_id` ascending tie-break). Callers that fed `(K, f64)` tuples must
+  convert to `Vec<Candidate>` (see `rurico::retrieval::Candidate`).
 - **`EmbedInitError` and `RerankerInitError` removed; replaced by single
   `ModelInitError` (`rurico::model_init::ModelInitError`).** Variant set
   (`Backend(String)` and `ModelCorrupt { reason: String }`) is unchanged;
