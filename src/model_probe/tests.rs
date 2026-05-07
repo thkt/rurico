@@ -554,100 +554,52 @@ fn t_021_validate_probe_paths_falls_back_to_home_when_hf_home_unset() {
 // Tests for typed setup-failure error variant `ProbeError::SetupRejected { code }`
 // and the `interpret_probe_output` dispatch from setup-phase exit codes 4 / 5 / 6.
 
-// T-007: exit 4 -> ProbeError::SetupRejected { code: 4 }
+// T-007 / T-007a / T-008 / T-009: setup-phase exit codes 3..=6 each map to
+// ProbeError::SetupRejected with the exit code preserved. Stderr is decorative
+// for SetupRejected (Display reads from `code`, not stderr), so all four cases
+// share an empty stderr.
 #[test]
-fn t_007_interpret_probe_output_maps_exit_4_to_setup_rejected() {
-    let output = Output {
-        status: exit_status(4),
-        stdout: format!("{PROBE_ACK}\n").into_bytes(),
-        stderr: b"path canonicalize failed".to_vec(),
-    };
-    let err = interpret_probe_output(&output).unwrap_err();
-    assert!(
-        matches!(err, ProbeError::SetupRejected { code: 4 }),
-        "expected SetupRejected {{ code: 4 }}, got {err}"
-    );
+fn interpret_probe_output_maps_setup_exit_codes_to_setup_rejected() {
+    for code in [
+        PROBE_EXIT_ENV_INCOMPLETE,
+        PROBE_EXIT_CANONICALIZE_FAILED,
+        PROBE_EXIT_PATH_OUTSIDE_CACHE,
+        PROBE_EXIT_CACHE_ROOT_INVALID,
+    ] {
+        let output = Output {
+            status: exit_status(code),
+            stdout: format!("{PROBE_ACK}\n").into_bytes(),
+            stderr: Vec::new(),
+        };
+        let err = interpret_probe_output(&output).unwrap_err();
+        assert!(
+            matches!(err, ProbeError::SetupRejected { code: c } if c == code),
+            "exit {code}: expected SetupRejected {{ code: {code} }}, got {err}"
+        );
+    }
 }
 
-// T-008: exit 5 -> ProbeError::SetupRejected { code: 5 }
+// T-011a / T-011b / T-011c / T-011d: SetupRejected Display surfaces both the
+// exit code and a human-readable label per variant.
 #[test]
-fn t_008_interpret_probe_output_maps_exit_5_to_setup_rejected() {
-    let output = Output {
-        status: exit_status(5),
-        stdout: format!("{PROBE_ACK}\n").into_bytes(),
-        stderr: Vec::new(),
-    };
-    let err = interpret_probe_output(&output).unwrap_err();
-    assert!(
-        matches!(err, ProbeError::SetupRejected { code: 5 }),
-        "expected SetupRejected {{ code: 5 }}, got {err}"
-    );
-}
-
-// T-007a: exit 3 (env incomplete) -> ProbeError::SetupRejected { code: 3 }
-#[test]
-fn t_007a_interpret_probe_output_maps_exit_3_to_setup_rejected() {
-    let output = Output {
-        status: exit_status(3),
-        stdout: format!("{PROBE_ACK}\n").into_bytes(),
-        stderr: b"probe setup rejected: env incomplete".to_vec(),
-    };
-    let err = interpret_probe_output(&output).unwrap_err();
-    assert!(
-        matches!(err, ProbeError::SetupRejected { code: 3 }),
-        "expected SetupRejected {{ code: 3 }}, got {err}"
-    );
-}
-
-// T-009: exit 6 -> ProbeError::SetupRejected { code: 6 }
-#[test]
-fn t_009_interpret_probe_output_maps_exit_6_to_setup_rejected() {
-    let output = Output {
-        status: exit_status(6),
-        stdout: format!("{PROBE_ACK}\n").into_bytes(),
-        stderr: Vec::new(),
-    };
-    let err = interpret_probe_output(&output).unwrap_err();
-    assert!(
-        matches!(err, ProbeError::SetupRejected { code: 6 }),
-        "expected SetupRejected {{ code: 6 }}, got {err}"
-    );
-}
-
-// T-011a: SetupRejected { code: 4 } Display label
-#[test]
-fn t_011a_setup_rejected_display_for_code_4_includes_label() {
-    let err = ProbeError::SetupRejected { code: 4 };
-    let s = format!("{err}");
-    assert!(s.contains('4'), "{s}");
-    assert!(s.contains("path canonicalize failed"), "{s}");
-}
-
-// T-011b: SetupRejected { code: 5 } Display label
-#[test]
-fn t_011b_setup_rejected_display_for_code_5_includes_label() {
-    let err = ProbeError::SetupRejected { code: 5 };
-    let s = format!("{err}");
-    assert!(s.contains('5'), "{s}");
-    assert!(s.contains("path outside cache"), "{s}");
-}
-
-// T-011c: SetupRejected { code: 6 } Display label
-#[test]
-fn t_011c_setup_rejected_display_for_code_6_includes_label() {
-    let err = ProbeError::SetupRejected { code: 6 };
-    let s = format!("{err}");
-    assert!(s.contains('6'), "{s}");
-    assert!(s.contains("cache root invalid"), "{s}");
-}
-
-// T-011d: SetupRejected { code: 3 } Display label
-#[test]
-fn t_011d_setup_rejected_display_for_code_3_includes_label() {
-    let err = ProbeError::SetupRejected { code: 3 };
-    let s = format!("{err}");
-    assert!(s.contains('3'), "{s}");
-    assert!(s.contains("env incomplete"), "{s}");
+fn setup_rejected_display_includes_code_and_label_per_variant() {
+    let cases: &[(i32, &str)] = &[
+        (PROBE_EXIT_ENV_INCOMPLETE, "env incomplete"),
+        (PROBE_EXIT_CANONICALIZE_FAILED, "path canonicalize failed"),
+        (PROBE_EXIT_PATH_OUTSIDE_CACHE, "path outside cache"),
+        (PROBE_EXIT_CACHE_ROOT_INVALID, "cache root invalid"),
+    ];
+    for &(code, label) in cases {
+        let s = format!("{}", ProbeError::SetupRejected { code });
+        assert!(
+            s.contains(&code.to_string()),
+            "code {code}: Display must contain the exit code, got: {s}"
+        );
+        assert!(
+            s.contains(label),
+            "code {code}: Display must contain label {label:?}, got: {s}"
+        );
+    }
 }
 
 // ── Issue #107 Phase 3 tests (AC-3) ──────────────────────────────────────────
