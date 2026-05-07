@@ -497,11 +497,11 @@ mod tests {
 
     // ── download_artifacts_with seam tests ──────────────────────────────────
 
+    use crate::embed::ModelId;
+
     // T-106-004: download_artifacts_with
     #[test]
     fn download_artifacts_with_routes_success_to_caller() {
-        use crate::embed::ModelId;
-
         let dir = tempfile::tempdir().unwrap();
         let fake = ModelPaths::from_dir(dir.path());
         let expected = fake.model.clone();
@@ -517,8 +517,6 @@ mod tests {
     // T-106-005: download_artifacts_with
     #[test]
     fn download_artifacts_with_routes_error_to_caller() {
-        use crate::embed::ModelId;
-
         let err = download_artifacts_with(
             ModelId::default(),
             DOWNLOAD_TIMEOUT,
@@ -534,8 +532,6 @@ mod tests {
     // T-106-006: download_artifacts_with
     #[test]
     fn download_artifacts_with_returns_timeout_when_worker_exceeds_budget() {
-        use crate::embed::ModelId;
-
         let err = download_artifacts_with(
             ModelId::default(),
             Duration::from_millis(50),
