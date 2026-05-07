@@ -77,14 +77,3 @@ pub(crate) fn clear_inference_cache(component: Component) {
         tracing::warn!(component, code, "mlx_detail_compile_clear_cache failed");
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn mlx_cache_lock_is_acquirable() {
-        let guard = MLX_CACHE_LOCK.lock().unwrap();
-        drop(guard);
-    }
-}

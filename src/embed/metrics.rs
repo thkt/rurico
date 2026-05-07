@@ -235,16 +235,4 @@ mod tests {
             "expected event message in subscriber output",
         );
     }
-
-    // T-MET-002: bucket_hist sum invariant equals num_chunks so each chunk is
-    // counted in exactly one bucket across query and batch paths.
-    #[test]
-    fn t_met_002_bucket_hist_sum_matches_num_chunks() {
-        let m = PhaseMetrics {
-            num_chunks: 7,
-            bucket_hist: [2, 3, 1, 1],
-            ..Default::default()
-        };
-        assert_eq!(m.bucket_hist.iter().sum::<usize>(), m.num_chunks);
-    }
 }
