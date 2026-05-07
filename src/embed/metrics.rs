@@ -130,11 +130,17 @@ impl PhaseMetrics {
 }
 
 /// `padded / real`. Returns `0.0` when `real == 0` to avoid division by zero.
+///
+/// Computed in f64 to preserve precision when token counts exceed 2^24
+/// (production batches at MAX_SEQ_LEN × TOKEN_BUDGET approach this range);
+/// the f64→f32 narrowing is safe because the ratio is bounded near 1.0–10.0.
+#[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
 pub(super) fn padding_ratio(real: usize, padded: usize) -> f32 {
     if real == 0 {
         return 0.0;
     }
-    padded as f32 / real as f32
+    let ratio = padded as f64 / real as f64;
+    ratio as f32
 }
 
 #[cfg(test)]

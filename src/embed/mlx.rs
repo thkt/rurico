@@ -63,14 +63,17 @@ pub(super) fn distribute_into_buckets(chunks: Vec<IndexedChunk>) -> [Vec<Indexed
 fn build_indexed_chunks(
     all_chunk_tokens: Vec<Vec<u32>>,
     chunks_per_doc: &[usize],
-) -> Vec<IndexedChunk> {
+) -> Result<Vec<IndexedChunk>, EmbedError> {
     let mut result = Vec::with_capacity(all_chunk_tokens.len());
     let mut tokens_iter = all_chunk_tokens.into_iter();
     for (doc_idx, &count) in chunks_per_doc.iter().enumerate() {
         for chunk_in_doc in 0..count {
-            let tokens = tokens_iter
-                .next()
-                .expect("chunks_per_doc total must match all_chunk_tokens length");
+            let tokens = tokens_iter.next().ok_or_else(|| {
+                EmbedError::inference(format!(
+                    "chunks_per_doc total exceeds all_chunk_tokens length \
+                     (doc_idx={doc_idx}, chunk_in_doc={chunk_in_doc})"
+                ))
+            })?;
             result.push(IndexedChunk {
                 global_idx: result.len(),
                 doc_idx,
@@ -79,11 +82,13 @@ fn build_indexed_chunks(
             });
         }
     }
-    debug_assert!(
-        tokens_iter.next().is_none(),
-        "chunks_per_doc total must match all_chunk_tokens length"
-    );
-    result
+    if tokens_iter.next().is_some() {
+        let extras = tokens_iter.count() + 1;
+        return Err(EmbedError::inference(format!(
+            "all_chunk_tokens has {extras} more entries than chunks_per_doc total"
+        )));
+    }
+    Ok(result)
 }
 
 pub(super) struct EmbedderInner {
@@ -246,7 +251,7 @@ impl EmbedderInner {
         metrics.num_chunks = total_chunks;
 
         let buckets =
-            distribute_into_buckets(build_indexed_chunks(all_chunk_tokens, &chunks_per_doc));
+            distribute_into_buckets(build_indexed_chunks(all_chunk_tokens, &chunks_per_doc)?);
 
         let mut out: Vec<Option<Vec<f32>>> = (0..total_chunks).map(|_| None).collect();
 
@@ -272,11 +277,19 @@ impl EmbedderInner {
         let batch_metrics = BatchMetrics::from(&metrics);
 
         // Invariant: each global_idx was written exactly once across all bucket
-        // forwards. None here signals a distribution or unpack bug, not input.
+        // forwards. None here signals a distribution or unpack bug, not input —
+        // surfaced as `Inference` so a regression cannot panic in production.
         let all_embeddings: Vec<Vec<f32>> = out
             .into_iter()
-            .map(|slot| slot.expect("every chunk slot must be filled by bucket forward"))
-            .collect();
+            .enumerate()
+            .map(|(idx, slot)| {
+                slot.ok_or_else(|| {
+                    EmbedError::inference(format!(
+                        "chunk slot {idx} not filled by any bucket forward (distribution bug)"
+                    ))
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
 
         let mut results = Vec::with_capacity(texts.len());
         let mut iter = all_embeddings.into_iter();
@@ -684,7 +697,8 @@ mod tests {
     fn build_indexed_chunks_tracks_doc_structure() {
         // doc 0 has 2 chunks, doc 1 has 1 chunk → chunks_per_doc = [2, 1]
         let all_chunks = vec![vec![1u32; 10], vec![2u32; 20], vec![3u32; 30]];
-        let indexed = build_indexed_chunks(all_chunks, &[2, 1]);
+        let indexed = build_indexed_chunks(all_chunks, &[2, 1])
+            .expect("balanced chunks_per_doc and all_chunk_tokens must build ok");
         let shape: Vec<(usize, usize, usize, usize)> = indexed
             .iter()
             .map(|c| (c.global_idx, c.doc_idx, c.chunk_in_doc, c.tokens.len()))
@@ -694,6 +708,38 @@ mod tests {
             vec![(0, 0, 0, 10), (1, 0, 1, 20), (2, 1, 0, 30)],
             "global_idx runs 0..N while doc_idx + chunk_in_doc track doc layout"
         );
+    }
+
+    // Defense-in-depth: a regression that emits more `chunks_per_doc` than
+    // chunks (e.g., wrong loop bound) previously panicked via
+    // `expect("chunks_per_doc total must match all_chunk_tokens length")`.
+    // The Result variant surfaces it as a structured EmbedError instead.
+    #[test]
+    fn build_indexed_chunks_rejects_chunks_per_doc_excess() {
+        let all_chunks = vec![vec![1u32; 10]];
+        let err = build_indexed_chunks(all_chunks, &[2])
+            .expect_err("chunks_per_doc total > all_chunk_tokens length must error");
+        match err {
+            EmbedError::Inference(msg) => assert!(
+                msg.contains("chunks_per_doc total exceeds"),
+                "expected chunks_per_doc-side error wording, got: {msg}"
+            ),
+            other => panic!("expected Inference, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn build_indexed_chunks_rejects_all_chunk_tokens_excess() {
+        let all_chunks = vec![vec![1u32; 10], vec![2u32; 20]];
+        let err = build_indexed_chunks(all_chunks, &[1])
+            .expect_err("all_chunk_tokens length > chunks_per_doc total must error");
+        match err {
+            EmbedError::Inference(msg) => assert!(
+                msg.contains("all_chunk_tokens has 1 more"),
+                "expected extras count in surplus-side error wording, got: {msg}"
+            ),
+            other => panic!("expected Inference, got {other:?}"),
+        }
     }
 
     // T-BKT-007: 10 chunks spanning all 4 buckets round-trip in original order
@@ -745,7 +791,7 @@ mod tests {
     // collect to `Vec::new()`. MLX-free proxy for the end-to-end contract.
     #[test]
     fn t_bkt_009_empty_input_zero_subbatches() {
-        let indexed = build_indexed_chunks(Vec::new(), &[]);
+        let indexed = build_indexed_chunks(Vec::new(), &[]).expect("empty inputs must build ok");
         assert!(
             indexed.is_empty(),
             "empty chunk tokens → empty IndexedChunk vec"

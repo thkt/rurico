@@ -35,8 +35,8 @@ impl Attention {
         rope_theta: f32,
         uses_local_attention: bool,
     ) -> Result<Self, Exception> {
-        let h = i32::try_from(config.hidden_size).expect("bounded by model config");
-        let num_heads = i32::try_from(config.num_attention_heads).expect("bounded by model config");
+        let h = config_dim_to_i32("hidden_size", config.hidden_size)?;
+        let num_heads = config_dim_to_i32("num_attention_heads", config.num_attention_heads)?;
         let head_dim = h / num_heads;
 
         #[allow(non_snake_case)]
@@ -110,8 +110,8 @@ struct Mlp {
 
 impl Mlp {
     fn new(config: &Config) -> Result<Self, Exception> {
-        let h = i32::try_from(config.hidden_size).expect("bounded by model config");
-        let inter = i32::try_from(config.intermediate_size).expect("bounded by model config");
+        let h = config_dim_to_i32("hidden_size", config.hidden_size)?;
+        let inter = config_dim_to_i32("intermediate_size", config.intermediate_size)?;
         #[allow(non_snake_case)]
         let Wi = nn::LinearBuilder::new(h, inter * 2).bias(false).build()?;
         #[allow(non_snake_case)]
@@ -145,7 +145,7 @@ impl TransformerLayer {
     fn new(config: &Config, layer_id: usize) -> Result<Self, Exception> {
         let uses_local = !layer_id.is_multiple_of(config.global_attn_every_n_layers);
         let rope_theta = rope_theta_f32(config, uses_local);
-        let h = i32::try_from(config.hidden_size).expect("bounded by model config");
+        let h = config_dim_to_i32("hidden_size", config.hidden_size)?;
         let eps = layer_norm_eps_f32(config);
 
         let attn_norm = nn::LayerNormBuilder::new(h).eps(eps).build()?;
@@ -226,9 +226,9 @@ impl ModernBert {
         config
             .validate()
             .map_err(|e| Exception::custom(format!("invalid config: {e}")))?;
-        let h = i32::try_from(config.hidden_size).expect("bounded by model config");
+        let h = config_dim_to_i32("hidden_size", config.hidden_size)?;
         let eps = layer_norm_eps_f32(config);
-        let vocab_size = i32::try_from(config.vocab_size).expect("bounded by model config");
+        let vocab_size = config_dim_to_i32("vocab_size", config.vocab_size)?;
 
         let tok_embeddings = nn::Embedding::new(vocab_size, h)?;
         let emb_norm = nn::LayerNormBuilder::new(h).eps(eps).build()?;
@@ -320,7 +320,7 @@ impl ModernBert {
         assert_len("input_ids", input_ids)?;
         assert_len("attention_mask", attention_mask)?;
 
-        let max_seq = i32::try_from(self.max_seq_len).expect("bounded by model config");
+        let max_seq = config_dim_to_i32("max_seq_len", self.max_seq_len)?;
         if seq_len > max_seq {
             // Defense-in-depth: truncate oversize inputs, validating only the effective prefix.
             tracing::warn!(
@@ -364,7 +364,7 @@ impl ModernBert {
         let local_mask = if let Some(cached) = self.local_mask_cache.get(&seq_len) {
             cached.clone()
         } else {
-            let half = i32::try_from(self.local_attention_half).expect("bounded by model config");
+            let half = config_dim_to_i32("local_attention_half", self.local_attention_half)?;
             let m = get_local_attention_mask(seq_len, half)?;
             self.local_mask_cache.insert(seq_len, m.clone());
             m
@@ -381,6 +381,18 @@ impl ModernBert {
 // Use a large negative instead of -inf to avoid 0.0 * (-inf) = NaN on Metal kernels
 // for certain sequence lengths (threshold ~9 tokens on Apple Silicon).
 const MASK_FILL: f32 = -1e9;
+
+/// Cast a `usize` config-derived dimension to `i32`, returning a structured
+/// error when it exceeds `i32::MAX`. [`Config::validate`] already enforces the
+/// bound for every field passed here; the `Err` arm is defense-in-depth against
+/// a regression that constructs a `Config` without going through `validate`.
+fn config_dim_to_i32(name: &str, value: usize) -> Result<i32, Exception> {
+    i32::try_from(value).map_err(|_| {
+        Exception::custom(format!(
+            "{name} ({value}) exceeds i32::MAX (config invariant violation)"
+        ))
+    })
+}
 
 // Model config constant; layer norm epsilon fits in f32.
 #[allow(clippy::cast_possible_truncation)]
@@ -438,11 +450,20 @@ fn validate_attention_mask(mask: &[u32], seq_len: usize) -> Result<(), Exception
 }
 
 fn get_local_attention_mask(seq_len: i32, half_window: i32) -> Result<Array, Exception> {
-    let n = seq_len as usize;
-    let hw = half_window as usize;
+    let n = usize::try_from(seq_len)
+        .map_err(|_| Exception::custom(format!("seq_len ({seq_len}) must be non-negative")))?;
+    let hw = usize::try_from(half_window).map_err(|_| {
+        Exception::custom(format!("half_window ({half_window}) must be non-negative"))
+    })?;
+    // `n * n` allocation is bounded by callers (`run_forward` passes `seq_len <=
+    // max_position_embeddings`); `checked_mul` is defense-in-depth against a
+    // regression that bypasses that gate.
+    let n_squared = n
+        .checked_mul(n)
+        .ok_or_else(|| Exception::custom(format!("seq_len ({n}) squared overflows usize")))?;
     // NEG_INFINITY is safe here: values are written directly, never multiplied by a mask array,
     // so the 0.0 * (-inf) = NaN Metal hazard (see MASK_FILL) does not apply.
-    let mut data = vec![f32::NEG_INFINITY; n * n];
+    let mut data = vec![f32::NEG_INFINITY; n_squared];
     for i in 0..n {
         let lo = i.saturating_sub(hw);
         let hi = (i + hw + 1).min(n);
@@ -539,6 +560,52 @@ mod tests {
         assert!(validate_attention_mask(&[1, 1, 1], 3).is_ok());
         // multi-row valid batch: row 0 = [1,1,0], row 1 = [1,0,1]
         assert!(validate_attention_mask(&[1, 1, 0, 1, 0, 1], 3).is_ok());
+    }
+
+    // Defense-in-depth: a negative `seq_len` previously produced a giant
+    // `usize` via `as` cast, allocating gigabytes before `Array::from_slice`
+    // ever ran. `usize::try_from` now rejects it as a structured Exception.
+    #[test]
+    fn get_local_attention_mask_rejects_negative_seq_len() {
+        let err = get_local_attention_mask(-1, 1).expect_err("negative seq_len must error");
+        assert!(
+            err.what().contains("seq_len"),
+            "error message should reference seq_len, got: {}",
+            err.what()
+        );
+    }
+
+    #[test]
+    fn get_local_attention_mask_rejects_negative_half_window() {
+        let err = get_local_attention_mask(8, -1).expect_err("negative half_window must error");
+        assert!(
+            err.what().contains("half_window"),
+            "error message should reference half_window, got: {}",
+            err.what()
+        );
+    }
+
+    // Defense-in-depth: `config_dim_to_i32` Err path is unreachable after a
+    // valid `Config::validate()` since `validate` already enforces the i32
+    // bound. The test exercises the helper directly so a regression that
+    // skips `validate` cannot panic in a hot forward.
+    #[test]
+    fn config_dim_to_i32_rejects_value_above_i32_max() {
+        let err = config_dim_to_i32("hidden_size", (i32::MAX as usize) + 1)
+            .expect_err("value above i32::MAX must error");
+        assert!(
+            err.what().contains("hidden_size"),
+            "error message should reference field name, got: {}",
+            err.what()
+        );
+    }
+
+    #[test]
+    fn config_dim_to_i32_accepts_value_at_i32_max() {
+        assert_eq!(
+            config_dim_to_i32("hidden_size", i32::MAX as usize).unwrap(),
+            i32::MAX
+        );
     }
 
     /// MLX runtime tests — may abort due to foreign exceptions from mlx-rs FFI.

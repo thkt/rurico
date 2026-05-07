@@ -111,14 +111,24 @@ pub fn save<W: Write>(w: &mut W, docs: &[ChunkedEmbedding]) -> io::Result<()> {
 /// Uses buffered reads per chunk. Callers reading from a [`std::fs::File`]
 /// should wrap it in a [`std::io::BufReader`] to avoid one syscall per chunk.
 pub fn load<R: Read>(r: &mut R) -> io::Result<Vec<ChunkedEmbedding>> {
-    let num_docs = read_u32(r)? as usize;
+    let num_docs = u32_to_usize(read_u32(r)?, "num_docs")?;
     let mut docs = Vec::with_capacity(num_docs);
     for _ in 0..num_docs {
-        let num_chunks = read_u32(r)? as usize;
+        let num_chunks = u32_to_usize(read_u32(r)?, "num_chunks")?;
         let mut chunks = Vec::with_capacity(num_chunks);
         for _ in 0..num_chunks {
-            let dim = read_u32(r)? as usize;
-            let mut bytes = vec![0u8; dim * 4];
+            let dim = u32_to_usize(read_u32(r)?, "hidden_dim")?;
+            // `dim * size_of::<f32>()` (bytes per chunk) overflows `usize` on
+            // 32-bit targets when `dim > usize::MAX / 4`; `checked_mul` surfaces a
+            // clear error instead of panicking. Unreachable on 64-bit.
+            const BYTES_PER_F32: usize = size_of::<f32>();
+            let bytes_len = dim.checked_mul(BYTES_PER_F32).ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("hidden_dim ({dim}) * {BYTES_PER_F32} overflows usize"),
+                )
+            })?;
+            let mut bytes = vec![0u8; bytes_len];
             r.read_exact(&mut bytes)?;
             let vec: Vec<f32> = bytemuck::cast_slice::<u8, f32>(&bytes).to_vec();
             chunks.push(vec);
@@ -126,6 +136,19 @@ pub fn load<R: Read>(r: &mut R) -> io::Result<Vec<ChunkedEmbedding>> {
         docs.push(ChunkedEmbedding::new(chunks));
     }
     Ok(docs)
+}
+
+/// Convert a `u32` header field to `usize`, returning a structured `InvalidData`
+/// error if the value cannot fit. Only fails on 16-bit `usize` targets; on
+/// 32/64-bit, `From<u32> for usize` makes the conversion infallible — the
+/// `Err` arm exists for type-system completeness, not as a runtime guard.
+fn u32_to_usize(value: u32, field: &'static str) -> io::Result<usize> {
+    usize::try_from(value).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("{field} ({value}) exceeds usize"),
+        )
+    })
 }
 
 /// Compare two fixtures element-wise.
@@ -329,5 +352,45 @@ mod tests {
     fn default_tolerances_match_spec_nfr_001() {
         assert!((DEFAULT_COSINE_MIN - 0.99999).abs() < f32::EPSILON);
         assert!((DEFAULT_MAX_ABS_DIFF - 1e-5).abs() < f32::EPSILON);
+    }
+
+    // Corrupt header: stream ends after `num_docs = 1` so reading the
+    // first `num_chunks` u32 fails with `UnexpectedEof`. The previous
+    // `as usize` cast read whatever the partial buffer happened to contain
+    // and could trigger a multi-GB `Vec::with_capacity` on hostile input.
+    #[test]
+    fn load_rejects_truncated_header_after_num_docs() {
+        let bytes = (1u32).to_le_bytes().to_vec();
+        let err = load(&mut Cursor::new(&bytes)).expect_err("truncated header must error");
+        assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof);
+    }
+
+    // Corrupt header: a chunk declares `dim` but the f32 payload is shorter
+    // than `dim * 4` bytes, so `read_exact` fails with `UnexpectedEof` after
+    // a small bounded allocation. Uses a small `dim` to avoid the 16 GiB
+    // allocation that `dim = u32::MAX` would force on 64-bit hosts.
+    #[test]
+    fn load_rejects_chunk_with_truncated_payload() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1u32.to_le_bytes()); // num_docs = 1
+        bytes.extend_from_slice(&1u32.to_le_bytes()); // num_chunks = 1
+        bytes.extend_from_slice(&64u32.to_le_bytes()); // dim = 64 → expects 256 payload bytes
+        bytes.extend_from_slice(&[0u8; 16]); // only 16 bytes of payload
+        let err = load(&mut Cursor::new(&bytes)).expect_err("truncated payload must error");
+        assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof);
+    }
+
+    // 32-bit-only: `dim.checked_mul(4)` overflows `usize` on 32-bit targets
+    // when `dim > usize::MAX / 4`. Gated to avoid the 16 GiB allocation that
+    // would happen on 64-bit hosts before `read_exact` could return.
+    #[cfg(target_pointer_width = "32")]
+    #[test]
+    fn load_rejects_dim_times_4_overflow_on_32bit() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1u32.to_le_bytes()); // num_docs = 1
+        bytes.extend_from_slice(&1u32.to_le_bytes()); // num_chunks = 1
+        bytes.extend_from_slice(&u32::MAX.to_le_bytes()); // dim = u32::MAX → dim * 4 overflows usize
+        let err = load(&mut Cursor::new(&bytes)).expect_err("dim * 4 overflow must error");
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
     }
 }
