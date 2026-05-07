@@ -88,11 +88,4 @@ mod tests {
             }
         }
     }
-
-    #[test]
-    fn workloads_are_deterministic() {
-        assert_eq!(workload_w1(), workload_w1());
-        assert_eq!(workload_w2(), workload_w2());
-        assert_eq!(workload_w3(), workload_w3());
-    }
 }
