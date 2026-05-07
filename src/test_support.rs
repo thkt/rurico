@@ -200,7 +200,7 @@ pub(crate) fn assert_cache_lookup_returns_none_when_empty<Id: ModelArtifact>(mod
 pub(crate) fn assert_from_probe_error_maps_correctly() {
     let err: ModelInitError = ProbeError::HandlerNotInstalled.into();
     assert!(
-        matches!(err, ModelInitError::Backend(ref m) if m.contains("probe handler not installed")),
+        matches!(err, ModelInitError::Backend { ref message, .. } if message.contains("probe handler not installed")),
         "{err}"
     );
 
@@ -215,7 +215,7 @@ pub(crate) fn assert_from_probe_error_maps_correctly() {
 
     let err: ModelInitError = ProbeError::SubprocessFailed("spawn failed".into()).into();
     assert!(
-        matches!(err, ModelInitError::Backend(ref m) if m == "spawn failed"),
+        matches!(err, ModelInitError::Backend { ref message, .. } if message == "spawn failed"),
         "{err}"
     );
 }
