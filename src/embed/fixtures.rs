@@ -111,14 +111,23 @@ pub fn save<W: Write>(w: &mut W, docs: &[ChunkedEmbedding]) -> io::Result<()> {
 /// Uses buffered reads per chunk. Callers reading from a [`std::fs::File`]
 /// should wrap it in a [`std::io::BufReader`] to avoid one syscall per chunk.
 pub fn load<R: Read>(r: &mut R) -> io::Result<Vec<ChunkedEmbedding>> {
-    let num_docs = read_u32(r)? as usize;
+    let num_docs = u32_to_usize(read_u32(r)?, "num_docs")?;
     let mut docs = Vec::with_capacity(num_docs);
     for _ in 0..num_docs {
-        let num_chunks = read_u32(r)? as usize;
+        let num_chunks = u32_to_usize(read_u32(r)?, "num_chunks")?;
         let mut chunks = Vec::with_capacity(num_chunks);
         for _ in 0..num_chunks {
-            let dim = read_u32(r)? as usize;
-            let mut bytes = vec![0u8; dim * 4];
+            let dim = u32_to_usize(read_u32(r)?, "hidden_dim")?;
+            // `dim * 4` (bytes per chunk) overflows `usize` on 32-bit targets when
+            // `dim > usize::MAX / 4`; `checked_mul` surfaces a clear error instead
+            // of panicking. On 64-bit targets the check is effectively unreachable.
+            let bytes_len = dim.checked_mul(4).ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("hidden_dim ({dim}) * 4 overflows usize"),
+                )
+            })?;
+            let mut bytes = vec![0u8; bytes_len];
             r.read_exact(&mut bytes)?;
             let vec: Vec<f32> = bytemuck::cast_slice::<u8, f32>(&bytes).to_vec();
             chunks.push(vec);
@@ -126,6 +135,18 @@ pub fn load<R: Read>(r: &mut R) -> io::Result<Vec<ChunkedEmbedding>> {
         docs.push(ChunkedEmbedding::new(chunks));
     }
     Ok(docs)
+}
+
+/// Convert a `u32` header field to `usize`, returning a structured `InvalidData`
+/// error on platforms where the value would not fit (16-bit `usize` only;
+/// fail closed on 32/64-bit by virtue of `From<u32> for usize`).
+fn u32_to_usize(value: u32, field: &'static str) -> io::Result<usize> {
+    usize::try_from(value).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("{field} ({value}) exceeds usize"),
+        )
+    })
 }
 
 /// Compare two fixtures element-wise.
@@ -329,5 +350,35 @@ mod tests {
     fn default_tolerances_match_spec_nfr_001() {
         assert!((DEFAULT_COSINE_MIN - 0.99999).abs() < f32::EPSILON);
         assert!((DEFAULT_MAX_ABS_DIFF - 1e-5).abs() < f32::EPSILON);
+    }
+
+    // Corrupt header: stream ends after `num_docs = 1` so reading the
+    // first `num_chunks` u32 fails with `UnexpectedEof`. The previous
+    // `as usize` cast read whatever the partial buffer happened to contain
+    // and could trigger a multi-GB `Vec::with_capacity` on hostile input.
+    #[test]
+    fn load_rejects_truncated_header_after_num_docs() {
+        let bytes = (1u32).to_le_bytes().to_vec();
+        let err = load(&mut Cursor::new(&bytes)).expect_err("truncated header must error");
+        assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof);
+    }
+
+    // Corrupt header: a chunk claims `dim = u32::MAX` but the payload is
+    // empty. `usize::try_from` succeeds (u32 always fits in usize on
+    // 64-bit), and `dim.checked_mul(4)` succeeds (`4 * u32::MAX < usize::MAX`
+    // on 64-bit), so allocation proceeds and `read_exact` fails with
+    // `UnexpectedEof` rather than over-allocating undetected.
+    #[test]
+    fn load_rejects_chunk_with_oversize_dim_and_empty_payload() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1u32.to_le_bytes()); // num_docs = 1
+        bytes.extend_from_slice(&1u32.to_le_bytes()); // num_chunks = 1
+        bytes.extend_from_slice(&u32::MAX.to_le_bytes()); // dim = u32::MAX, payload missing
+        let err = load(&mut Cursor::new(&bytes)).expect_err("oversize dim with no payload errors");
+        // 64-bit: allocation succeeds, read_exact hits EOF; 32-bit: checked_mul rejects.
+        assert!(matches!(
+            err.kind(),
+            io::ErrorKind::UnexpectedEof | io::ErrorKind::InvalidData
+        ));
     }
 }

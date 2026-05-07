@@ -77,8 +77,11 @@ impl Config {
             return Err("max_position_embeddings must be > 0".into());
         }
         // `local_attention / 2` is cast to i32 when building the local-attention mask.
-        let max_local = (i32::MAX as usize).saturating_mul(2).saturating_add(1);
-        if self.local_attention > max_local {
+        // Compute the bound in u64 so the check stays correct on 32-bit `usize`
+        // targets, where `(i32::MAX as usize).saturating_mul(2)` would clamp to
+        // `usize::MAX` and silently widen the accepted range.
+        let max_local: u64 = (i32::MAX as u64) * 2 + 1;
+        if self.local_attention as u64 > max_local {
             return Err(format!(
                 "local_attention must be <= {max_local} (local_attention / 2 must fit in i32)"
             ));
