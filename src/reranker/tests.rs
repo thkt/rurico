@@ -11,8 +11,9 @@ use crate::test_support::{
 };
 use std::fs;
 
+// T-003: candidate_verify_returns_missing_file_for_nonexistent_paths
 #[test]
-fn t_003_candidate_verify_returns_missing_file_for_nonexistent_paths() {
+fn candidate_verify_returns_missing_file_for_nonexistent_paths() {
     let candidate = CandidateArtifacts::from_paths(
         "/nonexistent/model.safetensors".into(),
         "/nonexistent/config.json".into(),
@@ -25,8 +26,9 @@ fn t_003_candidate_verify_returns_missing_file_for_nonexistent_paths() {
     );
 }
 
+// T-004: truncate_pair_short_input_unchanged
 #[test]
-fn t_004_truncate_pair_short_input_unchanged() {
+fn truncate_pair_short_input_unchanged() {
     let mut ids: Vec<u32> = (0..100).collect();
     let mut mask: Vec<u32> = vec![1; 100];
     let original_ids = ids.clone();
@@ -36,8 +38,9 @@ fn t_004_truncate_pair_short_input_unchanged() {
     assert_eq!(mask, original_mask);
 }
 
+// T-005: truncate_pair_long_input_truncated_with_eos
 #[test]
-fn t_005_truncate_pair_long_input_truncated_with_eos() {
+fn truncate_pair_long_input_truncated_with_eos() {
     let mut ids: Vec<u32> = (0..8193).map(|i| i as u32).collect();
     let mut mask: Vec<u32> = vec![1; 8193];
     truncate_pair(&mut ids, &mut mask, 8192, 0);
@@ -46,8 +49,9 @@ fn t_005_truncate_pair_long_input_truncated_with_eos() {
     assert_eq!(ids[8191], 2, "last token should be EOS(2)");
 }
 
+// T-007: sort_results_descending_by_score
 #[test]
-fn t_007_sort_results_descending_by_score() {
+fn sort_results_descending_by_score() {
     let scores = vec![0.3, 0.9, 0.1];
     let results = sort_results(&scores);
     assert_eq!(results.len(), 3);
@@ -59,8 +63,9 @@ fn t_007_sort_results_descending_by_score() {
     assert!((results[2].score - 0.1).abs() < 1e-6);
 }
 
+// T-007b: sort_results_ties_break_by_original_index
 #[test]
-fn t_007b_sort_results_ties_break_by_original_index() {
+fn sort_results_ties_break_by_original_index() {
     // scores: [0.5, 0.7, 0.7, 0.5] — desc by score, asc by index on ties.
     let scores = vec![0.5, 0.7, 0.7, 0.5];
     let results = sort_results(&scores);
@@ -68,18 +73,21 @@ fn t_007b_sort_results_ties_break_by_original_index() {
     assert_eq!(indices, vec![1, 2, 0, 3]);
 }
 
+// T-013: cache_lookup_returns_some_when_all_files_present
 #[test]
-fn t_013_cache_lookup_returns_some_when_all_files_present() {
+fn cache_lookup_returns_some_when_all_files_present() {
     assert_cache_lookup_returns_some_when_all_files_present(RerankerModelId::RuriV3Reranker310m);
 }
 
+// T-021: cache_lookup_returns_none_when_cache_empty
 #[test]
-fn t_021_cache_lookup_returns_none_when_cache_empty() {
+fn cache_lookup_returns_none_when_cache_empty() {
     assert_cache_lookup_returns_none_when_empty(RerankerModelId::default());
 }
 
+// T-014: candidate_verify_returns_invalid_config_for_empty_config
 #[test]
-fn t_014_candidate_verify_returns_invalid_config_for_empty_config() {
+fn candidate_verify_returns_invalid_config_for_empty_config() {
     let dir = tempfile::tempdir().unwrap();
     fs::write(dir.path().join("model.safetensors"), b"fake").unwrap();
     fs::write(dir.path().join("config.json"), b"{}").unwrap();
@@ -92,8 +100,9 @@ fn t_014_candidate_verify_returns_invalid_config_for_empty_config() {
     );
 }
 
+// T-015: candidate_verify_returns_invalid_tokenizer_for_bad_tokenizer
 #[test]
-fn t_015_candidate_verify_returns_invalid_tokenizer_for_bad_tokenizer() {
+fn candidate_verify_returns_invalid_tokenizer_for_bad_tokenizer() {
     let dir = tempfile::tempdir().unwrap();
     fs::write(dir.path().join("model.safetensors"), b"fake").unwrap();
     fs::write(dir.path().join("config.json"), VALID_CONFIG_JSON.as_bytes()).unwrap();
@@ -109,7 +118,7 @@ fn t_015_candidate_verify_returns_invalid_tokenizer_for_bad_tokenizer() {
 // T-019: regression — same invariant as T-018 for the reranker module.
 #[cfg(unix)]
 #[test]
-fn t_019_probe_env_to_paths_preserves_snapshot_symlink_filename() {
+fn probe_env_to_paths_preserves_snapshot_symlink_filename() {
     assert_probe_env_to_paths_preserves_snapshot_symlink_filename::<RerankerKind>();
 }
 
@@ -218,30 +227,33 @@ mod mlx_runtime_tests {
             .expect("model should be cached for test-mlx tests")
     }
 
+    // T-006: score_batch_empty_returns_ok_empty
     #[test]
     #[ignore = "requires unsandboxed MLX runtime"]
     #[serial]
-    fn t_006_score_batch_empty_returns_ok_empty() {
+    fn score_batch_empty_returns_ok_empty() {
         require_unsandboxed_mlx_runtime();
         let reranker = Reranker::new(&load_cached_artifacts()).unwrap();
         let scores = reranker.score_batch(&[]).unwrap();
         assert!(scores.is_empty());
     }
 
+    // T-008: rerank_empty_returns_ok_empty
     #[test]
     #[ignore = "requires unsandboxed MLX runtime"]
     #[serial]
-    fn t_008_rerank_empty_returns_ok_empty() {
+    fn rerank_empty_returns_ok_empty() {
         require_unsandboxed_mlx_runtime();
         let reranker = Reranker::new(&load_cached_artifacts()).unwrap();
         let results = reranker.rerank("query", &[]).unwrap();
         assert!(results.is_empty());
     }
 
+    // T-011: score_returns_value_in_unit_interval
     #[test]
     #[ignore = "requires unsandboxed MLX runtime"]
     #[serial]
-    fn t_011_score_returns_value_in_unit_interval() {
+    fn score_returns_value_in_unit_interval() {
         require_unsandboxed_mlx_runtime();
         let reranker = Reranker::new(&load_cached_artifacts()).unwrap();
         let score = reranker.score("test", "テスト文").unwrap();
@@ -251,10 +263,11 @@ mod mlx_runtime_tests {
         );
     }
 
+    // T-012: rerank_returns_descending_scores_with_valid_indices
     #[test]
     #[ignore = "requires unsandboxed MLX runtime"]
     #[serial]
-    fn t_012_rerank_returns_descending_scores_with_valid_indices() {
+    fn rerank_returns_descending_scores_with_valid_indices() {
         require_unsandboxed_mlx_runtime();
         let reranker = Reranker::new(&load_cached_artifacts()).unwrap();
         let docs = ["related document", "unrelated text", "somewhat relevant"];
@@ -268,10 +281,11 @@ mod mlx_runtime_tests {
         assert_eq!(indices, vec![0, 1, 2]);
     }
 
+    // T-016: score_batch_preserves_input_order_and_ranking
     #[test]
     #[ignore = "requires unsandboxed MLX runtime"]
     #[serial]
-    fn t_016_score_batch_preserves_input_order_and_ranking() {
+    fn score_batch_preserves_input_order_and_ranking() {
         require_unsandboxed_mlx_runtime();
         let reranker = Reranker::new(&load_cached_artifacts()).unwrap();
         let pair_a = ("東京の人口", "東京は日本最大の都市");
@@ -292,10 +306,11 @@ mod mlx_runtime_tests {
         }
     }
 
+    // T-018: new_succeeds_with_cached_model
     #[test]
     #[ignore = "requires unsandboxed MLX runtime"]
     #[serial]
-    fn t_018_new_succeeds_with_cached_model() {
+    fn new_succeeds_with_cached_model() {
         require_unsandboxed_mlx_runtime();
         let result = Reranker::new(&load_cached_artifacts());
         assert!(

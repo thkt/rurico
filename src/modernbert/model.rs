@@ -745,10 +745,11 @@ mod tests {
             }
         }
 
+        // T-010: forward_truncates_oversize_input
         #[test]
         #[ignore = "requires unsandboxed MLX runtime"]
         #[serial]
-        fn t_010_forward_truncates_oversize_input() {
+        fn forward_truncates_oversize_input() {
             require_unsandboxed_mlx_runtime();
             // [T-010] seq_len > max_seq_len → truncate + warn, not error
             let config = test_config(); // max_position_embeddings = 512

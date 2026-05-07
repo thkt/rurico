@@ -343,7 +343,7 @@ mod tests {
     // T-017: setup_fake_hf_cache_with_symlinks builds the production HF cache layout
     #[cfg(unix)]
     #[test]
-    fn t_017_setup_fake_hf_cache_with_symlinks_creates_symlink_structure() {
+    fn setup_fake_hf_cache_with_symlinks_creates_symlink_structure() {
         let dir = tempfile::tempdir().unwrap();
         setup_fake_hf_cache_with_symlinks(
             dir.path(),
