@@ -590,76 +590,89 @@ mod tests {
         Ok(SanitizedFtsQuery(s.to_owned()))
     }
 
+    // T-001: near_removal
     #[test]
-    fn t001_near_removal() {
+    fn near_removal() {
         assert_eq!(sanitize_fts_query("NEAR(a b) hello"), ok("hello"));
     }
 
+    // T-001b: near_with_distance
     #[test]
-    fn t001b_near_with_distance() {
+    fn near_with_distance() {
         assert_eq!(sanitize_fts_query("NEAR/3(a b c) hello"), ok("hello"));
     }
 
+    // T-001c: near_unclosed_paren
     #[test]
-    fn t001c_near_unclosed_paren() {
+    fn near_unclosed_paren() {
         assert_eq!(
             sanitize_fts_query("NEAR(a b hello"),
             Err(SanitizeError::NoSearchableTerms)
         );
     }
 
+    // T-002: auto_quote_hyphen
     #[test]
-    fn t002_auto_quote_hyphen() {
+    fn auto_quote_hyphen() {
         assert_eq!(sanitize_fts_query("rate-limit"), ok("\"rate-limit\""));
     }
 
+    // T-003: auto_quote_colon
     #[test]
-    fn t003_auto_quote_colon() {
+    fn auto_quote_colon() {
         assert_eq!(sanitize_fts_query("std::io"), ok("\"std::io\""));
     }
 
+    // T-004: prefix_strip
     #[test]
-    fn t004_prefix_strip() {
+    fn prefix_strip() {
         assert_eq!(sanitize_fts_query("^+hello"), ok("hello"));
     }
 
+    // T-005b: quote_balancing_exact_output
     #[test]
-    fn t005b_quote_balancing_exact_output() {
+    fn quote_balancing_exact_output() {
         assert_eq!(sanitize_fts_query("unbalanced\""), ok("unbalanced\"\""));
     }
 
+    // T-006: empty_input
     #[test]
-    fn t006_empty_input() {
+    fn empty_input() {
         assert_eq!(sanitize_fts_query(""), Err(SanitizeError::EmptyInput));
     }
 
+    // T-006b: whitespace_only
     #[test]
-    fn t006b_whitespace_only() {
+    fn whitespace_only() {
         assert_eq!(sanitize_fts_query("   "), Err(SanitizeError::EmptyInput));
     }
 
+    // T-011: sandwiched_operator_preserved
     #[test]
-    fn t011_sandwiched_operator_preserved() {
+    fn sandwiched_operator_preserved() {
         assert_eq!(sanitize_fts_query("foo AND bar"), ok("foo AND bar"));
         assert_eq!(sanitize_fts_query("foo OR bar"), ok("foo OR bar"));
     }
 
+    // T-012: dangling_operator_dropped
     #[test]
-    fn t012_dangling_operator_dropped() {
+    fn dangling_operator_dropped() {
         // Leading/trailing operators without both neighbours are dropped.
         assert_eq!(sanitize_fts_query("NOT secret"), ok("secret"));
         assert_eq!(sanitize_fts_query("foo OR"), ok("foo"));
     }
 
+    // T-012b: consecutive_operators_between_terms
     #[test]
-    fn t012b_consecutive_operators_between_terms() {
+    fn consecutive_operators_between_terms() {
         // Neither AND nor OR has a non-operator on both sides → both dropped.
         assert_eq!(sanitize_fts_query("foo AND OR bar"), ok("foo bar"));
         assert_eq!(sanitize_fts_query("NOT foo NOT"), ok("foo"));
     }
 
+    // T-013: operator_only_returns_error
     #[test]
-    fn t013_operator_only_returns_error() {
+    fn operator_only_returns_error() {
         assert_eq!(
             sanitize_fts_query("NOT"),
             Err(SanitizeError::NoSearchableTerms)
@@ -670,58 +683,67 @@ mod tests {
         );
     }
 
+    // T-014: near_then_dangling_operator
     #[test]
-    fn t014_near_then_dangling_operator() {
+    fn near_then_dangling_operator() {
         // "foo OR NEAR(bar baz)" → NEAR stripped → "foo OR" → OR dangling → "foo"
         assert_eq!(sanitize_fts_query("foo OR NEAR(bar baz)"), ok("foo"));
     }
 
+    // T-015: case_insensitive_operators
     #[test]
-    fn t015_case_insensitive_operators() {
+    fn case_insensitive_operators() {
         assert_eq!(sanitize_fts_query("foo or bar"), ok("foo or bar"));
         assert_eq!(sanitize_fts_query("Not secret"), ok("secret"));
     }
 
+    // T-016: prefix_only_returns_error
     #[test]
-    fn t016_prefix_only_returns_error() {
+    fn prefix_only_returns_error() {
         assert_eq!(
             sanitize_fts_query("^"),
             Err(SanitizeError::NoSearchableTerms)
         );
     }
 
+    // T-007: age_zero_returns_one
     #[test]
-    fn t007_age_zero_returns_one() {
+    fn age_zero_returns_one() {
         let result = recency_decay(0.0, 30.0);
         assert!((result - 1.0).abs() < f64::EPSILON);
     }
 
+    // T-008: one_half_life_returns_half
     #[test]
-    fn t008_one_half_life_returns_half() {
+    fn one_half_life_returns_half() {
         let result = recency_decay(30.0, 30.0);
         assert!((result - 0.5).abs() < 0.01);
     }
 
+    // T-009: two_half_lives_returns_quarter
     #[test]
-    fn t009_two_half_lives_returns_quarter() {
+    fn two_half_lives_returns_quarter() {
         let result = recency_decay(60.0, 30.0);
         assert!((result - 0.25).abs() < 0.01);
     }
 
+    // T-010: zero_half_life_returns_zero
     #[test]
-    fn t010_zero_half_life_returns_zero() {
+    fn zero_half_life_returns_zero() {
         let result = recency_decay(0.0, 0.0);
         assert!((result - 0.0).abs() < f64::EPSILON);
     }
 
+    // T-010b: negative_half_life_returns_zero
     #[test]
-    fn t010b_negative_half_life_returns_zero() {
+    fn negative_half_life_returns_zero() {
         let result = recency_decay(5.0, -1.0);
         assert!((result - 0.0).abs() < f64::EPSILON);
     }
 
+    // T-010c: negative_age_clamped_to_one
     #[test]
-    fn t010c_negative_age_clamped_to_one() {
+    fn negative_age_clamped_to_one() {
         let result = recency_decay(-5.0, 30.0);
         assert!((result - 1.0).abs() < f64::EPSILON);
     }
