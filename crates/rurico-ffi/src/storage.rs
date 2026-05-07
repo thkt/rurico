@@ -4,24 +4,19 @@ use std::os::raw::{c_char, c_int};
 
 use rusqlite::ffi::{sqlite3, sqlite3_api_routines, sqlite3_auto_extension};
 
-// Pull in the upstream `sqlite-vec` crate solely so its `build.rs` produces
-// `libsqlite_vec0.a` and that static library reaches the link step. We do
-// not import its `sqlite3_vec_init` symbol because the upstream binding is
-// declared as zero-arg (`extern "C" { fn sqlite3_vec_init(); }`), which
-// hides the real C ABI and would force a `transmute` at the
-// `sqlite3_auto_extension` call site.
+// Link `libsqlite_vec0.a` produced by the upstream `sqlite-vec` build script;
+// the symbol itself is re-declared below with the real C signature.
 use sqlite_vec as _;
 
-// Re-declare `sqlite3_vec_init` with the real signature from `sqlite-vec.h`,
-// matching `int sqlite3_vec_init(sqlite3*, char**, const sqlite3_api_routines*)`.
-// Declaring it here lets the compiler verify ABI compatibility at the
-// `Some(sqlite3_vec_init)` coercion site instead of relying on a `transmute`.
+// `sqlite3_vec_init` from `sqlite-vec.h`:
+//   int sqlite3_vec_init(sqlite3 *db, char **pzErrMsg,
+//                        const sqlite3_api_routines *pApi);
 #[allow(unsafe_code)]
 unsafe extern "C" {
     fn sqlite3_vec_init(
         db: *mut sqlite3,
-        pz_err_msg: *mut *mut c_char,
-        p_api: *const sqlite3_api_routines,
+        err_msg: *mut *mut c_char,
+        api: *const sqlite3_api_routines,
     ) -> c_int;
 }
 
@@ -33,11 +28,10 @@ unsafe extern "C" {
 /// function pointer, so repeated calls are safe.
 #[allow(unsafe_code)]
 pub fn sqlite_vec_register() -> i32 {
-    // SAFETY: the locally re-declared `sqlite3_vec_init` matches the C
-    // signature in `sqlite-vec.h`, so the function-pointer coercion into
-    // `sqlite3_auto_extension`'s expected type is ABI-correct without a
-    // `transmute`. SQLite invokes the function with the declared argument
-    // types at connection-open time.
+    // SAFETY: the local re-declaration of `sqlite3_vec_init` matches the
+    // exact symbol signature exported by `libsqlite_vec0.a`. `extern "C" fn`
+    // items have `'static` lifetime, which is what `sqlite3_auto_extension`
+    // requires for an auto-extension entry.
     unsafe { sqlite3_auto_extension(Some(sqlite3_vec_init)) }
 }
 
