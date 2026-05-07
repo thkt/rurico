@@ -3,8 +3,10 @@
 use std::fs;
 use std::path::Path;
 
+use crate::artifacts::ModelKind;
 use crate::model_init::ModelInitError;
 use crate::model_io::{ModelArtifact, artifacts_from_cache};
+use crate::model_lifecycle::probe_env_to_paths;
 use crate::model_probe::ProbeError;
 
 /// Valid ModernBERT config JSON with all required fields, for use in tests
@@ -218,6 +220,91 @@ pub(crate) fn assert_from_probe_error_maps_correctly() {
         matches!(err, ModelInitError::Backend { ref message, .. } if message == "spawn failed"),
         "{err}"
     );
+}
+
+/// Generic helper for the Issue #107 regression: `probe_env_to_paths` must
+/// return the snapshot symlink path, not the canonicalized blob path.
+///
+/// MLX `load_safetensors` dispatches on filename extension, so substituting
+/// the blob path (`etag-model.safetensors`) for the snapshot link
+/// (`model.safetensors`) breaks the load step. Verified for both
+/// `EmbedKind` and `RerankerKind` from their respective test files.
+#[cfg(unix)]
+pub(crate) fn assert_probe_env_to_paths_preserves_snapshot_symlink_filename<K: ModelKind>() {
+    let hf_home = tempfile::tempdir().unwrap();
+    let cache_root = hf_home.path().join("hub");
+    fs::create_dir_all(&cache_root).unwrap();
+    setup_fake_hf_cache_with_symlinks(
+        &cache_root,
+        "org/model",
+        "dev",
+        &[
+            ("model.safetensors", b"weights"),
+            ("config.json", b"{}"),
+            ("tokenizer.json", b"{}"),
+        ],
+    );
+    let snapshot_dir = cache_root.join("models--org--model/snapshots/abc123");
+    let m = snapshot_dir.join("model.safetensors");
+    let c = snapshot_dir.join("config.json");
+    let t = snapshot_dir.join("tokenizer.json");
+
+    let hf_home_path = hf_home.path().to_path_buf();
+    temp_env::with_vars([("HF_HOME", Some(hf_home_path.to_str().unwrap()))], || {
+        let candidate = probe_env_to_paths::<K>(
+            Some(m.to_string_lossy().into_owned()),
+            Some(c.to_string_lossy().into_owned()),
+            Some(t.to_string_lossy().into_owned()),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            candidate.paths.model.file_name().and_then(|s| s.to_str()),
+            Some("model.safetensors"),
+            "regression: probe_env_to_paths must preserve snapshot symlink filename"
+        );
+        assert_eq!(
+            candidate.paths.config.file_name().and_then(|s| s.to_str()),
+            Some("config.json")
+        );
+        assert_eq!(
+            candidate
+                .paths
+                .tokenizer
+                .file_name()
+                .and_then(|s| s.to_str()),
+            Some("tokenizer.json")
+        );
+    });
+}
+
+/// Generic helper: `probe_env_to_paths` returns the original
+/// (non-canonicalized) paths in `CandidateArtifacts.paths`. The load step
+/// then receives the snapshot symlink, so HF cache symlinks survive.
+pub(crate) fn assert_probe_env_to_paths_returns_paths_when_all_present<K: ModelKind>() {
+    let hf_home = tempfile::tempdir().unwrap();
+    let cache_root = hf_home.path().join("hub");
+    fs::create_dir_all(&cache_root).unwrap();
+    let m = cache_root.join("model.safetensors");
+    let c = cache_root.join("config.json");
+    let t = cache_root.join("tokenizer.json");
+    fs::write(&m, b"").unwrap();
+    fs::write(&c, b"{}").unwrap();
+    fs::write(&t, b"{}").unwrap();
+
+    let hf_home_path = hf_home.path().to_path_buf();
+    temp_env::with_vars([("HF_HOME", Some(hf_home_path.to_str().unwrap()))], || {
+        let candidate = probe_env_to_paths::<K>(
+            Some(m.to_string_lossy().into_owned()),
+            Some(c.to_string_lossy().into_owned()),
+            Some(t.to_string_lossy().into_owned()),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(candidate.paths.model, m);
+        assert_eq!(candidate.paths.config, c);
+        assert_eq!(candidate.paths.tokenizer, t);
+    });
 }
 
 #[cfg(test)]

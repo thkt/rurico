@@ -2,13 +2,13 @@ use super::mlx::shrink_chunk_to_fit;
 use super::*;
 use crate::artifacts::EmbedKind;
 use crate::model_io::{EOS_TOKEN_ID, artifacts_from_cache, load_tokenizer};
-use crate::model_lifecycle::probe_env_to_paths;
 #[cfg(unix)]
-use crate::test_support::setup_fake_hf_cache_with_symlinks;
+use crate::test_support::assert_probe_env_to_paths_preserves_snapshot_symlink_filename;
 use crate::test_support::{
     assert_cache_lookup_returns_none_when_empty,
     assert_cache_lookup_returns_some_when_all_files_present,
-    assert_from_probe_error_maps_correctly, setup_fake_hf_cache,
+    assert_from_probe_error_maps_correctly,
+    assert_probe_env_to_paths_returns_paths_when_all_present, setup_fake_hf_cache,
 };
 use std::fs;
 use std::path::Path;
@@ -120,83 +120,12 @@ fn candidate_verify_returns_invalid_config_for_malformed_config() {
 #[cfg(unix)]
 #[test]
 fn t_018_probe_env_to_paths_preserves_snapshot_symlink_filename() {
-    let hf_home = tempfile::tempdir().unwrap();
-    let cache_root = hf_home.path().join("hub");
-    fs::create_dir_all(&cache_root).unwrap();
-    setup_fake_hf_cache_with_symlinks(
-        &cache_root,
-        "org/model",
-        "dev",
-        &[
-            ("model.safetensors", b"weights"),
-            ("config.json", b"{}"),
-            ("tokenizer.json", b"{}"),
-        ],
-    );
-    let snapshot_dir = cache_root.join("models--org--model/snapshots/abc123");
-    let m = snapshot_dir.join("model.safetensors");
-    let c = snapshot_dir.join("config.json");
-    let t = snapshot_dir.join("tokenizer.json");
-
-    let hf_home_path = hf_home.path().to_path_buf();
-    temp_env::with_vars([("HF_HOME", Some(hf_home_path.to_str().unwrap()))], || {
-        let candidate = probe_env_to_paths::<EmbedKind>(
-            Some(m.to_string_lossy().into_owned()),
-            Some(c.to_string_lossy().into_owned()),
-            Some(t.to_string_lossy().into_owned()),
-        )
-        .unwrap()
-        .unwrap();
-        // Critical regression assertion: load path must be the snapshot
-        // symlink (filename ends in "model.safetensors"), not the
-        // canonicalized blob path (which would be "etag-model.safetensors").
-        assert_eq!(
-            candidate.paths.model.file_name().and_then(|s| s.to_str()),
-            Some("model.safetensors"),
-            "regression: probe_env_to_paths must preserve snapshot symlink filename"
-        );
-        assert_eq!(
-            candidate.paths.config.file_name().and_then(|s| s.to_str()),
-            Some("config.json")
-        );
-        assert_eq!(
-            candidate
-                .paths
-                .tokenizer
-                .file_name()
-                .and_then(|s| s.to_str()),
-            Some("tokenizer.json")
-        );
-    });
+    assert_probe_env_to_paths_preserves_snapshot_symlink_filename::<EmbedKind>();
 }
 
 #[test]
 fn probe_env_to_paths_returns_paths_when_all_present() {
-    let hf_home = tempfile::tempdir().unwrap();
-    let cache_root = hf_home.path().join("hub");
-    fs::create_dir_all(&cache_root).unwrap();
-    let m = cache_root.join("model.safetensors");
-    let c = cache_root.join("config.json");
-    let t = cache_root.join("tokenizer.json");
-    fs::write(&m, b"").unwrap();
-    fs::write(&c, b"{}").unwrap();
-    fs::write(&t, b"{}").unwrap();
-
-    let hf_home_path = hf_home.path().to_path_buf();
-    temp_env::with_vars([("HF_HOME", Some(hf_home_path.to_str().unwrap()))], || {
-        let candidate = probe_env_to_paths::<EmbedKind>(
-            Some(m.to_string_lossy().into_owned()),
-            Some(c.to_string_lossy().into_owned()),
-            Some(t.to_string_lossy().into_owned()),
-        )
-        .unwrap()
-        .unwrap();
-        // paths field is accessible within the embed module (child module can access parent's private)
-        // load step receives original (non-canonicalized) paths so HF cache symlinks survive
-        assert_eq!(candidate.paths.model, m);
-        assert_eq!(candidate.paths.config, c);
-        assert_eq!(candidate.paths.tokenizer, t);
-    });
+    assert_probe_env_to_paths_returns_paths_when_all_present::<EmbedKind>();
 }
 
 #[test]
