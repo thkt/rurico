@@ -66,7 +66,7 @@ mod tests {
     use std::error::Error as _;
 
     use crate::model_init::ModelInitError;
-    use crate::model_probe::{PROBE_EXIT_PATH_OUTSIDE_CACHE, ProbeError};
+    use crate::model_probe::{ProbeError, SetupReason};
 
     // T-006: From<ProbeError::HandlerNotInstalled> → Backend { message } where message == Display verbatim
     #[test]
@@ -101,7 +101,7 @@ mod tests {
     #[test]
     fn from_probe_error_setup_rejected_and_subprocess_failed_both_map_to_backend() {
         let setup_err: ModelInitError = ProbeError::SetupRejected {
-            code: PROBE_EXIT_PATH_OUTSIDE_CACHE,
+            reason: SetupReason::PathOutsideCache,
         }
         .into();
         assert!(
@@ -143,7 +143,7 @@ mod tests {
     #[test]
     fn from_probe_error_setup_rejected_preserves_source_chain() {
         let init_err: ModelInitError = ProbeError::SetupRejected {
-            code: PROBE_EXIT_PATH_OUTSIDE_CACHE,
+            reason: SetupReason::PathOutsideCache,
         }
         .into();
         let source = init_err

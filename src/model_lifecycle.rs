@@ -13,7 +13,7 @@
 
 use crate::artifacts::{ArtifactError, CandidateArtifacts, ModelKind, VerifiedArtifacts};
 use crate::model_io::{ModelArtifact, artifacts_if_cached, download_artifacts};
-use crate::model_probe::{resolve_probe_env, validate_probe_paths};
+use crate::model_probe::{SetupReason, resolve_probe_env, validate_probe_paths};
 
 /// Download model files from Hugging Face Hub and verify them as `Id::Kind` artifacts.
 ///
@@ -65,13 +65,13 @@ pub fn cached_artifacts<Id: ModelArtifact>(
 /// Returns `None` if this is not a probe invocation (primary model env var absent).
 /// Returns `Some(Ok(_))` if all three vars are set and pass path validation.
 /// Returns `Some(Err(_))` if the model var is set but config or tokenizer is
-/// missing or the paths fail validation (exit code from
+/// missing or the paths fail validation ([`SetupReason`] from
 /// [`validate_probe_paths`]).
 pub(crate) fn probe_env_to_paths<K: ModelKind>(
     model: Option<String>,
     config: Option<String>,
     tokenizer: Option<String>,
-) -> Option<Result<CandidateArtifacts<K>, i32>> {
+) -> Option<Result<CandidateArtifacts<K>, SetupReason>> {
     resolve_probe_env(model, config, tokenizer).map(|r| {
         r.and_then(|(m, c, t)| {
             validate_probe_paths(&m, &c, &t)?;
@@ -92,6 +92,7 @@ mod tests {
     use crate::embed::ModelId;
     use crate::model_io::ModelArtifact;
     use crate::model_lifecycle::{cached_artifacts, download_model, probe_env_to_paths};
+    use crate::model_probe::SetupReason;
     use crate::reranker::RerankerModelId;
     use crate::test_support::{
         FAKE_BACKBONE_KEY, MINIMAL_TOKENIZER_JSON, VALID_CONFIG_JSON, setup_fake_hf_cache,
@@ -213,7 +214,7 @@ mod tests {
 
         let hf_home_path = hf_home.path().to_path_buf();
         temp_env::with_vars([("HF_HOME", Some(hf_home_path.to_str().unwrap()))], || {
-            let result: Option<Result<CandidateArtifacts<EmbedKind>, i32>> =
+            let result: Option<Result<CandidateArtifacts<EmbedKind>, SetupReason>> =
                 probe_env_to_paths::<EmbedKind>(
                     Some(m.to_string_lossy().into_owned()),
                     Some(c.to_string_lossy().into_owned()),
@@ -243,7 +244,7 @@ mod tests {
 
         let hf_home_path = hf_home.path().to_path_buf();
         temp_env::with_vars([("HF_HOME", Some(hf_home_path.to_str().unwrap()))], || {
-            let result: Option<Result<CandidateArtifacts<RerankerKind>, i32>> =
+            let result: Option<Result<CandidateArtifacts<RerankerKind>, SetupReason>> =
                 probe_env_to_paths::<RerankerKind>(
                     Some(m.to_string_lossy().into_owned()),
                     Some(c.to_string_lossy().into_owned()),

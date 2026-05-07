@@ -1,13 +1,7 @@
 //! Tests for `crate::model_probe`.
-//!
-//! Existing tests cover `resolve_probe_env`, `interpret_probe_output`,
-//! `compute_probe_exit`, and the wait/spawn machinery. New tests added for
-//! Issue #107 Phase 1 (AC-1, AC-4) cover `validate_probe_paths_with_root`
-//! and the production wrapper `validate_probe_paths`. The visibility
-//! downgrade of `from_paths` is verified by `tests/ui/from_paths_pub_crate.rs`
-//! (trybuild compile-fail; Issue #118).
 
 use super::*;
+use std::fs;
 use std::io;
 use std::process::ExitStatus;
 
@@ -58,8 +52,6 @@ mod test_writers {
     }
 }
 
-// ── Existing tests preserved verbatim ───────────────────────────────────────
-
 #[test]
 fn resolve_probe_env_returns_none_when_model_absent() {
     assert!(resolve_probe_env(None, None, None).is_none());
@@ -70,11 +62,11 @@ fn resolve_probe_env_returns_none_when_model_absent() {
 fn resolve_probe_env_returns_err_when_incomplete() {
     assert_eq!(
         resolve_probe_env(Some("m".into()), None, Some("t".into())),
-        Some(Err(PROBE_EXIT_ENV_INCOMPLETE))
+        Some(Err(SetupReason::EnvIncomplete))
     );
     assert_eq!(
         resolve_probe_env(Some("m".into()), Some("c".into()), None),
-        Some(Err(PROBE_EXIT_ENV_INCOMPLETE))
+        Some(Err(SetupReason::EnvIncomplete))
     );
 }
 
@@ -160,7 +152,7 @@ fn interpret_timeout_output_returns_backend_unavailable() {
 
 #[test]
 fn probe_exit_env_incomplete() {
-    let action = compute_probe_exit(Err(PROBE_EXIT_ENV_INCOMPLETE));
+    let action = compute_probe_exit(Err(SetupReason::EnvIncomplete));
     assert_eq!(action.code, PROBE_EXIT_ENV_INCOMPLETE);
     assert!(action.message.is_some());
 }
@@ -294,20 +286,7 @@ fn wait_with_timeout_with_kills_long_running_child_on_short_timeout() {
     );
 }
 
-// ── Issue #107 Phase 1 tests (AC-1, AC-4) ────────────────────────────────────
-//
-// Red-phase tests against `validate_probe_paths_with_root`,
-// `validate_probe_paths`, and the constants `PROBE_EXIT_CANONICALIZE_FAILED`
-// (4) / `PROBE_EXIT_PATH_OUTSIDE_CACHE` (5) / `PROBE_EXIT_CACHE_ROOT_INVALID`
-// (6). None of these symbols exist yet, so the Red signal is a compile error.
-// The Green implementation must declare them with `pub(crate)` visibility.
-
-use std::fs;
-
-/// Helper: write the three artifact files into `dir` and return their paths.
-///
-/// Used by T-001/T-002/T-003/T-006 (and the symlink variants in T-005/T-021)
-/// to keep arrangement uniform.
+/// Write the three artifact files into `dir` and return their paths.
 fn write_three_artifacts(dir: &Path) -> (PathBuf, PathBuf, PathBuf) {
     let model = dir.join("model.safetensors");
     let config = dir.join("config.json");
@@ -351,10 +330,9 @@ fn validate_probe_paths_with_root_rejects_path_outside_cache_root() {
     // Assert
     assert_eq!(
         result,
-        Err(super::PROBE_EXIT_PATH_OUTSIDE_CACHE),
-        "expected Err(5) for path outside cache root"
+        Err(SetupReason::PathOutsideCache),
+        "expected Err(SetupReason::PathOutsideCache) for path outside cache root"
     );
-    assert_eq!(super::PROBE_EXIT_PATH_OUTSIDE_CACHE, 5);
 }
 
 // T-003: validate_probe_paths_with_root reports canonicalize failure with Err(4)
@@ -374,10 +352,9 @@ fn validate_probe_paths_with_root_returns_err_4_for_nonexistent_candidate_path()
     // Assert
     assert_eq!(
         result,
-        Err(super::PROBE_EXIT_CANONICALIZE_FAILED),
-        "expected Err(4) for nonexistent candidate path"
+        Err(SetupReason::CanonicalizeFailed),
+        "expected Err(SetupReason::CanonicalizeFailed) for nonexistent candidate path"
     );
-    assert_eq!(super::PROBE_EXIT_CANONICALIZE_FAILED, 4);
 }
 
 // T-004: validate_probe_paths_with_root reports invalid cache root with Err(6)
@@ -395,17 +372,16 @@ fn validate_probe_paths_with_root_returns_err_6_for_nonexistent_cache_root() {
     // Assert
     assert_eq!(
         result,
-        Err(super::PROBE_EXIT_CACHE_ROOT_INVALID),
-        "expected Err(6) when cache_root cannot be canonicalized"
+        Err(SetupReason::CacheRootInvalid),
+        "expected Err(SetupReason::CacheRootInvalid) when cache_root cannot be canonicalized"
     );
-    assert_eq!(super::PROBE_EXIT_CACHE_ROOT_INVALID, 6);
 }
 
 // T-005: validate_probe_paths_with_root accepts symlink path inside cache_root
 //
 // The function MUST return Ok(()) and MUST NOT modify the caller's PathBuf
-// (signature is `&Path` in, `Result<(), i32>` out — symlink invariant guarded
-// by FR-005's type-level constraint, exercised here through behavior).
+// (signature is `&Path` in, `Result<(), SetupReason>` out — symlink invariant
+// guarded by FR-005's type-level constraint, exercised here through behavior).
 #[cfg(unix)]
 #[test]
 fn validate_probe_paths_with_root_accepts_symlink_under_cache_root() {
@@ -468,15 +444,10 @@ fn validate_probe_paths_with_root_rejects_string_prefix_sibling() {
     // component-wise starts_with rejects it.
     assert_eq!(
         result,
-        Err(super::PROBE_EXIT_PATH_OUTSIDE_CACHE),
+        Err(SetupReason::PathOutsideCache),
         "component-wise prefix check must reject `cache_x_evil` against `cache_x`"
     );
 }
-
-// T-016: replaced by `tests/ui/from_paths_pub_crate.rs` (trybuild compile-fail).
-// Visibility verification now lives in the integration-test surface so the
-// compiler — not a source-string match — enforces the `pub(crate)` boundary.
-// See Issue #118.
 
 // T-021: validate_probe_paths (production wrapper) HF_HOME unset fallback (FR-101 + FR-006)
 //
@@ -518,15 +489,8 @@ fn validate_probe_paths_falls_back_to_home_when_hf_home_unset() {
     );
 }
 
-// ── Issue #107 Phase 2 tests (AC-2) ──────────────────────────────────────────
-//
-// Tests for typed setup-failure error variant `ProbeError::SetupRejected { code }`
-// and the `interpret_probe_output` dispatch from setup-phase exit codes 4 / 5 / 6.
-
 // T-007 / T-007a / T-008 / T-009: setup-phase exit codes 3..=6 each map to
-// ProbeError::SetupRejected with the exit code preserved. Stderr is decorative
-// for SetupRejected (Display reads from `code`, not stderr), so all four cases
-// share an empty stderr.
+// ProbeError::SetupRejected with the typed reason preserved.
 #[test]
 fn interpret_probe_output_maps_setup_exit_codes_to_setup_rejected() {
     for code in [
@@ -542,40 +506,115 @@ fn interpret_probe_output_maps_setup_exit_codes_to_setup_rejected() {
         };
         let err = interpret_probe_output(&output).unwrap_err();
         assert!(
-            matches!(err, ProbeError::SetupRejected { code: c } if c == code),
-            "exit {code}: expected SetupRejected {{ code: {code} }}, got {err}"
+            matches!(err, ProbeError::SetupRejected { reason } if reason.code() == code),
+            "exit {code}: expected SetupRejected with reason.code() == {code}, got {err}"
         );
     }
 }
 
 // T-011a / T-011b / T-011c / T-011d: SetupRejected Display surfaces both the
-// exit code and a human-readable label per variant.
+// exit code and a human-readable label per variant. The wire format
+// "probe setup rejected (code N: label)" is contractual — forensic logs
+// rely on the numeric code being present.
 #[test]
 fn setup_rejected_display_includes_code_and_label_per_variant() {
-    let cases: &[(i32, &str)] = &[
-        (PROBE_EXIT_ENV_INCOMPLETE, "env incomplete"),
-        (PROBE_EXIT_CANONICALIZE_FAILED, "path canonicalize failed"),
-        (PROBE_EXIT_PATH_OUTSIDE_CACHE, "path outside cache"),
-        (PROBE_EXIT_CACHE_ROOT_INVALID, "cache root invalid"),
+    let cases: &[(SetupReason, &str)] = &[
+        (SetupReason::EnvIncomplete, "env incomplete"),
+        (SetupReason::CanonicalizeFailed, "path canonicalize failed"),
+        (SetupReason::PathOutsideCache, "path outside cache"),
+        (SetupReason::CacheRootInvalid, "cache root invalid"),
     ];
-    for &(code, label) in cases {
-        let s = format!("{}", ProbeError::SetupRejected { code });
+    for &(reason, label) in cases {
+        let s = format!("{}", ProbeError::SetupRejected { reason });
         assert!(
-            s.contains(&code.to_string()),
-            "code {code}: Display must contain the exit code, got: {s}"
+            s.contains(&reason.code().to_string()),
+            "{reason:?}: Display must contain the exit code, got: {s}"
         );
         assert!(
             s.contains(label),
-            "code {code}: Display must contain label {label:?}, got: {s}"
+            "{reason:?}: Display must contain label {label:?}, got: {s}"
         );
     }
 }
 
-// ── Issue #107 Phase 3 tests (AC-3) ──────────────────────────────────────────
-//
-// Tests for the FORWARD env allowlist constant, the `child_env_for_spawn` test
-// seam (FR-016 — pure function returning the spawn env map), and the silent
-// skip behavior for undefined FORWARD keys (FR-102).
+// T-115-A
+#[test]
+fn setup_reason_code_matches_probe_exit_constant_per_variant() {
+    assert_eq!(SetupReason::EnvIncomplete.code(), PROBE_EXIT_ENV_INCOMPLETE);
+    assert_eq!(
+        SetupReason::CanonicalizeFailed.code(),
+        PROBE_EXIT_CANONICALIZE_FAILED
+    );
+    assert_eq!(
+        SetupReason::PathOutsideCache.code(),
+        PROBE_EXIT_PATH_OUTSIDE_CACHE
+    );
+    assert_eq!(
+        SetupReason::CacheRootInvalid.code(),
+        PROBE_EXIT_CACHE_ROOT_INVALID
+    );
+}
+
+// T-115-B
+#[test]
+fn setup_reason_try_from_round_trips_for_every_variant() {
+    for reason in [
+        SetupReason::EnvIncomplete,
+        SetupReason::CanonicalizeFailed,
+        SetupReason::PathOutsideCache,
+        SetupReason::CacheRootInvalid,
+    ] {
+        assert_eq!(
+            SetupReason::try_from(reason.code()),
+            Ok(reason),
+            "round-trip must yield Ok({reason:?})"
+        );
+    }
+}
+
+// T-115-C
+#[test]
+fn setup_reason_try_from_returns_err_for_non_setup_exit_codes() {
+    for code in [
+        0,
+        1,
+        2,
+        PROBE_EXIT_ACK_FAILED,
+        PROBE_EXIT_STDERR_FAILED,
+        9,
+        999,
+        -1,
+    ] {
+        assert!(
+            SetupReason::try_from(code).is_err(),
+            "code {code} must NOT map to any SetupReason variant"
+        );
+    }
+}
+
+// T-115-D: child stderr forensic log (SEC-002 dynamic message) reads from
+// label() — guard against an accidental rename that would silently shift it.
+#[test]
+fn setup_reason_label_is_stable_per_variant() {
+    let cases: &[(SetupReason, &str)] = &[
+        (SetupReason::EnvIncomplete, "env incomplete"),
+        (SetupReason::CanonicalizeFailed, "path canonicalize failed"),
+        (SetupReason::PathOutsideCache, "path outside cache"),
+        (SetupReason::CacheRootInvalid, "cache root invalid"),
+    ];
+    for &(reason, expected) in cases {
+        assert_eq!(reason.label(), expected, "{reason:?} label drift");
+    }
+}
+
+// T-115-E
+#[test]
+fn setup_reason_display_combines_code_and_label() {
+    assert_eq!(
+        format!("{}", SetupReason::PathOutsideCache),
+        format!("code {PROBE_EXIT_PATH_OUTSIDE_CACHE}: path outside cache"),
+    );
+}
 
 // T-012: FORWARD list contains exactly the 22 expected keys
 #[test]
@@ -692,16 +731,6 @@ fn probe_via_subprocess_with_env_clear_blocks_attacker_env_in_real_child() {
     );
 }
 
-// ── Issue #94 (probe IO error propagation) tests ────────────────────────────
-//
-// `emit_ack_to` is a testable seam exposed for these tests; production calls
-// `emit_ack` which delegates to `emit_ack_to(&mut io::stdout())`. The new
-// IO-infrastructure exit codes `PROBE_EXIT_ACK_FAILED` (7) and
-// `PROBE_EXIT_STDERR_FAILED` (8) signal that the probe child could not
-// emit its handshake (stdout) or its failure reason (stderr) — distinct
-// from `HandlerNotInstalled` (caller forgot the probe handler) and
-// `ModelLoadFailed` (load itself failed).
-
 // T-023: emit_ack_to writes PROBE_ACK + newline on a valid writer
 #[test]
 fn emit_ack_to_writes_ack_token_with_newline() {
@@ -744,7 +773,6 @@ fn interpret_probe_output_maps_exit_7_to_subprocess_failed_even_without_ack() {
         msg.contains("ACK") || msg.contains("handshake"),
         "expected ACK/handshake mention, got: {msg}"
     );
-    assert_eq!(super::PROBE_EXIT_ACK_FAILED, 7);
 }
 
 // T-026: interpret_probe_output maps exit 8 to SubprocessFailed when ACK is present
@@ -766,7 +794,6 @@ fn interpret_probe_output_maps_exit_8_to_subprocess_failed() {
         msg.contains("stderr") || msg.contains("reason"),
         "expected stderr/reason mention, got: {msg}"
     );
-    assert_eq!(super::PROBE_EXIT_STDERR_FAILED, 8);
 }
 
 // T-027: exit 8 without ACK preserves HandlerNotInstalled diagnostic
@@ -790,8 +817,6 @@ fn interpret_probe_output_exit_8_without_ack_is_handler_not_installed() {
          binary lacks probe handler), got {err}"
     );
 }
-
-// ── Issue #124 (probe IPC contract: drain join + stderr flush) tests ───────
 
 // T-028: emit_failure_to writes msg and calls flush on success
 #[test]
