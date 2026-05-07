@@ -245,7 +245,7 @@ pub(crate) fn dispatch_probe<P, E: fmt::Display>(
     };
     let action = compute_probe_exit(outcome);
     if let Some(ref msg) = action.message
-        && write!(io::stderr(), "{msg}").is_err()
+        && emit_failure_to(&mut io::stderr(), msg).is_err()
     {
         process::exit(PROBE_EXIT_STDERR_FAILED);
     }
@@ -263,6 +263,17 @@ fn emit_ack() -> io::Result<()> {
 fn emit_ack_to<W: Write>(stdout: &mut W) -> io::Result<()> {
     writeln!(stdout, "{PROBE_ACK}")?;
     stdout.flush()
+}
+
+/// Write a probe-failure reason to `stderr` and flush, returning any IO error.
+///
+/// Symmetric to [`emit_ack_to`] for the failure path. Probe IPC contract:
+/// the child must complete `flush` before [`std::process::exit`] so the
+/// parent's `collect_pipe` observes the full message regardless of stderr's
+/// buffering policy.
+fn emit_failure_to<W: Write>(stderr: &mut W, msg: &str) -> io::Result<()> {
+    write!(stderr, "{msg}")?;
+    stderr.flush()
 }
 
 /// Re-exec the current binary as a probe subprocess with the given env vars.
@@ -354,6 +365,27 @@ pub(super) fn child_env_for_spawn(env_pairs: &[(&str, &str)]) -> HashMap<String,
 
 /// Like [`probe_via_subprocess`] but the executable to re-exec is provided
 /// explicitly. Used by tests to avoid depending on `env::current_exe()`.
+///
+/// # IPC Contract
+///
+/// **Child** (`dispatch_probe`): every byte written to stdout (handshake
+/// ACK) or stderr (failure reason) MUST be flushed before [`process::exit`].
+/// `emit_ack_to` and `emit_failure_to` are the only sanctioned write paths
+/// and both call `flush` before returning. A missed flush would not drop
+/// bytes today (`io::stdout()` is line-buffered, `io::stderr()` is
+/// unbuffered), but the contract guards against future buffering policy
+/// changes that could leave bytes stranded in user-space buffers when the
+/// child exits.
+///
+/// **Parent** (`wait_with_timeout` + `collect_pipe`): each piped stream is
+/// drained by a dedicated reader thread held by `DrainHandle`. On `recv`
+/// success the thread is `join`ed immediately so that O(N) probe
+/// invocations do not accumulate OS threads. On `recv_timeout` (a
+/// grandchild inherited the pipe FDs and keeps them open past the direct
+/// child's exit) the reader is left running — the thread is blocked on
+/// `read_to_end` and a `join` would inherit the same indefinite block.
+/// The leak is acceptable because grandchild FD inheritance is an
+/// exceptional scenario; the happy path reaps every reader.
 pub fn probe_via_subprocess_with(
     exe: PathBuf,
     env_pairs: &[(&str, &str)],
@@ -374,37 +406,52 @@ pub fn probe_via_subprocess_with(
     interpret_probe_output(&output)
 }
 
-fn spawn_drain_pipe<R>(pipe: Option<R>, label: &'static str) -> Option<Receiver<Vec<u8>>>
+/// Reader-thread handle paired with the channel that delivers its drained
+/// bytes. Returned from [`spawn_drain_pipe`] so that [`collect_pipe`] can
+/// `join` the reader thread once the channel recv succeeds — preventing
+/// thread accumulation across many probes (parent IPC contract, see
+/// [`probe_via_subprocess_with`]).
+struct DrainHandle {
+    rx: Receiver<Vec<u8>>,
+    join: thread::JoinHandle<()>,
+}
+
+fn spawn_drain_pipe<R>(pipe: Option<R>, label: &'static str) -> Option<DrainHandle>
 where
     R: Read + Send + 'static,
 {
     pipe.map(|mut stream| {
         let (tx, rx) = mpsc::channel();
-        thread::spawn(move || {
+        let join = thread::spawn(move || {
             let mut buf = Vec::new();
             if let Err(e) = stream.read_to_end(&mut buf) {
                 tracing::warn!(label, error = %e, "probe: failed to drain child");
             }
             let _ = tx.send(buf);
         });
-        rx
+        DrainHandle { rx, join }
     })
 }
 
 /// Upper bound on how long `collect_pipe` waits for a reader thread's buffer.
 ///
-/// If a grandchild inherited the probe's pipe FDs, the reader's `read_to_end`
-/// never observes EOF even after the direct child exits. Cap the wait here
-/// and return a best-effort empty buffer — the reader thread leaks, which is
-/// acceptable because probes are rare and this scenario is itself exceptional.
+/// Capped because a grandchild that inherited the pipe FDs prevents EOF on
+/// the reader's `read_to_end` even after the direct child exits. See
+/// `probe_via_subprocess_with` for the full IPC contract (parent + child).
 const COLLECT_PIPE_TIMEOUT: Duration = Duration::from_secs(2);
 
-fn collect_pipe(recv: Option<Receiver<Vec<u8>>>, label: &str) -> Vec<u8> {
-    let Some(rx) = recv else {
+fn collect_pipe(handle: Option<DrainHandle>, label: &str) -> Vec<u8> {
+    let Some(DrainHandle { rx, join }) = handle else {
         return Vec::new();
     };
     match rx.recv_timeout(COLLECT_PIPE_TIMEOUT) {
-        Ok(buf) => buf,
+        Ok(buf) => {
+            // recv success means `tx.send(buf)` ran, which only happens after
+            // `read_to_end` returned. The reader thread is finished or about
+            // to finish — `join` returns promptly without blocking.
+            let _ = join.join();
+            buf
+        }
         Err(RecvTimeoutError::Timeout) => {
             tracing::warn!(
                 label,
