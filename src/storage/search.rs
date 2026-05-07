@@ -1,6 +1,3 @@
-use std::collections::HashMap;
-use std::hash::Hash;
-
 use rusqlite::Connection;
 
 use super::query_normalize::{QueryNormalizationConfig, normalize_for_fts};
@@ -131,28 +128,6 @@ pub(crate) fn sanitize_fts_query(query: &str) -> Result<SanitizedFtsQuery, Sanit
     } else {
         Ok(SanitizedFtsQuery(result))
     }
-}
-
-const RRF_K: f64 = 60.0;
-
-/// Reciprocal Rank Fusion merge — only rank position matters, score values are ignored.
-/// Returns merged results sorted by RRF score descending, ties broken by key ascending.
-pub fn rrf_merge<K: Clone + Eq + Hash + Ord>(
-    fts_hits: &[(K, f64)],
-    vec_hits: &[(K, f64)],
-) -> Vec<(K, f64)> {
-    let mut scores: HashMap<K, f64> = HashMap::new();
-
-    for (rank, (key, _)) in fts_hits.iter().enumerate() {
-        *scores.entry(key.clone()).or_default() += 1.0 / (RRF_K + rank as f64);
-    }
-    for (rank, (key, _)) in vec_hits.iter().enumerate() {
-        *scores.entry(key.clone()).or_default() += 1.0 / (RRF_K + rank as f64);
-    }
-
-    let mut results: Vec<(K, f64)> = scores.into_iter().collect();
-    results.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-    results
 }
 
 /// Wrap `s` in double quotes for FTS5 MATCH syntax, escaping internal `"` as `""`.
@@ -296,36 +271,6 @@ pub(crate) fn fts_expand_short_terms(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn rrf_merge_both_lists() {
-        let fts: Vec<(u32, f64)> = vec![(1, 1.0), (2, 0.5)];
-        let vec: Vec<(u32, f64)> = vec![(2, 1.0), (3, 0.5)];
-        let result = rrf_merge(&fts, &vec);
-        assert_eq!(result[0].0, 2);
-        assert!(result[0].1 > result[1].1);
-        assert!(result[1].1 >= result[2].1);
-    }
-
-    #[test]
-    fn rrf_merge_tied_scores_ordered_by_key() {
-        let fts: Vec<(u32, f64)> = vec![(3, 1.0)];
-        let vec: Vec<(u32, f64)> = vec![(1, 1.0)];
-        let result = rrf_merge(&fts, &vec);
-        assert_eq!(result.len(), 2);
-        assert_eq!(result[0].0, 1, "lower key should come first on tie");
-        assert_eq!(result[1].0, 3);
-        assert_eq!(result[0].1, result[1].1, "scores must be equal");
-    }
-
-    #[test]
-    fn rrf_merge_empty_fts() {
-        let fts: Vec<(String, f64)> = vec![];
-        let vec: Vec<(String, f64)> = vec![("a".into(), 1.0), ("b".into(), 0.5)];
-        let result = rrf_merge(&fts, &vec);
-        assert_eq!(result.len(), 2);
-        assert_eq!(result[0].0, "a");
-    }
 
     #[test]
     fn fts_quote_simple() {

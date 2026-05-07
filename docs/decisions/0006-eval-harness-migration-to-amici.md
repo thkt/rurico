@@ -31,7 +31,7 @@ Migrate the search-quality evaluation harness from `rurico` to `amici`. Concrete
 2. **Drop the mirror**: the harness in `amici` calls `crate::storage::fts::clean_for_trigram` directly (after `amici#24` ships the `MAX_COMBOS` guard). The mirrored copy in `rurico/src/eval/pipeline.rs:383-415` is deleted along with the rest of `src/eval/`.
 
 3. **Stay in `rurico`**:
-   - `src/storage/` primitives (`MatchFtsQuery`, `prepare_match_query`, `normalize_for_fts`, `rrf_merge`)
+   - `src/storage/` primitives (`MatchFtsQuery`, `prepare_match_query`, `normalize_for_fts`, `rrf_merge`) <!-- 2026-05-08: rrf_merge superseded by issue #104; primitive is now `retrieval::WeightedRrf`. -->
    - `src/bin/mlx_smoke.rs` and `tests/mlx_smoke.rs` — primitive-level speed and numerical-equivalence harness (ADR 0002), not retrieval quality.
 
 4. **ADR continuity**:

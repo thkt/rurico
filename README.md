@@ -15,7 +15,7 @@ Apple Silicon (MLX) 上で日本語テキストのembedding・reranking・類似
 | `embed`       | embedding 生成（MLX 推論、tokenization、pooling、probe）                                                                              |
 | `reranker`    | 検索結果の reranking（cross-encoder スコアリング、probe）                                                                             |
 | `modernbert`  | ModernBERT モデル定義と config                                                                                                        |
-| `storage`     | SQLite + sqlite-vec のベクトル検索プリミティブ（FTS sanitize / `MatchFtsQuery`、`rrf_merge`、`recency_decay`、`QueryNormalizationConfig`） |
+| `storage`     | SQLite + sqlite-vec のベクトル検索プリミティブ（FTS sanitize / `MatchFtsQuery`、`recency_decay`、`QueryNormalizationConfig`） |
 | `retrieval`   | 5-stage retrieval pipeline contract（ADR 0004）— `Candidate` / `MergedHit` / `MergeStrategy` / `Aggregator` / `HybridSearchConfig` / `RecencyConfig` |
 | `text`        | テキスト分割（段落 > 行 > 文字境界で UTF-8 安全に分割）                                                                               |
 | `artifacts`   | モデルファイルの型付き検証パイプライン（`CandidateArtifacts` → `VerifiedArtifacts`）                                                  |
@@ -197,16 +197,20 @@ let nfkc_only = QueryNormalizationConfig {
 let off = pre_phase_5_disabled();
 ```
 
-### ハイブリッド検索プリミティブ — `rrf_merge`
+### ハイブリッド検索 RRF — `WeightedRrf`
 
-FTS5 とベクトル検索の結果を Reciprocal Rank Fusion で統合する低レベル関数。スコア値を無視してランク位置のみで折りたたむ。weight 調整・recency 加味・複数 source 対応を扱いたい場合は [Retrieval Pipeline](#retrieval-pipeline5-stage-contract) の `WeightedRrf` / `merge_with_recency` を使う。
+FTS5 とベクトル検索の結果を Reciprocal Rank Fusion で統合する canonical fusion strategy。weight 調整・recency 加味・複数 source 対応に加え、default config (`rrf_k=60.0`, weight=1.0) でランク位置のみによる折りたたみも担う。詳細な 5-stage pipeline contract は [Retrieval Pipeline](#retrieval-pipeline5-stage-contract) を参照。
 
 ```rust
-use rurico::storage::rrf_merge;
+use rurico::retrieval::{Candidate, CandidateSource, MergeStrategy, WeightedRrf};
 
-let fts_hits = vec![(1, 0.9), (2, 0.7), (3, 0.5)];
-let vec_hits = vec![(2, 0.95), (4, 0.8), (1, 0.6)];
-let merged = rrf_merge(&fts_hits, &vec_hits);
+let candidates = vec![
+    Candidate { source: CandidateSource::Fts, doc_id: "1".into(), chunk_id: None, score: 0.9, rank: 0 },
+    Candidate { source: CandidateSource::Fts, doc_id: "2".into(), chunk_id: None, score: 0.7, rank: 1 },
+    Candidate { source: CandidateSource::Vector, doc_id: "2".into(), chunk_id: None, score: 0.95, rank: 0 },
+    Candidate { source: CandidateSource::Vector, doc_id: "4".into(), chunk_id: None, score: 0.8, rank: 1 },
+];
+let merged = WeightedRrf::default().merge(&candidates);
 ```
 
 ### recency decay プリミティブ
@@ -221,7 +225,7 @@ let score = recency_decay(7.0, 30.0); // 7日経過、半減期30日
 
 ### Retrieval Pipeline（5-stage contract）
 
-`retrieval` モジュールは ADR 0004 が固定する 5 ステージ pipeline contract を提供する。`storage` のプリミティブ（`prepare_match_query` / `rrf_merge` / `recency_decay`）を組み合わせる際の標準配線で、Phase 3 (#67) で aggregation hook、Phase 4 (#68) で hybrid weight/recency、#76 で chunk-level retrieval が揃った。
+`retrieval` モジュールは ADR 0004 が固定する 5 ステージ pipeline contract を提供する。`storage` のプリミティブ（`prepare_match_query` / `recency_decay`）と組み合わせる際の標準配線で、Phase 3 (#67) で aggregation hook、Phase 4 (#68) で hybrid weight/recency、#76 で chunk-level retrieval が揃った。
 
 | Stage | 入力 → 出力                              | 提供型・関数                                                                                                                                                |
 | ----- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |

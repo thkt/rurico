@@ -10,7 +10,7 @@ Issue #53 splits search-quality improvement into Phase 1〜6, where Phase 1 buil
 
 Three contract gaps must be resolved before implementation:
 
-1. **`rurico` does not ship a hybrid search**. `src/storage/search.rs:150,191` exposes `rrf_merge` and `prepare_match_query` as **primitives only**. The actual hybrid pipeline (schema, vec0 SQL, FTS↔vec join, rerank wiring) lives in downstream crates: `recall/src/search.rs`, `recall/src/hybrid.rs`, `sae`, `yomu`. A baseline taken on a harness-internal pipeline is not a baseline of `rurico` itself unless the relationship between the two is named explicitly.
+1. **`rurico` does not ship a hybrid search**. `src/storage/search.rs:150,191` exposes `rrf_merge` and `prepare_match_query` as **primitives only**. The actual hybrid pipeline (schema, vec0 SQL, FTS↔vec join, rerank wiring) lives in downstream crates: `recall/src/search.rs`, `recall/src/hybrid.rs`, `sae`, `yomu`. A baseline taken on a harness-internal pipeline is not a baseline of `rurico` itself unless the relationship between the two is named explicitly. <!-- 2026-05-08: rrf_merge references in this ADR are superseded by issue #104; primitive is now `retrieval::WeightedRrf`. -->
 
 2. **Per-category breakdown on small per-category sample sizes is not informative**. Bootstrap CI on graded relevance `nDCG@10` with 5 queries per category sits around `±0.25〜0.30`, wider than realistic per-Phase improvements. A breakdown table that always overlaps the gate threshold cannot drive decisions.
 

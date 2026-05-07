@@ -208,8 +208,7 @@ pub struct RecencyConfig {
 /// Each candidate contributes `weight / (rrf_k + rank)` to its `doc_id`'s
 /// fused score, where `weight` comes from
 /// [`HybridSearchConfig::source_weights`]. With default config the formula
-/// reduces to `1 / (60 + rank)` — bit-equal to the pre-Phase-4 `rrf_merge`
-/// primitive.
+/// reduces to `1 / (60 + rank)`.
 #[derive(Debug, Default, Clone)]
 pub struct WeightedRrf {
     /// Active hybrid scoring configuration.
@@ -762,6 +761,31 @@ mod tests {
         assert!((output[0].score - d1_score).abs() < f64::EPSILON);
         assert_eq!(output[1].doc_id, "d2");
         assert!((output[1].score - d2_score).abs() < f64::EPSILON);
+    }
+
+    // T-104-001: weighted_rrf_default_breaks_ties_by_doc_id
+    //
+    // When two docs receive identical RRF scores under default config, merge
+    // must order them by doc_id ascending — same tie-break as the legacy
+    // rrf_merge primitive (sort ... then_with(|a, b| a.0.cmp(&b.0))).
+    #[test]
+    fn weighted_rrf_default_breaks_ties_by_doc_id() {
+        let strategy = WeightedRrf::default();
+        let candidates = vec![
+            candidate(CandidateSource::Fts, "d3", 0),
+            candidate(CandidateSource::Vector, "d1", 0),
+        ];
+        let output = strategy.merge(&candidates);
+        assert_eq!(output.len(), 2);
+        assert!(
+            (output[0].score - output[1].score).abs() < f64::EPSILON,
+            "scores must be tied"
+        );
+        assert_eq!(
+            output[0].doc_id, "d1",
+            "lower doc_id must come first on tie"
+        );
+        assert_eq!(output[1].doc_id, "d3");
     }
 
     // T-068-006: weighted_rrf_zero_weight_drops_source
