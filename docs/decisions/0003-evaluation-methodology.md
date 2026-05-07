@@ -4,13 +4,15 @@
 - Date: 2026-04-25
 - Confidence: medium-high. Reference composition pattern is empirically established in `recall/src/hybrid.rs`; statistical significance via bootstrap CI on 140+ query fixtures is a well-known IR convention; the unknown is whether mlx inference f32 drift across machines / mlx-rs versions stays inside the regeneration tolerance already adopted by ADR 0002.
 
+> **Note (2026-05-08)**: `rrf_merge` references in this ADR are superseded by issue #104. The canonical RRF primitive is now `retrieval::WeightedRrf` (configurable via `HybridSearchConfig`, `WeightedRrf::default()` is bit-equal to the removed legacy fn).
+
 ## Context
 
 Issue #53 splits search-quality improvement into Phase 1〜6, where Phase 1 builds the evaluation harness used by all later phases to detect regressions and validate improvements. Issue #65 is the Phase 1 implementation issue.
 
 Three contract gaps must be resolved before implementation:
 
-1. **`rurico` does not ship a hybrid search**. `src/storage/search.rs:150,191` exposes `rrf_merge` and `prepare_match_query` as **primitives only**. The actual hybrid pipeline (schema, vec0 SQL, FTS↔vec join, rerank wiring) lives in downstream crates: `recall/src/search.rs`, `recall/src/hybrid.rs`, `sae`, `yomu`. A baseline taken on a harness-internal pipeline is not a baseline of `rurico` itself unless the relationship between the two is named explicitly. <!-- 2026-05-08: rrf_merge references in this ADR are superseded by issue #104; primitive is now `retrieval::WeightedRrf`. -->
+1. **`rurico` does not ship a hybrid search**. `src/storage/search.rs:150,191` exposes `rrf_merge` and `prepare_match_query` as **primitives only**. The actual hybrid pipeline (schema, vec0 SQL, FTS↔vec join, rerank wiring) lives in downstream crates: `recall/src/search.rs`, `recall/src/hybrid.rs`, `sae`, `yomu`. A baseline taken on a harness-internal pipeline is not a baseline of `rurico` itself unless the relationship between the two is named explicitly.
 
 2. **Per-category breakdown on small per-category sample sizes is not informative**. Bootstrap CI on graded relevance `nDCG@10` with 5 queries per category sits around `±0.25〜0.30`, wider than realistic per-Phase improvements. A breakdown table that always overlaps the gate threshold cannot drive decisions.
 

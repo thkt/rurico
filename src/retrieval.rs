@@ -765,9 +765,9 @@ mod tests {
 
     // T-104-001: weighted_rrf_default_breaks_ties_by_doc_id
     //
-    // When two docs receive identical RRF scores under default config, merge
-    // must order them by doc_id ascending — same tie-break as the legacy
-    // rrf_merge primitive (sort ... then_with(|a, b| a.0.cmp(&b.0))).
+    // When two docs receive identical RRF scores, merge must order them by
+    // doc_id ascending (lexicographic). Tie-break contract preserved on the
+    // canonical WeightedRrf path.
     #[test]
     fn weighted_rrf_default_breaks_ties_by_doc_id() {
         let strategy = WeightedRrf::default();
