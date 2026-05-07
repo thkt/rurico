@@ -107,6 +107,11 @@ pub(crate) fn setup_fake_hf_cache(
 /// files, mirroring the production HF Hub cache layout
 /// (`snapshots/<commit>/<file>` -> `../../blobs/<etag>`).
 ///
+/// Blob filenames are extension-less (e.g. `etag-model`, not
+/// `etag-model.safetensors`) to mirror real HF Hub blobs (`blobs/<sha256>`).
+/// Preserving the snapshot-side extension is the load-time invariant under
+/// test, so the blob side must NOT carry one.
+///
 /// Used by Issue #107 regression tests to exercise the symlink-preserving
 /// invariant: `validate_probe_paths` and `probe_env_to_paths` must NOT
 /// substitute the canonicalized blob path for the snapshot path, because
@@ -131,12 +136,14 @@ pub(crate) fn setup_fake_hf_cache_with_symlinks(
     let snapshot_dir = repo_dir.join("snapshots").join(commit_hash);
     fs::create_dir_all(&snapshot_dir).unwrap();
     for &(name, content) in files {
-        // Stable etag derived from filename so the blob name is deterministic.
-        let etag = format!("etag-{name}");
+        let stem = Path::new(name)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(name);
+        let etag = format!("etag-{stem}");
         let blob = blobs_dir.join(&etag);
         fs::write(&blob, content).unwrap();
         let snapshot_link = snapshot_dir.join(name);
-        // Relative symlink target: snapshots/<commit>/X -> ../../blobs/<etag>
         symlink(format!("../../blobs/{etag}"), &snapshot_link).unwrap();
     }
 }
@@ -226,7 +233,7 @@ pub(crate) fn assert_from_probe_error_maps_correctly() {
 /// return the snapshot symlink path, not the canonicalized blob path.
 ///
 /// MLX `load_safetensors` dispatches on filename extension, so substituting
-/// the blob path (`etag-model.safetensors`) for the snapshot link
+/// the blob path (`etag-model`, extension-less) for the snapshot link
 /// (`model.safetensors`) breaks the load step. Verified for both
 /// `EmbedKind` and `RerankerKind` from their respective test files.
 #[cfg(unix)]
