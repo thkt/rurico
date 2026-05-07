@@ -12,6 +12,23 @@
 
 use std::time::Duration;
 
+/// Identifies which embed entry point a phase record or warn emit came from.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(super) enum EmbedKind {
+    #[default]
+    Query,
+    Batch,
+}
+
+impl EmbedKind {
+    pub(super) fn as_str(self) -> &'static str {
+        match self {
+            Self::Query => "query",
+            Self::Batch => "batch",
+        }
+    }
+}
+
 /// Public batch-level metrics snapshot mirroring the `"batch"` [`PhaseMetrics`]
 /// record. Returned alongside embeddings by
 /// [`Embedder::embed_documents_batch_with_metrics`](super::Embedder::embed_documents_batch_with_metrics)
@@ -61,8 +78,8 @@ impl From<&PhaseMetrics> for BatchMetrics {
 /// Phase timings and batch counters for one `embed_*` call.
 #[derive(Debug, Clone, Copy, Default)]
 pub(super) struct PhaseMetrics {
-    /// Identifies which entry point produced this record (e.g. `"query"`, `"batch"`).
-    pub kind: &'static str,
+    /// Identifies which entry point produced this record.
+    pub kind: EmbedKind,
     pub tokenize: Duration,
     pub chunk_plan: Duration,
     pub forward_eval: Duration,
@@ -84,7 +101,7 @@ pub(super) struct PhaseMetrics {
 }
 
 impl PhaseMetrics {
-    pub(super) fn new(kind: &'static str) -> Self {
+    pub(super) fn new(kind: EmbedKind) -> Self {
         Self {
             kind,
             ..Self::default()
@@ -96,36 +113,30 @@ impl PhaseMetrics {
         padding_ratio(self.real_tokens, self.padded_tokens)
     }
 
-    fn format_log(&self) -> String {
-        format!(
-            "embed[{kind}] \
-             tokenize_ms={tokenize} chunk_plan_ms={plan} forward_eval_ms={forward} \
-             readback_pool_ms={readback} cache_clear_ms={clear} \
-             real_tokens={real} padded_tokens={padded} padding_ratio={ratio:.3} \
-             num_chunks={chunks} batch_size={batch} max_seq_len={max_seq} \
-             bucket_hist=[{h0},{h1},{h2},{h3}]",
-            kind = self.kind,
-            tokenize = self.tokenize.as_millis(),
-            plan = self.chunk_plan.as_millis(),
-            forward = self.forward_eval.as_millis(),
-            readback = self.readback_pool.as_millis(),
-            clear = self.cache_clear.as_millis(),
-            real = self.real_tokens,
-            padded = self.padded_tokens,
-            ratio = self.padding_ratio(),
-            chunks = self.num_chunks,
-            batch = self.batch_size,
-            max_seq = self.max_seq_len,
-            h0 = self.bucket_hist[0],
-            h1 = self.bucket_hist[1],
-            h2 = self.bucket_hist[2],
-            h3 = self.bucket_hist[3],
-        )
-    }
-
-    /// Emit one structured debug line summarising this call.
+    /// Emit one structured debug record summarising this call.
+    ///
+    /// Each phase timing and counter is a named field so subscribers can
+    /// filter or aggregate without parsing a format string.
     pub(super) fn log(&self) {
-        tracing::debug!("{}", self.format_log());
+        tracing::debug!(
+            kind = self.kind.as_str(),
+            tokenize_ms = self.tokenize.as_millis(),
+            chunk_plan_ms = self.chunk_plan.as_millis(),
+            forward_eval_ms = self.forward_eval.as_millis(),
+            readback_pool_ms = self.readback_pool.as_millis(),
+            cache_clear_ms = self.cache_clear.as_millis(),
+            real_tokens = self.real_tokens,
+            padded_tokens = self.padded_tokens,
+            padding_ratio = self.padding_ratio(),
+            num_chunks = self.num_chunks,
+            batch_size = self.batch_size,
+            max_seq_len = self.max_seq_len,
+            bucket_hist_0 = self.bucket_hist[0],
+            bucket_hist_1 = self.bucket_hist[1],
+            bucket_hist_2 = self.bucket_hist[2],
+            bucket_hist_3 = self.bucket_hist[3],
+            "embed phase metrics",
+        );
     }
 }
 
@@ -145,6 +156,8 @@ pub(super) fn padding_ratio(real: usize, padded: usize) -> f32 {
 
 #[cfg(test)]
 mod tests {
+    use tracing_test::traced_test;
+
     use super::*;
 
     // padding_ratio: safe on zero real, ratio = padded / real otherwise
@@ -183,22 +196,43 @@ mod tests {
 
     #[test]
     fn phase_metrics_new_sets_kind() {
-        let m = PhaseMetrics::new("query");
-        assert_eq!(m.kind, "query");
+        let m = PhaseMetrics::new(EmbedKind::Query);
+        assert_eq!(m.kind, EmbedKind::Query);
         assert_eq!(m.padded_tokens, 0);
     }
 
-    // T-MET-001: format_log includes bucket_hist in the expected schema so
-    // smoke logs expose chunk-length distribution from a single line (AC-9).
+    // T-MET-001: log() emits named fields for the bucket histogram so
+    // subscribers can read per-bucket counts without parsing a format string.
+    #[traced_test]
     #[test]
-    fn t_met_001_format_log_contains_bucket_hist() {
-        let mut m = PhaseMetrics::new("batch");
+    fn t_met_001_log_emits_named_bucket_hist_fields() {
+        let mut m = PhaseMetrics::new(EmbedKind::Batch);
         m.bucket_hist = [3, 5, 2, 1];
         m.num_chunks = 11;
-        let line = m.format_log();
+        m.log();
         assert!(
-            line.contains("bucket_hist=[3,5,2,1]"),
-            "log line must match spec schema [N0,N1,N2,N3] (got: {line})"
+            logs_contain("bucket_hist_0=3"),
+            "expected named field bucket_hist_0=3 in subscriber output",
+        );
+        assert!(
+            logs_contain("bucket_hist_1=5"),
+            "expected named field bucket_hist_1=5 in subscriber output",
+        );
+        assert!(
+            logs_contain("bucket_hist_2=2"),
+            "expected named field bucket_hist_2=2 in subscriber output",
+        );
+        assert!(
+            logs_contain("bucket_hist_3=1"),
+            "expected named field bucket_hist_3=1 in subscriber output",
+        );
+        assert!(
+            logs_contain("num_chunks=11"),
+            "expected named field num_chunks=11 in subscriber output",
+        );
+        assert!(
+            logs_contain("embed phase metrics"),
+            "expected event message in subscriber output",
         );
     }
 
