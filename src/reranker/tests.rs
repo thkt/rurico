@@ -73,6 +73,16 @@ fn sort_results_ties_break_by_original_index() {
     assert_eq!(indices, vec![1, 2, 0, 3]);
 }
 
+// T-105-012: sort_results_with_empty_scores_returns_empty_vec
+#[test]
+fn sort_results_with_empty_scores_returns_empty_vec() {
+    let results = sort_results(&[]);
+    assert!(
+        results.is_empty(),
+        "empty scores slice must yield zero RankedResult entries"
+    );
+}
+
 // T-013: cache_lookup_returns_some_when_all_files_present
 #[test]
 fn cache_lookup_returns_some_when_all_files_present() {

@@ -1048,6 +1048,79 @@ mod tests {
         assert_eq!(d2_bucket.len(), 1);
     }
 
+    // T-105-008a: weighted_rrf_merge_returns_empty_for_empty_candidates
+    #[test]
+    fn weighted_rrf_merge_returns_empty_for_empty_candidates() {
+        let strategy = WeightedRrf::default();
+        let output = strategy.merge(&[]);
+        assert!(
+            output.is_empty(),
+            "empty candidate slice must yield empty merged hits"
+        );
+    }
+
+    // T-105-008b: weighted_rrf_merge_with_recency_returns_empty_for_empty_candidates
+    #[test]
+    fn weighted_rrf_merge_with_recency_returns_empty_for_empty_candidates() {
+        let strategy = WeightedRrf::default();
+        let recency = RecencyConfig {
+            weight: 1.0,
+            half_life_days: 30.0,
+        };
+        let output = strategy.merge_with_recency(&[], &recency, |_| Some(0.0));
+        assert!(
+            output.is_empty(),
+            "empty candidates must short-circuit even with non-zero recency weight"
+        );
+    }
+
+    // T-105-009: group_by_parent_returns_empty_map_for_empty_hits
+    #[test]
+    fn group_by_parent_returns_empty_map_for_empty_hits() {
+        let buckets = group_by_parent(&[]);
+        assert!(
+            buckets.is_empty(),
+            "empty hits slice must yield zero parent buckets"
+        );
+    }
+
+    // T-105-017a: merged_hit_deserializes_when_chunk_id_field_omitted
+    //
+    // Backward-compat with pre-Issue #76 baseline.json files that omit the
+    // chunk_id field. `serde(default)` keeps Option<String> defaulting to None
+    // — pin the behaviour so a future serde attribute change does not silently
+    // break legacy fixture round-trips.
+    #[test]
+    fn merged_hit_deserializes_when_chunk_id_field_omitted() {
+        let json = r#"{"doc_id":"d1","score":0.5,"source_scores":{"fts":0.5}}"#;
+        let hit: MergedHit = serde_json::from_str(json).expect("legacy JSON must parse");
+        assert_eq!(hit.doc_id, "d1");
+        assert!((hit.score - 0.5).abs() < f64::EPSILON);
+        assert_eq!(
+            hit.chunk_id, None,
+            "omitted chunk_id must default to None, not error"
+        );
+        assert_eq!(
+            hit.source_scores.get(&CandidateSource::Fts),
+            Some(&0.5),
+            "source_scores must round-trip the populated entry"
+        );
+    }
+
+    // T-105-017b: hybrid_search_config_serde_round_trips_default
+    //
+    // Default config must serialize then deserialize to a value equal to the
+    // starting Default — guards against an accidental serde attribute change
+    // that would shift downstream JSON shape.
+    #[test]
+    fn hybrid_search_config_serde_round_trips_default() {
+        let config = HybridSearchConfig::default();
+        let json = serde_json::to_string(&config).expect("Default must serialize");
+        let parsed: HybridSearchConfig =
+            serde_json::from_str(&json).expect("serialized form must deserialize");
+        assert_eq!(parsed, config, "round-trip must preserve Default config");
+    }
+
     // T-068-008: weighted_rrf_fts_heavy_weight_reorders
     //
     // Validates that non-uniform weights actually shift ranking — a doc with

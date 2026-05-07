@@ -392,4 +392,28 @@ mod tests {
         let err = load(&mut Cursor::new(&bytes)).expect_err("dim * 4 overflow must error");
         assert_eq!(err.kind(), io::ErrorKind::InvalidData);
     }
+
+    // T-105-004: save_load_round_trip_with_zero_docs_yields_empty_vec
+    #[test]
+    fn save_load_round_trip_with_zero_docs_yields_empty_vec() {
+        let docs: Vec<ChunkedEmbedding> = Vec::new();
+        let mut buf = Vec::new();
+        save(&mut buf, &docs).unwrap();
+        let loaded = load(&mut Cursor::new(&buf)).unwrap();
+        assert!(
+            loaded.is_empty(),
+            "0-doc fixture must round-trip back to an empty Vec"
+        );
+    }
+
+    // T-105-005: compare_returns_zero_diff_when_both_sides_empty
+    #[test]
+    fn compare_returns_zero_diff_when_both_sides_empty() {
+        let diff = compare(&[], &[]).unwrap();
+        assert_eq!(diff.max_abs_diff, 0.0);
+        assert_eq!(
+            diff.cosine_min, 1.0,
+            "empty fixtures must report cosine=1.0 (vacuous match), not 0.0"
+        );
+    }
 }

@@ -443,3 +443,22 @@ fn embed_text_propagates_error() {
 fn from_probe_error_maps_correctly() {
     assert_from_probe_error_maps_correctly();
 }
+
+// T-105-010: chunked_embedding_new_with_empty_input_yields_empty_fields
+//
+// Pin the Option β invariant from issue #105: `new(vec![])` is non-fallible
+// and returns a structurally valid value with both `chunks` and `chunk_ids`
+// empty. Producers that require non-emptiness must enforce that themselves —
+// the constructor is intentionally a thin builder, not a guard.
+#[test]
+fn chunked_embedding_new_with_empty_input_yields_empty_fields() {
+    let ce = ChunkedEmbedding::new(Vec::new());
+    assert!(
+        ce.chunks.is_empty(),
+        "new(vec![]) must keep chunks empty without panicking"
+    );
+    assert!(
+        ce.chunk_ids.is_empty(),
+        "chunk_ids length must mirror chunks (zero on empty input)"
+    );
+}

@@ -638,4 +638,22 @@ mod tests {
             Err(SanitizeError::NoSearchableTerms)
         );
     }
+
+    // T-105-013: drop_dangling_operators_drops_operator_at_position_zero
+    //
+    // Boundary: a valid FTS5 operator at index 0 cannot have a left neighbour,
+    // so `has_left` is false and the operator must be dropped even when a
+    // non-operator follows. Pins the `i > 0` short-circuit against a future
+    // off-by-one rewrite that would let leading `AND` / `OR` slip through and
+    // form an invalid FTS5 expression.
+    #[test]
+    fn drop_dangling_operators_drops_operator_at_position_zero() {
+        let tokens: Vec<String> = vec!["AND".into(), "foo".into(), "bar".into()];
+        let result = drop_dangling_operators(&tokens);
+        assert_eq!(
+            result,
+            vec!["foo", "bar"],
+            "operator at index 0 has no left neighbour → must drop"
+        );
+    }
 }

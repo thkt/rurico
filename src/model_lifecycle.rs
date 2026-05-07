@@ -258,4 +258,50 @@ mod tests {
             );
         });
     }
+
+    // T-105-002a: probe_env_to_paths_returns_none_when_embed_model_var_absent
+    #[test]
+    fn probe_env_to_paths_returns_none_when_embed_model_var_absent() {
+        let result: Option<Result<CandidateArtifacts<EmbedKind>, SetupReason>> =
+            probe_env_to_paths::<EmbedKind>(None, Some("c".into()), Some("t".into()));
+        assert!(
+            result.is_none(),
+            "model var absent must short-circuit to None for embed kind"
+        );
+    }
+
+    // T-105-002b: probe_env_to_paths_returns_none_when_reranker_model_var_absent
+    #[test]
+    fn probe_env_to_paths_returns_none_when_reranker_model_var_absent() {
+        let result: Option<Result<CandidateArtifacts<RerankerKind>, SetupReason>> =
+            probe_env_to_paths::<RerankerKind>(None, Some("c".into()), Some("t".into()));
+        assert!(
+            result.is_none(),
+            "model var absent must short-circuit to None for reranker kind"
+        );
+    }
+
+    // T-105-002c: probe_env_to_paths_returns_err_when_embed_config_missing
+    #[test]
+    fn probe_env_to_paths_returns_err_when_embed_config_missing() {
+        let result: Option<Result<CandidateArtifacts<EmbedKind>, SetupReason>> =
+            probe_env_to_paths::<EmbedKind>(Some("m".into()), None, Some("t".into()));
+        let inner = result.expect("model var present must produce Some, not None");
+        assert!(
+            matches!(inner, Err(SetupReason::EnvIncomplete)),
+            "missing config var must surface as EnvIncomplete"
+        );
+    }
+
+    // T-105-002d: probe_env_to_paths_returns_err_when_reranker_tokenizer_missing
+    #[test]
+    fn probe_env_to_paths_returns_err_when_reranker_tokenizer_missing() {
+        let result: Option<Result<CandidateArtifacts<RerankerKind>, SetupReason>> =
+            probe_env_to_paths::<RerankerKind>(Some("m".into()), Some("c".into()), None);
+        let inner = result.expect("model var present must produce Some, not None");
+        assert!(
+            matches!(inner, Err(SetupReason::EnvIncomplete)),
+            "missing tokenizer var must surface as EnvIncomplete"
+        );
+    }
 }

@@ -768,6 +768,40 @@ mod tests {
         assert!(artifacts.delete_files().is_err());
     }
 
+    // T-105-011: delete_files_continues_after_first_failure
+    //
+    // The continues-on-error contract documented on `delete_files`: when the
+    // first file is already absent, the remaining files MUST still be
+    // attempted (and removed) so a re-download from a fresh cache cannot be
+    // blocked by a half-cleaned directory.
+    #[test]
+    fn delete_files_continues_after_first_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        write_fake_safetensors(&dir.path().join("model.safetensors"), &[FAKE_BACKBONE_KEY]);
+        write_valid_config(dir.path());
+        write_valid_tokenizer(dir.path());
+        let paths = ModelPaths::from_dir(dir.path());
+        let artifacts = verify_as_embed(paths).unwrap();
+
+        // Pre-remove model so delete_files hits an error on the first file
+        // and must continue with the remaining two.
+        fs::remove_file(dir.path().join("model.safetensors")).unwrap();
+
+        let err = artifacts
+            .delete_files()
+            .expect_err("first removal must error");
+        assert_eq!(err.kind(), io::ErrorKind::NotFound);
+
+        assert!(
+            !dir.path().join("config.json").exists(),
+            "config.json must be removed despite earlier failure"
+        );
+        assert!(
+            !dir.path().join("tokenizer.json").exists(),
+            "tokenizer.json must be removed despite earlier failure"
+        );
+    }
+
     // ── CandidateArtifacts<K> verify dispatch ───────────────────────────────
 
     use crate::artifacts::CandidateArtifacts;
