@@ -72,6 +72,61 @@ pub(crate) const PROBE_EXIT_ACK_FAILED: i32 = 7;
 /// "model load failed with empty reason".
 pub(crate) const PROBE_EXIT_STDERR_FAILED: i32 = 8;
 
+/// Reason a probe subprocess was rejected during the setup phase. Each
+/// variant maps 1:1 to a `PROBE_EXIT_*` constant via the `#[repr(i32)]`
+/// discriminant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(i32)]
+#[non_exhaustive]
+pub enum SetupReason {
+    /// Primary model env var set, but config or tokenizer is missing.
+    EnvIncomplete = PROBE_EXIT_ENV_INCOMPLETE,
+    /// `std::fs::canonicalize` failed on a candidate path.
+    CanonicalizeFailed = PROBE_EXIT_CANONICALIZE_FAILED,
+    /// Candidate path canonicalized outside the HF cache root.
+    PathOutsideCache = PROBE_EXIT_PATH_OUTSIDE_CACHE,
+    /// `std::fs::canonicalize` failed on the cache root itself.
+    CacheRootInvalid = PROBE_EXIT_CACHE_ROOT_INVALID,
+}
+
+impl SetupReason {
+    /// Exit code for this reason.
+    pub fn code(self) -> i32 {
+        self as i32
+    }
+
+    /// Human-readable label. Surfaced in the child stderr message
+    /// `"probe setup rejected: <label>"` (forensic log anchor; SEC-002).
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::EnvIncomplete => "env incomplete",
+            Self::CanonicalizeFailed => "path canonicalize failed",
+            Self::PathOutsideCache => "path outside cache",
+            Self::CacheRootInvalid => "cache root invalid",
+        }
+    }
+}
+
+impl TryFrom<i32> for SetupReason {
+    type Error = ();
+
+    fn try_from(code: i32) -> Result<Self, Self::Error> {
+        match code {
+            PROBE_EXIT_ENV_INCOMPLETE => Ok(Self::EnvIncomplete),
+            PROBE_EXIT_CANONICALIZE_FAILED => Ok(Self::CanonicalizeFailed),
+            PROBE_EXIT_PATH_OUTSIDE_CACHE => Ok(Self::PathOutsideCache),
+            PROBE_EXIT_CACHE_ROOT_INVALID => Ok(Self::CacheRootInvalid),
+            _ => Err(()),
+        }
+    }
+}
+
+impl fmt::Display for SetupReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "code {}: {}", self.code(), self.label())
+    }
+}
+
 /// Verify that `model`, `config`, and `tokenizer` paths all canonicalize to
 /// component-wise descendants of `cache_root`. The candidate paths are
 /// not modified — the load step receives the original symlink path so HF
@@ -80,21 +135,21 @@ pub(crate) const PROBE_EXIT_STDERR_FAILED: i32 = 8;
 ///
 /// # Errors
 ///
-/// - [`PROBE_EXIT_CACHE_ROOT_INVALID`] if `cache_root` cannot be canonicalized
-/// - [`PROBE_EXIT_CANONICALIZE_FAILED`] if any candidate path cannot be canonicalized
-/// - [`PROBE_EXIT_PATH_OUTSIDE_CACHE`] if any candidate path's canonical form
+/// - [`SetupReason::CacheRootInvalid`] if `cache_root` cannot be canonicalized
+/// - [`SetupReason::CanonicalizeFailed`] if any candidate path cannot be canonicalized
+/// - [`SetupReason::PathOutsideCache`] if any candidate path's canonical form
 ///   is not a component-wise descendant of `cache_root`'s canonical form
 pub(crate) fn validate_probe_paths_with_cache(
     cache: &hf_hub::Cache,
     model: &Path,
     config: &Path,
     tokenizer: &Path,
-) -> Result<(), i32> {
-    let canon_root = fs::canonicalize(cache.path()).map_err(|_| PROBE_EXIT_CACHE_ROOT_INVALID)?;
+) -> Result<(), SetupReason> {
+    let canon_root = fs::canonicalize(cache.path()).map_err(|_| SetupReason::CacheRootInvalid)?;
     for p in [model, config, tokenizer] {
-        let canon = fs::canonicalize(p).map_err(|_| PROBE_EXIT_CANONICALIZE_FAILED)?;
+        let canon = fs::canonicalize(p).map_err(|_| SetupReason::CanonicalizeFailed)?;
         if !canon.starts_with(&canon_root) {
-            return Err(PROBE_EXIT_PATH_OUTSIDE_CACHE);
+            return Err(SetupReason::PathOutsideCache);
         }
     }
     Ok(())
@@ -115,7 +170,7 @@ pub(crate) fn validate_probe_paths(
     model: &Path,
     config: &Path,
     tokenizer: &Path,
-) -> Result<(), i32> {
+) -> Result<(), SetupReason> {
     validate_probe_paths_with_cache(&hf_hub::Cache::from_env(), model, config, tokenizer)
 }
 
@@ -143,48 +198,33 @@ pub enum ProbeError {
         /// Failure detail from stderr.
         reason: String,
     },
-    /// Setup-phase rejection (path validation or env hardening) in the probe child.
-    ///
-    /// `code` is one of [`PROBE_EXIT_CANONICALIZE_FAILED`] (4),
-    /// [`PROBE_EXIT_PATH_OUTSIDE_CACHE`] (5), or
-    /// [`PROBE_EXIT_CACHE_ROOT_INVALID`] (6).
-    #[error("probe setup rejected (code {code}: {})", setup_label(*code))]
+    /// Setup-phase rejection (path validation or env hardening) in the probe
+    /// child. Display surfaces as `"probe setup rejected (code N: label)"`
+    /// — the wire format forensic logs grep on.
+    #[error("probe setup rejected ({reason})")]
     SetupRejected {
-        /// Setup-phase exit code.
-        code: i32,
+        /// Setup-phase rejection reason.
+        reason: SetupReason,
     },
     /// Subprocess spawn or wait failure.
     #[error("probe error: {0}")]
     SubprocessFailed(String),
 }
 
-/// Human-readable label for a setup-phase exit code, used in
-/// [`ProbeError::SetupRejected`] Display and in [`setup_failure_message`]
-/// (child stderr message).
-fn setup_label(code: i32) -> &'static str {
-    match code {
-        PROBE_EXIT_ENV_INCOMPLETE => "env incomplete",
-        PROBE_EXIT_CANONICALIZE_FAILED => "path canonicalize failed",
-        PROBE_EXIT_PATH_OUTSIDE_CACHE => "path outside cache",
-        PROBE_EXIT_CACHE_ROOT_INVALID => "cache root invalid",
-        _ => "unknown setup failure",
-    }
-}
-
 /// Resolve probe env vars into a `(model, config, tokenizer)` path triple.
 ///
 /// Returns `None` if the primary model env var is absent (not a probe invocation).
-/// Returns `Some(Err(PROBE_EXIT_ENV_INCOMPLETE))` if model is set but config or
+/// Returns `Some(Err(SetupReason::EnvIncomplete))` if model is set but config or
 /// tokenizer is missing.
 pub(crate) fn resolve_probe_env(
     model: Option<String>,
     config: Option<String>,
     tokenizer: Option<String>,
-) -> Option<Result<(PathBuf, PathBuf, PathBuf), i32>> {
+) -> Option<Result<(PathBuf, PathBuf, PathBuf), SetupReason>> {
     let model = model?;
     Some(match (config, tokenizer) {
         (Some(config), Some(tokenizer)) => Ok((model.into(), config.into(), tokenizer.into())),
-        _ => Err(PROBE_EXIT_ENV_INCOMPLETE),
+        _ => Err(SetupReason::EnvIncomplete),
     })
 }
 
@@ -205,22 +245,26 @@ pub(crate) struct ProbeExitAction {
 
 /// Determine the exit code and stderr message for a probe dispatch.
 ///
-/// - `Err(code)`: env vars incomplete → exit with that code
+/// - `Err(reason)`: setup rejected → exit with `reason.code()`
 /// - `Ok(Ok(()))`: model loaded successfully → exit 0
-/// - `Ok(Err(reason))`: model load failed → exit 1 with reason
-pub(crate) fn compute_probe_exit(result: Result<Result<(), String>, i32>) -> ProbeExitAction {
+/// - `Ok(Err(load_err))`: model load failed → exit 1 with the load error message
+pub(crate) fn compute_probe_exit(
+    result: Result<Result<(), String>, SetupReason>,
+) -> ProbeExitAction {
     match result {
-        Err(code) => ProbeExitAction {
-            code,
-            message: Some(format!("probe setup rejected: {}", setup_label(code))),
+        Err(reason) => ProbeExitAction {
+            code: reason.code(),
+            // label() only — not full Display — so the stderr wire format
+            // stays `"probe setup rejected: <label>"` (SEC-002 forensic log).
+            message: Some(format!("probe setup rejected: {}", reason.label())),
         },
         Ok(Ok(())) => ProbeExitAction {
             code: 0,
             message: None,
         },
-        Ok(Err(reason)) => ProbeExitAction {
+        Ok(Err(load_err)) => ProbeExitAction {
             code: 1,
-            message: Some(reason),
+            message: Some(load_err),
         },
     }
 }
@@ -233,14 +277,14 @@ pub(crate) fn compute_probe_exit(result: Result<Result<(), String>, i32>) -> Pro
 /// can distinguish them from `HandlerNotInstalled` (caller forgot the probe
 /// handler) or `ModelLoadFailed` (load itself failed with a reason).
 pub(crate) fn dispatch_probe<P, E: fmt::Display>(
-    result: Result<P, i32>,
+    result: Result<P, SetupReason>,
     load: impl FnOnce(P) -> Result<(), E>,
 ) -> ! {
     if emit_ack().is_err() {
         process::exit(PROBE_EXIT_ACK_FAILED);
     }
     let outcome = match result {
-        Err(code) => Err(code),
+        Err(reason) => Err(reason),
         Ok(candidate) => Ok(load(candidate).map_err(|e| e.to_string())),
     };
     let action = compute_probe_exit(outcome);
@@ -590,22 +634,19 @@ pub(crate) fn interpret_probe_output(output: &Output) -> Result<ProbeStatus, Pro
         Some(PROBE_EXIT_STDERR_FAILED) => Err(ProbeError::SubprocessFailed(
             "probe child failed to write failure reason to stderr".into(),
         )),
-        Some(
-            code @ (PROBE_EXIT_ENV_INCOMPLETE
-            | PROBE_EXIT_CANONICALIZE_FAILED
-            | PROBE_EXIT_PATH_OUTSIDE_CACHE
-            | PROBE_EXIT_CACHE_ROOT_INVALID),
-        ) => Err(ProbeError::SetupRejected { code }),
-        Some(_) => {
-            let reason = String::from_utf8_lossy(&output.stderr).trim().to_owned();
-            Err(ProbeError::ModelLoadFailed {
-                reason: if reason.is_empty() {
-                    "model load failed".into()
-                } else {
-                    reason
-                },
-            })
-        }
+        Some(code) => match SetupReason::try_from(code) {
+            Ok(reason) => Err(ProbeError::SetupRejected { reason }),
+            Err(()) => {
+                let stderr_text = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+                Err(ProbeError::ModelLoadFailed {
+                    reason: if stderr_text.is_empty() {
+                        "model load failed".into()
+                    } else {
+                        stderr_text
+                    },
+                })
+            }
+        },
         None => Ok(ProbeStatus::BackendUnavailable),
     }
 }
