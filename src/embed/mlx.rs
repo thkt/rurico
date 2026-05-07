@@ -852,111 +852,111 @@ mod tests {
         );
     }
 
-    // T-012 / FR-002a / AC-1
+    // T-012a / FR-002a / AC-1 (sub-case of spec T-012)
     //
-    // [T-012] Happy path: `flat.len() == batch * hidden`. `split_pooled`
+    // [T-012a] Happy path: `flat.len() == batch * hidden`. `split_pooled`
     // returns `batch` rows, each `hidden` long, with values preserved in
     // row-major order. This is the contract Phase 3b's `forward_sub_batch`
     // and `embed_query_truncated` rely on after the GPU pool reduces
     // readback to `batch * hidden` floats.
     #[test]
-    fn t_012_split_pooled_happy_path_preserves_row_major_order() {
+    fn t_012a_split_pooled_happy_path_preserves_row_major_order() {
         let flat: Vec<f32> = vec![
             0.0, 1.0, 2.0, 3.0, // row 0
             4.0, 5.0, 6.0, 7.0, // row 1
         ];
         let split = split_pooled(&flat, 2, 4, EmbedKind::Query).expect("happy path must split ok");
 
-        assert_eq!(split.len(), 2, "[T-012] outer Vec must have `batch` rows");
+        assert_eq!(split.len(), 2, "[T-012a] outer Vec must have `batch` rows");
         assert_eq!(
             split[0],
             vec![0.0, 1.0, 2.0, 3.0],
-            "[T-012] row 0 preserved"
+            "[T-012a] row 0 preserved"
         );
         assert_eq!(
             split[1],
             vec![4.0, 5.0, 6.0, 7.0],
-            "[T-012] row 1 preserved"
+            "[T-012a] row 1 preserved"
         );
     }
 
-    // T-012 / FR-002a / AC-1
+    // T-012b / FR-002a / AC-1 (sub-case of spec T-012)
     //
-    // [T-012] Shape mismatch (short): `flat.len() = 7` with `batch = 2,
+    // [T-012b] Shape mismatch (short): `flat.len() = 7` with `batch = 2,
     // hidden = 4` (expected 8). Spec scenario verbatim — exercises the
     // whole point of the helper, which is to fail fast rather than silently
     // slice an incomplete final row.
     #[test]
-    fn t_012_split_pooled_shape_mismatch_short_returns_buffer_shape_mismatch() {
+    fn t_012b_split_pooled_shape_mismatch_short_returns_buffer_shape_mismatch() {
         let flat: Vec<f32> = vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0]; // len 7
         match split_pooled(&flat, 2, 4, EmbedKind::Query) {
             Err(EmbedError::BufferShapeMismatch { expected, actual }) => {
-                assert_eq!(expected, 8, "[T-012] expected = batch * hidden = 8");
-                assert_eq!(actual, 7, "[T-012] actual = flat.len() = 7");
+                assert_eq!(expected, 8, "[T-012b] expected = batch * hidden = 8");
+                assert_eq!(actual, 7, "[T-012b] actual = flat.len() = 7");
             }
             other => panic!(
-                "[T-012] expected Err(BufferShapeMismatch {{ expected: 8, actual: 7 }}), \
+                "[T-012b] expected Err(BufferShapeMismatch {{ expected: 8, actual: 7 }}), \
                  got {other:?}"
             ),
         }
     }
 
-    // T-012 / FR-002a / AC-1
+    // T-012c / FR-002a / AC-1 (sub-case of spec T-012)
     //
-    // [T-012] Shape mismatch (long): `flat.len() = 9` with `batch = 2,
+    // [T-012c] Shape mismatch (long): `flat.len() = 9` with `batch = 2,
     // hidden = 4` (expected 8). Regression guard against a future
     // implementer that reads the first `batch * hidden` floats and silently
     // drops the tail — short-direction tests alone would not catch that.
     #[test]
-    fn t_012_split_pooled_shape_mismatch_long_returns_buffer_shape_mismatch() {
+    fn t_012c_split_pooled_shape_mismatch_long_returns_buffer_shape_mismatch() {
         let flat: Vec<f32> = vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 99.0]; // len 9
         match split_pooled(&flat, 2, 4, EmbedKind::Query) {
             Err(EmbedError::BufferShapeMismatch { expected, actual }) => {
-                assert_eq!(expected, 8, "[T-012] expected = batch * hidden = 8");
-                assert_eq!(actual, 9, "[T-012] actual = flat.len() = 9");
+                assert_eq!(expected, 8, "[T-012c] expected = batch * hidden = 8");
+                assert_eq!(actual, 9, "[T-012c] actual = flat.len() = 9");
             }
             other => panic!(
-                "[T-012] expected Err(BufferShapeMismatch {{ expected: 8, actual: 9 }}), \
+                "[T-012c] expected Err(BufferShapeMismatch {{ expected: 8, actual: 9 }}), \
                  got {other:?}"
             ),
         }
     }
 
-    // T-012 / FR-002a / AC-1
+    // T-012d / FR-002a / AC-1 (sub-case of spec T-012)
     //
-    // [T-012] Zero-length boundary: `batch = 0, hidden = N, flat = &[]`.
+    // [T-012d] Zero-length boundary: `batch = 0, hidden = N, flat = &[]`.
     // Expected length `0 * hidden = 0` matches `flat.len() = 0`, so the
     // contract is satisfied and `split_pooled` returns `Ok(vec![])`.
     // Documents the "empty input is not an error" branch so a future
     // implementer cannot accidentally treat zero as the mismatch case.
     #[test]
-    fn t_012_split_pooled_zero_batch_returns_empty_vec() {
+    fn t_012d_split_pooled_zero_batch_returns_empty_vec() {
         let flat: Vec<f32> = Vec::new();
         let split =
             split_pooled(&flat, 0, 768, EmbedKind::Query).expect("zero-batch flat must split ok");
         assert!(
             split.is_empty(),
-            "[T-012] batch=0 must yield an empty outer Vec, got {split:?}"
+            "[T-012d] batch=0 must yield an empty outer Vec, got {split:?}"
         );
     }
 
-    // T-012 / FR-002a / AC-1
+    // T-012e / FR-002a / AC-1 (sub-case of spec T-012)
     //
-    // [T-012] Single-batch case used by `embed_query_truncated`. After the
+    // [T-012e] Single-batch case used by `embed_query_truncated`. After the
     // Phase 3b rewire, the query path calls `split_pooled(flat, 1, hidden)`
     // and unwraps the single inner row. Verifies the helper does not require
     // `batch >= 2`.
     #[test]
-    fn t_012_split_pooled_single_batch_for_embed_query_path() {
+    fn t_012e_split_pooled_single_batch_for_embed_query_path() {
         let flat: Vec<f32> = vec![0.1, 0.2, 0.3, 0.4, 0.5];
         let split =
             split_pooled(&flat, 1, 5, EmbedKind::Query).expect("single-batch must split ok");
 
-        assert_eq!(split.len(), 1, "[T-012] batch=1 yields a single inner row");
+        assert_eq!(split.len(), 1, "[T-012e] batch=1 yields a single inner row");
         assert_eq!(
             split[0],
             vec![0.1, 0.2, 0.3, 0.4, 0.5],
-            "[T-012] inner row must equal the full flat buffer"
+            "[T-012e] inner row must equal the full flat buffer"
         );
     }
 
@@ -979,9 +979,9 @@ mod tests {
         let _coerce: fn(Array, &[u32], i32, i32) -> Result<Array, EmbedError> = pool_output;
     }
 
-    // T-015 / FR-002c / AC-1
+    // T-015a / FR-002c / AC-1 (sub-case of spec T-015)
     //
-    // [T-015] `split_pooled` rejects `NaN` with `NonFiniteOutput`. The
+    // [T-015a] `split_pooled` rejects `NaN` with `NonFiniteOutput`. The
     // `is_finite` guard catches non-finite outputs that Phase 3b would
     // otherwise miss: the all-zero-mask `0/0` source is
     // already rejected by `validate_attention_mask` upstream, but other
@@ -989,48 +989,48 @@ mod tests {
     // on the already-readback flat buffer so it does not defeat the
     // readback-free hot path (ADR 0002 primary lever).
     #[test]
-    fn t_015_split_pooled_rejects_nan_with_non_finite_output() {
+    fn t_015a_split_pooled_rejects_nan_with_non_finite_output() {
         let flat: Vec<f32> = vec![0.0, 1.0, f32::NAN, 3.0];
         match split_pooled(&flat, 1, 4, EmbedKind::Query) {
             Err(EmbedError::NonFiniteOutput) => {}
-            other => panic!("[T-015] expected Err(NonFiniteOutput), got {other:?}"),
+            other => panic!("[T-015a] expected Err(NonFiniteOutput), got {other:?}"),
         }
     }
 
-    // T-015 / FR-002c / AC-1
+    // T-015b / FR-002c / AC-1 (sub-case of spec T-015)
     //
-    // [T-015] `split_pooled` rejects `±Inf` with `NonFiniteOutput`. Same
+    // [T-015b] `split_pooled` rejects `±Inf` with `NonFiniteOutput`. Same
     // safety-net contract as the NaN case; covers the kernel-overflow
     // failure mode separately so a regression that handles only `NaN` is
     // caught.
     #[test]
-    fn t_015_split_pooled_rejects_positive_inf_with_non_finite_output() {
+    fn t_015b_split_pooled_rejects_positive_inf_with_non_finite_output() {
         let flat: Vec<f32> = vec![0.0, f32::INFINITY, 2.0, 3.0];
         match split_pooled(&flat, 1, 4, EmbedKind::Query) {
             Err(EmbedError::NonFiniteOutput) => {}
-            other => panic!("[T-015] expected Err(NonFiniteOutput), got {other:?}"),
+            other => panic!("[T-015b] expected Err(NonFiniteOutput), got {other:?}"),
         }
     }
 
-    // T-015 / FR-002c / AC-1
+    // T-015c / FR-002c / AC-1 (sub-case of spec T-015)
     //
-    // [T-015] `split_pooled` also rejects `-Inf` (not just positive
+    // [T-015c] `split_pooled` also rejects `-Inf` (not just positive
     // infinity). f32::is_finite returns false for both — guarding the
     // assumption explicitly so a future check that uses `> f32::MAX`
     // alone would fail.
     #[test]
-    fn t_015_split_pooled_rejects_negative_inf_with_non_finite_output() {
+    fn t_015c_split_pooled_rejects_negative_inf_with_non_finite_output() {
         let flat: Vec<f32> = vec![0.0, 1.0, 2.0, f32::NEG_INFINITY];
         match split_pooled(&flat, 1, 4, EmbedKind::Query) {
             Err(EmbedError::NonFiniteOutput) => {}
-            other => panic!("[T-015] expected Err(NonFiniteOutput), got {other:?}"),
+            other => panic!("[T-015c] expected Err(NonFiniteOutput), got {other:?}"),
         }
     }
 
-    // T-012: emits warn so operators can diagnose corrupt readback (see ADR 0007).
+    // T-012f (sub-case of spec T-012): emits warn so operators can diagnose corrupt readback (see ADR 0007).
     #[traced_test]
     #[test]
-    fn t_012_split_pooled_emits_warn_on_buffer_shape_mismatch() {
+    fn t_012f_split_pooled_emits_warn_on_buffer_shape_mismatch() {
         let flat: Vec<f32> = vec![0.0; 7]; // expected 8
         let _ = split_pooled(&flat, 2, 4, EmbedKind::Query);
         assert!(
@@ -1043,11 +1043,11 @@ mod tests {
         );
     }
 
-    // T-015: emits warn so operators can distinguish kernel overflow / corrupt
+    // T-015d (sub-case of spec T-015): emits warn so operators can distinguish kernel overflow / corrupt
     // weights from upstream input errors (see ADR 0007).
     #[traced_test]
     #[test]
-    fn t_015_split_pooled_emits_warn_on_non_finite_output() {
+    fn t_015d_split_pooled_emits_warn_on_non_finite_output() {
         let flat: Vec<f32> = vec![0.0, 1.0, f32::NAN, 3.0];
         let _ = split_pooled(&flat, 1, 4, EmbedKind::Query);
         assert!(
