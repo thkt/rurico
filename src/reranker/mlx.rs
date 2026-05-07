@@ -30,7 +30,11 @@ impl RerankerInner {
         let model =
             RerankerModel::load(&artifacts.paths.model, config).map_err(ModelInitError::backend)?;
 
-        tracing::info!(hidden_size = config.hidden_size, "reranker: model loaded");
+        tracing::info!(
+            hidden_size = config.hidden_size,
+            model_path = ?artifacts.paths.model,
+            "reranker: model loaded"
+        );
         Ok(Self { model, tokenizer })
     }
 
@@ -111,6 +115,8 @@ impl RerankerInner {
                 tracing::warn!(
                     expected = batch_size,
                     actual = flat_len,
+                    batch_size,
+                    bucket_len,
                     "score_batch: output shape mismatch"
                 );
                 return Err(RerankerError::inference(format!(
@@ -121,13 +127,14 @@ impl RerankerInner {
             if scores.iter().any(|v| !v.is_finite()) {
                 tracing::warn!(
                     batch_size,
+                    bucket_len,
                     "score_batch: non-finite output detected (NaN or Inf in reranker scores)"
                 );
                 return Err(RerankerError::NonFiniteOutput);
             }
             Ok(scores)
         })();
-        release_inference_output(output);
+        release_inference_output(output, "reranker");
         result
     }
 }

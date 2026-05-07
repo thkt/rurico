@@ -326,6 +326,7 @@ impl ModernBert {
             tracing::warn!(
                 seq_len,
                 max_seq,
+                batch_size,
                 "model.forward: seq_len exceeds max_seq_len, truncating as defense-in-depth fallback"
             );
             let bs = batch_size as usize;

@@ -27,9 +27,9 @@ pub(crate) static MLX_CACHE_LOCK: Mutex<()> = Mutex::new(());
 /// 1. `output` is taken by value — no borrows remain after this call.
 /// 2. Model weights must remain live on the caller — only unused cache buffers are freed.
 /// 3. `MLX_CACHE_LOCK` serializes concurrent calls across all modules.
-pub(crate) fn release_inference_output(output: mlx_rs::Array) {
+pub(crate) fn release_inference_output(output: mlx_rs::Array, component: &'static str) {
     drop(output);
-    clear_inference_cache();
+    clear_inference_cache(component);
 }
 
 /// Clear the MLX GPU caches without consuming an Array.
@@ -46,18 +46,18 @@ pub(crate) fn release_inference_output(output: mlx_rs::Array) {
 /// Only call this when there is no live `Array` from the just-failed
 /// forward pass. If an Array exists, prefer [`release_inference_output`]
 /// to preserve the drop-before-clear ordering.
-pub(crate) fn clear_inference_cache() {
+pub(crate) fn clear_inference_cache(component: &'static str) {
     let _guard = MLX_CACHE_LOCK.lock().unwrap_or_else(|e| {
-        tracing::warn!("MLX cache lock was poisoned; recovering");
+        tracing::warn!(component, "MLX cache lock was poisoned; recovering");
         e.into_inner()
     });
     let code = rurico_ffi::mlx_clear_cache();
     if code != 0 {
-        tracing::warn!(code, "mlx_clear_cache failed");
+        tracing::warn!(component, code, "mlx_clear_cache failed");
     }
     let code = rurico_ffi::mlx_compile_clear_cache();
     if code != 0 {
-        tracing::warn!(code, "mlx_detail_compile_clear_cache failed");
+        tracing::warn!(component, code, "mlx_detail_compile_clear_cache failed");
     }
 }
 

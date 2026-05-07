@@ -34,7 +34,11 @@ impl Embedder {
     pub fn new(artifacts: &Artifacts) -> Result<Self, ModelInitError> {
         let inner = EmbedderInner::new(artifacts)?;
         let embedding_dims = inner.embedding_dims();
-        tracing::info!(embedding_dims, "embedder: model loaded");
+        tracing::info!(
+            embedding_dims,
+            model_path = ?artifacts.paths.model,
+            "embedder: model loaded"
+        );
         Ok(Self {
             inner: Mutex::new(inner),
             embedding_dims,

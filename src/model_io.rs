@@ -202,11 +202,24 @@ pub fn download_artifacts<Id: ModelArtifact>(model: Id) -> Result<ModelPaths, Mo
     });
 
     rx.recv_timeout(DOWNLOAD_TIMEOUT).map_err(|e| match e {
-        mpsc::RecvTimeoutError::Timeout => ModelIoError::Download(format!(
-            "download exceeded {} second timeout (HF Hub may be unreachable or proxy stalled)",
-            DOWNLOAD_TIMEOUT.as_secs()
-        )),
+        mpsc::RecvTimeoutError::Timeout => {
+            tracing::error!(
+                repo_id,
+                revision,
+                timeout_secs = DOWNLOAD_TIMEOUT.as_secs(),
+                "download_artifacts: HF Hub download timed out"
+            );
+            ModelIoError::Download(format!(
+                "download exceeded {} second timeout (HF Hub may be unreachable or proxy stalled)",
+                DOWNLOAD_TIMEOUT.as_secs()
+            ))
+        }
         mpsc::RecvTimeoutError::Disconnected => {
+            tracing::error!(
+                repo_id,
+                revision,
+                "download_artifacts: worker thread disconnected before sending result"
+            );
             ModelIoError::Download("download worker terminated unexpectedly".to_owned())
         }
     })?

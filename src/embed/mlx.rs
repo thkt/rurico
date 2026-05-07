@@ -166,7 +166,7 @@ impl EmbedderInner {
 
             let t_readback = Instant::now();
             let flat: &[f32] = pooled.as_slice();
-            let pooled_vec = split_pooled(flat, 1, hidden_size)?
+            let pooled_vec = split_pooled(flat, 1, hidden_size, "query")?
                 .into_iter()
                 .next()
                 .expect("split_pooled(_, 1, _) yields one row");
@@ -177,12 +177,12 @@ impl EmbedderInner {
         let t_clear = Instant::now();
         let result = match outcome {
             Ok((pooled, pooled_vec)) => {
-                release_inference_output(pooled);
+                release_inference_output(pooled, "embed");
                 metrics.cache_clear = t_clear.elapsed();
                 Ok(pooled_vec)
             }
             Err(e) => {
-                clear_inference_cache();
+                clear_inference_cache("embed");
                 metrics.cache_clear = t_clear.elapsed();
                 Err(e)
             }
@@ -354,7 +354,7 @@ impl EmbedderInner {
 
             let t_readback = Instant::now();
             let flat: &[f32] = pooled.as_slice();
-            let unpacked = split_pooled(flat, batch_size, hidden_size)?;
+            let unpacked = split_pooled(flat, batch_size, hidden_size, "batch")?;
             metrics.readback_pool += t_readback.elapsed();
             Ok((pooled, unpacked))
         })();
@@ -362,12 +362,12 @@ impl EmbedderInner {
         let t_clear = Instant::now();
         let unpacked = match outcome {
             Ok((pooled, unpacked)) => {
-                release_inference_output(pooled);
+                release_inference_output(pooled, "embed");
                 metrics.cache_clear += t_clear.elapsed();
                 unpacked
             }
             Err(e) => {
-                clear_inference_cache();
+                clear_inference_cache("embed");
                 metrics.cache_clear += t_clear.elapsed();
                 return Err(e);
             }
@@ -470,6 +470,10 @@ pub(super) fn shrink_chunk_to_fit(
         if *end <= start {
             tracing::warn!(
                 start_token = start,
+                end_token = *end,
+                text_byte_start = byte_start,
+                text_total_bytes = text.len(),
+                total_offsets = offsets.len(),
                 "chunk cannot fit within MAX_SEQ_LEN after adaptive shrink"
             );
             return Err(EmbedError::inference(format!(
@@ -547,10 +551,12 @@ pub(super) fn split_pooled(
     flat: &[f32],
     batch_size: usize,
     hidden_size: usize,
+    call_site: &'static str,
 ) -> Result<Vec<Vec<f32>>, EmbedError> {
     let expected = batch_size.saturating_mul(hidden_size);
     if flat.len() != expected {
         tracing::warn!(
+            call_site,
             expected,
             actual = flat.len(),
             batch_size,
@@ -564,6 +570,7 @@ pub(super) fn split_pooled(
     }
     if !flat.iter().all(|v| v.is_finite()) {
         tracing::warn!(
+            call_site,
             batch_size,
             hidden_size,
             "split_pooled: non-finite output detected (NaN or Inf in pooled buffer)"
@@ -856,7 +863,7 @@ mod tests {
             0.0, 1.0, 2.0, 3.0, // row 0
             4.0, 5.0, 6.0, 7.0, // row 1
         ];
-        let split = split_pooled(&flat, 2, 4).expect("happy path must split ok");
+        let split = split_pooled(&flat, 2, 4, "test").expect("happy path must split ok");
 
         assert_eq!(split.len(), 2, "[T-012] outer Vec must have `batch` rows");
         assert_eq!(
@@ -880,7 +887,7 @@ mod tests {
     #[test]
     fn t_012_split_pooled_shape_mismatch_short_returns_buffer_shape_mismatch() {
         let flat: Vec<f32> = vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0]; // len 7
-        match split_pooled(&flat, 2, 4) {
+        match split_pooled(&flat, 2, 4, "test") {
             Err(EmbedError::BufferShapeMismatch { expected, actual }) => {
                 assert_eq!(expected, 8, "[T-012] expected = batch * hidden = 8");
                 assert_eq!(actual, 7, "[T-012] actual = flat.len() = 7");
@@ -901,7 +908,7 @@ mod tests {
     #[test]
     fn t_012_split_pooled_shape_mismatch_long_returns_buffer_shape_mismatch() {
         let flat: Vec<f32> = vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 99.0]; // len 9
-        match split_pooled(&flat, 2, 4) {
+        match split_pooled(&flat, 2, 4, "test") {
             Err(EmbedError::BufferShapeMismatch { expected, actual }) => {
                 assert_eq!(expected, 8, "[T-012] expected = batch * hidden = 8");
                 assert_eq!(actual, 9, "[T-012] actual = flat.len() = 9");
@@ -923,7 +930,7 @@ mod tests {
     #[test]
     fn t_012_split_pooled_zero_batch_returns_empty_vec() {
         let flat: Vec<f32> = Vec::new();
-        let split = split_pooled(&flat, 0, 768).expect("zero-batch flat must split ok");
+        let split = split_pooled(&flat, 0, 768, "test").expect("zero-batch flat must split ok");
         assert!(
             split.is_empty(),
             "[T-012] batch=0 must yield an empty outer Vec, got {split:?}"
@@ -939,7 +946,7 @@ mod tests {
     #[test]
     fn t_012_split_pooled_single_batch_for_embed_query_path() {
         let flat: Vec<f32> = vec![0.1, 0.2, 0.3, 0.4, 0.5];
-        let split = split_pooled(&flat, 1, 5).expect("single-batch must split ok");
+        let split = split_pooled(&flat, 1, 5, "test").expect("single-batch must split ok");
 
         assert_eq!(split.len(), 1, "[T-012] batch=1 yields a single inner row");
         assert_eq!(
@@ -980,7 +987,7 @@ mod tests {
     #[test]
     fn t_015_split_pooled_rejects_nan_with_non_finite_output() {
         let flat: Vec<f32> = vec![0.0, 1.0, f32::NAN, 3.0];
-        match split_pooled(&flat, 1, 4) {
+        match split_pooled(&flat, 1, 4, "test") {
             Err(EmbedError::NonFiniteOutput) => {}
             other => panic!("[T-015] expected Err(NonFiniteOutput), got {other:?}"),
         }
@@ -995,7 +1002,7 @@ mod tests {
     #[test]
     fn t_015_split_pooled_rejects_positive_inf_with_non_finite_output() {
         let flat: Vec<f32> = vec![0.0, f32::INFINITY, 2.0, 3.0];
-        match split_pooled(&flat, 1, 4) {
+        match split_pooled(&flat, 1, 4, "test") {
             Err(EmbedError::NonFiniteOutput) => {}
             other => panic!("[T-015] expected Err(NonFiniteOutput), got {other:?}"),
         }
@@ -1010,7 +1017,7 @@ mod tests {
     #[test]
     fn t_015_split_pooled_rejects_negative_inf_with_non_finite_output() {
         let flat: Vec<f32> = vec![0.0, 1.0, 2.0, f32::NEG_INFINITY];
-        match split_pooled(&flat, 1, 4) {
+        match split_pooled(&flat, 1, 4, "test") {
             Err(EmbedError::NonFiniteOutput) => {}
             other => panic!("[T-015] expected Err(NonFiniteOutput), got {other:?}"),
         }
@@ -1021,10 +1028,14 @@ mod tests {
     #[test]
     fn t_012_split_pooled_emits_warn_on_buffer_shape_mismatch() {
         let flat: Vec<f32> = vec![0.0; 7]; // expected 8
-        let _ = split_pooled(&flat, 2, 4);
+        let _ = split_pooled(&flat, 2, 4, "test");
         assert!(
             logs_contain("split_pooled: buffer shape mismatch"),
             "warn must be emitted on shape mismatch"
+        );
+        assert!(
+            logs_contain("call_site=\"test\""),
+            "call_site field must be emitted so query/batch paths are distinguishable",
         );
     }
 
@@ -1034,7 +1045,7 @@ mod tests {
     #[test]
     fn t_015_split_pooled_emits_warn_on_non_finite_output() {
         let flat: Vec<f32> = vec![0.0, 1.0, f32::NAN, 3.0];
-        let _ = split_pooled(&flat, 1, 4);
+        let _ = split_pooled(&flat, 1, 4, "test");
         assert!(
             logs_contain("split_pooled: non-finite output"),
             "warn must be emitted on non-finite output"

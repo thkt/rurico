@@ -44,13 +44,16 @@ use rurico::sandbox;
 /// visible when this binary runs, without forcing a subscriber on library
 /// consumers.
 fn init_tracing_subscriber() {
-    let _ = tracing_subscriber::fmt()
+    if let Err(e) = tracing_subscriber::fmt()
         .with_writer(stderr)
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("debug")),
         )
-        .try_init();
+        .try_init()
+    {
+        eprintln!("mlx_smoke: tracing subscriber init failed: {e}");
+    }
 }
 
 fn main() {
