@@ -190,8 +190,9 @@ fn max_content_equals_max_seq_len_minus_2_minus_prefix_len() {
     assert_eq!(8180 + 10 + 2, MAX_SEQ_LEN);
 }
 
+/// Requires HF Hub model download (network access).
 #[test]
-#[ignore] // requires model download
+#[ignore]
 fn g_001_real_tokenizer_extract_prefix_tokens() {
     let artifacts = download_model(ModelId::default()).expect("download model");
     let tokenizer = load_tokenizer(&artifacts.paths.tokenizer).unwrap();
@@ -295,8 +296,9 @@ fn mock_chunked_embedder_returns_multi_chunk() {
 // MLX-dependent embedding tests (short text, long text, batch, prefix-merge)
 // are covered by `tests/mlx_smoke.rs` via subprocess isolation.
 
+/// Requires HF Hub model download (network access).
 #[test]
-#[ignore] // requires model download
+#[ignore]
 fn regression_prefix_merge_standalone_vs_full_tokenization_diverges() {
     // Verify that the prefix boundary actually diverges for these texts,
     // confirming the need for Approach A.
@@ -321,8 +323,9 @@ fn regression_prefix_merge_standalone_vs_full_tokenization_diverges() {
     }
 }
 
+/// Requires HF Hub model download (network access).
 #[test]
-#[ignore] // requires model download
+#[ignore]
 fn regression_long_document_sequential_planner_overlap_and_coverage() {
     // Mirrors the production sequential chunk planner. Verifies:
     // 1. Every chunk fits MAX_SEQ_LEN (adaptive shrink)
