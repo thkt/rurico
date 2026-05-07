@@ -12,6 +12,23 @@
 
 use std::time::Duration;
 
+/// Identifies which embed entry point a phase record or warn emit came from.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(super) enum EmbedKind {
+    #[default]
+    Query,
+    Batch,
+}
+
+impl EmbedKind {
+    pub(super) fn as_str(self) -> &'static str {
+        match self {
+            Self::Query => "query",
+            Self::Batch => "batch",
+        }
+    }
+}
+
 /// Public batch-level metrics snapshot mirroring the `"batch"` [`PhaseMetrics`]
 /// record. Returned alongside embeddings by
 /// [`Embedder::embed_documents_batch_with_metrics`](super::Embedder::embed_documents_batch_with_metrics)
@@ -61,8 +78,8 @@ impl From<&PhaseMetrics> for BatchMetrics {
 /// Phase timings and batch counters for one `embed_*` call.
 #[derive(Debug, Clone, Copy, Default)]
 pub(super) struct PhaseMetrics {
-    /// Identifies which entry point produced this record (e.g. `"query"`, `"batch"`).
-    pub kind: &'static str,
+    /// Identifies which entry point produced this record.
+    pub kind: EmbedKind,
     pub tokenize: Duration,
     pub chunk_plan: Duration,
     pub forward_eval: Duration,
@@ -84,7 +101,7 @@ pub(super) struct PhaseMetrics {
 }
 
 impl PhaseMetrics {
-    pub(super) fn new(kind: &'static str) -> Self {
+    pub(super) fn new(kind: EmbedKind) -> Self {
         Self {
             kind,
             ..Self::default()
@@ -99,10 +116,10 @@ impl PhaseMetrics {
     /// Emit one structured debug record summarising this call.
     ///
     /// Each phase timing and counter is a named field so subscribers can
-    /// filter or aggregate without parsing a format string (ADR 0007).
+    /// filter or aggregate without parsing a format string.
     pub(super) fn log(&self) {
         tracing::debug!(
-            kind = self.kind,
+            kind = self.kind.as_str(),
             tokenize_ms = self.tokenize.as_millis(),
             chunk_plan_ms = self.chunk_plan.as_millis(),
             forward_eval_ms = self.forward_eval.as_millis(),
@@ -179,18 +196,17 @@ mod tests {
 
     #[test]
     fn phase_metrics_new_sets_kind() {
-        let m = PhaseMetrics::new("query");
-        assert_eq!(m.kind, "query");
+        let m = PhaseMetrics::new(EmbedKind::Query);
+        assert_eq!(m.kind, EmbedKind::Query);
         assert_eq!(m.padded_tokens, 0);
     }
 
     // T-MET-001: log() emits named fields for the bucket histogram so
-    // subscribers can read per-bucket counts without parsing a format string
-    // (ADR 0007 / AC-9).
+    // subscribers can read per-bucket counts without parsing a format string.
     #[traced_test]
     #[test]
     fn t_met_001_log_emits_named_bucket_hist_fields() {
-        let mut m = PhaseMetrics::new("batch");
+        let mut m = PhaseMetrics::new(EmbedKind::Batch);
         m.bucket_hist = [3, 5, 2, 1];
         m.num_chunks = 11;
         m.log();

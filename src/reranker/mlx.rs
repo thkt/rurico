@@ -1,5 +1,5 @@
 use super::{Artifacts, ModelInitError, RerankerError};
-use crate::mlx_cache::release_inference_output;
+use crate::mlx_cache::{Component, release_inference_output};
 use crate::model_io::{
     BUCKET_BOUNDS, MAX_SEQ_LEN, assign_bucket, compute_sub_batch_size, pad_sequences,
     truncate_with_eos,
@@ -134,7 +134,7 @@ impl RerankerInner {
             }
             Ok(scores)
         })();
-        release_inference_output(output, "reranker");
+        release_inference_output(output, Component::Reranker);
         result
     }
 }

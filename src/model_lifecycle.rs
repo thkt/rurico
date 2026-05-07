@@ -28,30 +28,12 @@ pub fn download_model<Id: ModelArtifact>(
     let repo_id = model.repo_id();
     let revision = model.revision();
     tracing::info!(repo_id, revision, "model_lifecycle: download start");
-    let paths = match download_artifacts(model) {
-        Ok(p) => p,
-        Err(e) => {
-            tracing::error!(
-                repo_id,
-                revision,
-                error = %e,
-                "model_lifecycle: download failed"
-            );
-            return Err(e.into());
-        }
-    };
-    let verified = match Id::Kind::verify(paths) {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::error!(
-                repo_id,
-                revision,
-                error = %e,
-                "model_lifecycle: verification failed"
-            );
-            return Err(e);
-        }
-    };
+    let paths = download_artifacts(model).inspect_err(|e| {
+        tracing::error!(repo_id, revision, error = %e, "model_lifecycle: download failed");
+    })?;
+    let verified = Id::Kind::verify(paths).inspect_err(|e| {
+        tracing::error!(repo_id, revision, error = %e, "model_lifecycle: verification failed");
+    })?;
     tracing::info!(repo_id, revision, "model_lifecycle: download complete");
     Ok(verified)
 }

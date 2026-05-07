@@ -7,6 +7,22 @@
 
 use std::sync::Mutex;
 
+/// Caller identifier for cache-clear telemetry.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Component {
+    Embed,
+    Reranker,
+}
+
+impl Component {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Embed => "embed",
+            Self::Reranker => "reranker",
+        }
+    }
+}
+
 /// Process-global lock for [`mlx_sys::mlx_clear_cache`] and [`mlx_sys::mlx_detail_compile_clear_cache`] calls.
 ///
 /// Recover from poison: cache-clear is stateless (guards `()`), safe to
@@ -27,7 +43,7 @@ pub(crate) static MLX_CACHE_LOCK: Mutex<()> = Mutex::new(());
 /// 1. `output` is taken by value — no borrows remain after this call.
 /// 2. Model weights must remain live on the caller — only unused cache buffers are freed.
 /// 3. `MLX_CACHE_LOCK` serializes concurrent calls across all modules.
-pub(crate) fn release_inference_output(output: mlx_rs::Array, component: &'static str) {
+pub(crate) fn release_inference_output(output: mlx_rs::Array, component: Component) {
     drop(output);
     clear_inference_cache(component);
 }
@@ -46,7 +62,8 @@ pub(crate) fn release_inference_output(output: mlx_rs::Array, component: &'stati
 /// Only call this when there is no live `Array` from the just-failed
 /// forward pass. If an Array exists, prefer [`release_inference_output`]
 /// to preserve the drop-before-clear ordering.
-pub(crate) fn clear_inference_cache(component: &'static str) {
+pub(crate) fn clear_inference_cache(component: Component) {
+    let component = component.as_str();
     let _guard = MLX_CACHE_LOCK.lock().unwrap_or_else(|e| {
         tracing::warn!(component, "MLX cache lock was poisoned; recovering");
         e.into_inner()
