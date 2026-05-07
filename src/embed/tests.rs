@@ -191,7 +191,6 @@ fn max_content_equals_max_seq_len_minus_2_minus_prefix_len() {
 }
 
 /// Requires HF Hub model download (network access).
-/// Run with: `cargo test -- --ignored g_001_real_tokenizer_extract_prefix_tokens`
 #[test]
 #[ignore]
 fn g_001_real_tokenizer_extract_prefix_tokens() {
@@ -298,7 +297,6 @@ fn mock_chunked_embedder_returns_multi_chunk() {
 // are covered by `tests/mlx_smoke.rs` via subprocess isolation.
 
 /// Requires HF Hub model download (network access).
-/// Run with: `cargo test -- --ignored regression_prefix_merge_standalone_vs_full_tokenization_diverges`
 #[test]
 #[ignore]
 fn regression_prefix_merge_standalone_vs_full_tokenization_diverges() {
@@ -326,7 +324,6 @@ fn regression_prefix_merge_standalone_vs_full_tokenization_diverges() {
 }
 
 /// Requires HF Hub model download (network access).
-/// Run with: `cargo test -- --ignored regression_long_document_sequential_planner_overlap_and_coverage`
 #[test]
 #[ignore]
 fn regression_long_document_sequential_planner_overlap_and_coverage() {

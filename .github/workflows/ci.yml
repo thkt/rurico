@@ -30,7 +30,7 @@ jobs:
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
 
       - name: Check
-        run: cargo check --workspace
+        run: cargo check --workspace --features test-support,test-mlx
 
       - name: Test
         run: cargo test --workspace --features test-support,test-mlx
