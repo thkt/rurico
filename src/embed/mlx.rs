@@ -83,9 +83,10 @@ fn build_indexed_chunks(
         }
     }
     if tokens_iter.next().is_some() {
-        return Err(EmbedError::inference(
-            "all_chunk_tokens length exceeds chunks_per_doc total",
-        ));
+        let extras = tokens_iter.count() + 1;
+        return Err(EmbedError::inference(format!(
+            "all_chunk_tokens has {extras} more entries than chunks_per_doc total"
+        )));
     }
     Ok(result)
 }
@@ -718,7 +719,13 @@ mod tests {
         let all_chunks = vec![vec![1u32; 10]];
         let err = build_indexed_chunks(all_chunks, &[2])
             .expect_err("chunks_per_doc total > all_chunk_tokens length must error");
-        assert!(matches!(err, EmbedError::Inference(_)));
+        match err {
+            EmbedError::Inference(msg) => assert!(
+                msg.contains("chunks_per_doc total exceeds"),
+                "expected chunks_per_doc-side error wording, got: {msg}"
+            ),
+            other => panic!("expected Inference, got {other:?}"),
+        }
     }
 
     #[test]
@@ -726,7 +733,13 @@ mod tests {
         let all_chunks = vec![vec![1u32; 10], vec![2u32; 20]];
         let err = build_indexed_chunks(all_chunks, &[1])
             .expect_err("all_chunk_tokens length > chunks_per_doc total must error");
-        assert!(matches!(err, EmbedError::Inference(_)));
+        match err {
+            EmbedError::Inference(msg) => assert!(
+                msg.contains("all_chunk_tokens has 1 more"),
+                "expected extras count in surplus-side error wording, got: {msg}"
+            ),
+            other => panic!("expected Inference, got {other:?}"),
+        }
     }
 
     // T-BKT-007: 10 chunks spanning all 4 buckets round-trip in original order

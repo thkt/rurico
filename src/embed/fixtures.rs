@@ -118,13 +118,14 @@ pub fn load<R: Read>(r: &mut R) -> io::Result<Vec<ChunkedEmbedding>> {
         let mut chunks = Vec::with_capacity(num_chunks);
         for _ in 0..num_chunks {
             let dim = u32_to_usize(read_u32(r)?, "hidden_dim")?;
-            // `dim * 4` (bytes per chunk) overflows `usize` on 32-bit targets when
-            // `dim > usize::MAX / 4`; `checked_mul` surfaces a clear error instead
-            // of panicking. On 64-bit targets the check is effectively unreachable.
-            let bytes_len = dim.checked_mul(4).ok_or_else(|| {
+            // `dim * size_of::<f32>()` (bytes per chunk) overflows `usize` on
+            // 32-bit targets when `dim > usize::MAX / 4`; `checked_mul` surfaces a
+            // clear error instead of panicking. Unreachable on 64-bit.
+            const BYTES_PER_F32: usize = size_of::<f32>();
+            let bytes_len = dim.checked_mul(BYTES_PER_F32).ok_or_else(|| {
                 io::Error::new(
                     io::ErrorKind::InvalidData,
-                    format!("hidden_dim ({dim}) * 4 overflows usize"),
+                    format!("hidden_dim ({dim}) * {BYTES_PER_F32} overflows usize"),
                 )
             })?;
             let mut bytes = vec![0u8; bytes_len];
@@ -138,8 +139,9 @@ pub fn load<R: Read>(r: &mut R) -> io::Result<Vec<ChunkedEmbedding>> {
 }
 
 /// Convert a `u32` header field to `usize`, returning a structured `InvalidData`
-/// error on platforms where the value would not fit (16-bit `usize` only;
-/// fail closed on 32/64-bit by virtue of `From<u32> for usize`).
+/// error if the value cannot fit. Only fails on 16-bit `usize` targets; on
+/// 32/64-bit, `From<u32> for usize` makes the conversion infallible — the
+/// `Err` arm exists for type-system completeness, not as a runtime guard.
 fn u32_to_usize(value: u32, field: &'static str) -> io::Result<usize> {
     usize::try_from(value).map_err(|_| {
         io::Error::new(
@@ -363,22 +365,32 @@ mod tests {
         assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof);
     }
 
-    // Corrupt header: a chunk claims `dim = u32::MAX` but the payload is
-    // empty. `usize::try_from` succeeds (u32 always fits in usize on
-    // 64-bit), and `dim.checked_mul(4)` succeeds (`4 * u32::MAX < usize::MAX`
-    // on 64-bit), so allocation proceeds and `read_exact` fails with
-    // `UnexpectedEof` rather than over-allocating undetected.
+    // Corrupt header: a chunk declares `dim` but the f32 payload is shorter
+    // than `dim * 4` bytes, so `read_exact` fails with `UnexpectedEof` after
+    // a small bounded allocation. Uses a small `dim` to avoid the 16 GiB
+    // allocation that `dim = u32::MAX` would force on 64-bit hosts.
     #[test]
-    fn load_rejects_chunk_with_oversize_dim_and_empty_payload() {
+    fn load_rejects_chunk_with_truncated_payload() {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&1u32.to_le_bytes()); // num_docs = 1
         bytes.extend_from_slice(&1u32.to_le_bytes()); // num_chunks = 1
-        bytes.extend_from_slice(&u32::MAX.to_le_bytes()); // dim = u32::MAX, payload missing
-        let err = load(&mut Cursor::new(&bytes)).expect_err("oversize dim with no payload errors");
-        // 64-bit: allocation succeeds, read_exact hits EOF; 32-bit: checked_mul rejects.
-        assert!(matches!(
-            err.kind(),
-            io::ErrorKind::UnexpectedEof | io::ErrorKind::InvalidData
-        ));
+        bytes.extend_from_slice(&64u32.to_le_bytes()); // dim = 64 → expects 256 payload bytes
+        bytes.extend_from_slice(&[0u8; 16]); // only 16 bytes of payload
+        let err = load(&mut Cursor::new(&bytes)).expect_err("truncated payload must error");
+        assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof);
+    }
+
+    // 32-bit-only: `dim.checked_mul(4)` overflows `usize` on 32-bit targets
+    // when `dim > usize::MAX / 4`. Gated to avoid the 16 GiB allocation that
+    // would happen on 64-bit hosts before `read_exact` could return.
+    #[cfg(target_pointer_width = "32")]
+    #[test]
+    fn load_rejects_dim_times_4_overflow_on_32bit() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1u32.to_le_bytes()); // num_docs = 1
+        bytes.extend_from_slice(&1u32.to_le_bytes()); // num_chunks = 1
+        bytes.extend_from_slice(&u32::MAX.to_le_bytes()); // dim = u32::MAX → dim * 4 overflows usize
+        let err = load(&mut Cursor::new(&bytes)).expect_err("dim * 4 overflow must error");
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
     }
 }
