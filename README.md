@@ -282,13 +282,12 @@ let aggregated = aggregator.aggregate(&merged);
 
 ### ベクトルのバイト変換
 
-`sqlite-vec` にベクトルをバインドする際に使う。
+`sqlite-vec` にベクトルをバインドする際は `bytemuck::cast_slice` で zero-copy に `&[f32] → &[u8]` を行う。rurico は little-endian ターゲットでのみビルドされるため、変換結果は sqlite-vec が期待する byte layout と一致する。
 
 ```rust
-use rurico::storage::f32_as_bytes;
-
 let vector: Vec<f32> = embedder.embed_query("検索")?;
-stmt.execute(rusqlite::params![f32_as_bytes(&vector)])?;
+let bytes: &[u8] = bytemuck::cast_slice(&vector);
+stmt.execute(rusqlite::params![bytes])?;
 ```
 
 ### エラー型

@@ -31,7 +31,6 @@ use std::io;
 use std::io::{Read, Write};
 
 use super::ChunkedEmbedding;
-use crate::storage::f32_as_bytes;
 
 /// Minimum cosine similarity for two fixtures to count as numerically
 /// equivalent (Spec NFR-001).
@@ -89,8 +88,8 @@ pub enum ShapeMismatch {
 ///
 /// Each chunk triggers two writes: a 4-byte `hidden_dim` header and the
 /// f32 payload as a single contiguous little-endian byte slice (via
-/// [`f32_as_bytes`]). Callers writing to a [`std::fs::File`] must wrap it
-/// in a [`std::io::BufWriter`] to avoid one syscall per chunk boundary.
+/// `bytemuck::cast_slice`). Callers writing to a [`std::fs::File`] must wrap
+/// it in a [`std::io::BufWriter`] to avoid one syscall per chunk boundary.
 pub fn save<W: Write>(w: &mut W, docs: &[ChunkedEmbedding]) -> io::Result<()> {
     let num_docs = u32::try_from(docs.len()).expect("num_docs fits in u32");
     w.write_all(&num_docs.to_le_bytes())?;
@@ -100,7 +99,7 @@ pub fn save<W: Write>(w: &mut W, docs: &[ChunkedEmbedding]) -> io::Result<()> {
         for chunk in &doc.chunks {
             let dim = u32::try_from(chunk.len()).expect("hidden_dim fits in u32");
             w.write_all(&dim.to_le_bytes())?;
-            w.write_all(f32_as_bytes(chunk))?;
+            w.write_all(bytemuck::cast_slice::<f32, u8>(chunk))?;
         }
     }
     Ok(())

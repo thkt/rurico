@@ -1,8 +1,9 @@
 mod embedder;
 /// Ordinary least squares linear regression. Internal support for the Phase 2
-/// smoke harness (`mlx_smoke measure-baseline`'s R² assertion). Exposed `pub`
-/// for cross-target reuse within this crate only — not part of the public
-/// semantic-search surface.
+/// smoke harness (`mlx_smoke measure-baseline`'s R² assertion). Compiled only
+/// when its sole caller (`mlx_smoke`, gated on the `smoke` feature) or the
+/// crate's own test target is built.
+#[cfg(any(test, feature = "smoke"))]
 #[doc(hidden)]
 pub mod linreg;
 mod metrics;
@@ -30,7 +31,7 @@ pub use crate::model_init::ModelInitError;
 pub use crate::model_lifecycle::{cached_artifacts, download_model};
 pub use embedder::Embedder;
 pub use metrics::BatchMetrics;
-pub use pooling::gpu_pool_and_normalize;
+pub(crate) use pooling::gpu_pool_and_normalize;
 
 use crate::artifacts;
 use crate::model_io::{ModelArtifact, truncate_with_eos};
@@ -84,7 +85,7 @@ pub const DOCUMENT_PREFIX: &str = "検索文書: ";
 
 pub use crate::model_io::MAX_SEQ_LEN;
 /// Number of overlapping tokens between adjacent chunks.
-pub const CHUNK_OVERLAP_TOKENS: usize = 2048;
+pub(crate) const CHUNK_OVERLAP_TOKENS: usize = 2048;
 
 /// Maximum text content tokens for a given prefix length.
 /// Computed as `MAX_SEQ_LEN - 2 (BOS + EOS) - prefix_len`.

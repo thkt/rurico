@@ -25,10 +25,9 @@ pub mod reranker;
 pub mod retrieval;
 /// Codex seatbelt sandbox detection for MLX runtime gating.
 ///
-/// Internal support API used by smoke binaries and integration tests. Exposed
-/// as `pub` for cross-target reuse within this crate — not part of the public
-/// semantic-search surface for downstream consumers.
-#[doc(hidden)]
+/// Public API for downstream consumers that drive MLX through rurico and need
+/// to skip MLX-touching paths inside Codex Desktop's seatbelt sandbox. See
+/// the [module-level docs](sandbox) for the operational contract.
 pub mod sandbox;
 /// SQLite-backed vector + FTS5 hybrid storage.
 pub mod storage;

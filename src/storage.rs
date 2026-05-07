@@ -4,17 +4,10 @@ mod search;
 use std::sync::OnceLock;
 
 pub use query_normalize::{QueryNormalizationConfig, normalize_for_fts, pre_phase_5_disabled};
-pub use search::{
-    MatchFtsQuery, SanitizeError, fts_quote, prepare_match_query, recency_decay, rrf_merge,
-};
+pub use search::{MatchFtsQuery, SanitizeError, fts_quote, prepare_match_query, rrf_merge};
 
 #[cfg(not(target_endian = "little"))]
 compile_error!("rurico requires a little-endian target for f32↔u8 embedding storage");
-
-/// Reinterpret `&[f32]` as `&[u8]` (zero-copy, little-endian).
-pub fn f32_as_bytes(slice: &[f32]) -> &[u8] {
-    bytemuck::cast_slice(slice)
-}
 
 /// Register sqlite-vec as a process-global auto-extension.
 ///
