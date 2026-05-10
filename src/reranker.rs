@@ -1,3 +1,4 @@
+mod lazy;
 mod mlx;
 
 #[cfg(any(test, feature = "test-support"))]
@@ -6,6 +7,7 @@ mod test_support;
 #[cfg(test)]
 mod tests;
 
+pub use self::lazy::LazyReranker;
 use self::mlx::RerankerInner;
 use crate::artifacts;
 use crate::model_io::ModelArtifact;
@@ -87,8 +89,9 @@ impl ModelArtifact for RerankerModelId {
 /// Errors from reranker operations at runtime.
 ///
 /// These errors occur during calls to [`Rerank`] trait methods after the
-/// [`Reranker`] has been successfully initialised.
+/// wrapped Reranker has been initialised (lazily or eagerly).
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum RerankerError {
     /// MLX inference failure during a forward pass.
     #[error("inference error: {0}")]
@@ -99,6 +102,13 @@ pub enum RerankerError {
     /// Model output contains NaN or infinity.
     #[error("non-finite values in reranker output (NaN or inf)")]
     NonFiniteOutput,
+    /// Lazy initialization failed (model load, cache lookup, or download).
+    ///
+    /// Returned by [`LazyReranker`] on the first method call when its init
+    /// closure returns `Err`. Once observed, this failure is cached for the
+    /// lifetime of the wrapper — see [`LazyReranker`] for rationale.
+    #[error("init failed: {0}")]
+    InitFailed(String),
 }
 
 impl RerankerError {
