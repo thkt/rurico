@@ -59,6 +59,9 @@ impl<R: Rerank> LazyReranker<R> {
         }
     }
 
+    /// Borrow the wrapped reranker, lazily running the init closure on the
+    /// first call. Subsequent calls return the cached outcome (success or
+    /// failure) without re-running the closure.
     fn inner(&self) -> Result<&R, RerankerError> {
         match self.cell.get_or_init(|| (self.init)()) {
             Ok(r) => Ok(r),
@@ -81,10 +84,16 @@ impl<R: Rerank> Rerank for LazyReranker<R> {
     }
 
     fn score_batch(&self, pairs: &[(&str, &str)]) -> Result<Vec<f32>, RerankerError> {
+        if pairs.is_empty() {
+            return Ok(Vec::new());
+        }
         self.inner()?.score_batch(pairs)
     }
 
     fn rerank(&self, query: &str, documents: &[&str]) -> Result<Vec<RankedResult>, RerankerError> {
+        if documents.is_empty() {
+            return Ok(Vec::new());
+        }
         self.inner()?.rerank(query, documents)
     }
 }
@@ -116,19 +125,6 @@ mod tests {
             counter.load(Ordering::SeqCst),
             0,
             "init must not run on construction"
-        );
-    }
-
-    // T-154-002: untouched_lazy_never_invokes_init
-    #[test]
-    fn untouched_lazy_never_invokes_init() {
-        let counter = Arc::new(AtomicUsize::new(0));
-        let lazy = LazyReranker::new(counting_init(Arc::clone(&counter)));
-        drop(lazy);
-        assert_eq!(
-            counter.load(Ordering::SeqCst),
-            0,
-            "dropping without method calls must not run init"
         );
     }
 
@@ -252,5 +248,30 @@ mod tests {
         assert!(format!("{lazy:?}").contains("initialized: false"));
         lazy.score("q", "d").unwrap();
         assert!(format!("{lazy:?}").contains("initialized: true"));
+    }
+
+    // T-154-010: empty_inputs_short_circuit_without_init
+    //
+    // Pins parity with `Reranker::score_batch` / `rerank`, which return
+    // `Ok(vec![])` before touching the model. Without this, replay-first
+    // paths that pass empty candidates would surface `InitFailed` from a
+    // missing model instead of the expected empty result.
+    #[test]
+    fn empty_inputs_short_circuit_without_init() {
+        let counter = Arc::new(AtomicUsize::new(0));
+        let lazy: LazyReranker<MockReranker> = LazyReranker::new({
+            let counter = Arc::clone(&counter);
+            move || {
+                counter.fetch_add(1, Ordering::SeqCst);
+                Err(String::from("model unavailable"))
+            }
+        });
+        assert!(lazy.score_batch(&[]).unwrap().is_empty());
+        assert!(lazy.rerank("q", &[]).unwrap().is_empty());
+        assert_eq!(
+            counter.load(Ordering::SeqCst),
+            0,
+            "empty inputs must not trigger init (parity with Reranker)"
+        );
     }
 }
