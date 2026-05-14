@@ -6,6 +6,8 @@ decision-makers: thkt
 
 # Adopt process-level sqlite-vec auto-extension registration
 
+> **Note (2026-05-14, idempotency clarification)**: 本 ADR は ordering 契約を「`Connection::open` 前に呼ぶ」と表現するが、文中・Decision Outcome の "一度だけ呼ぶ" は実装挙動と細部が違う。`src/storage.rs::ensure_sqlite_vec` は `OnceLock` で gated されており、複数回呼び出しても 2 回目以降は no-op で返す idempotent な実装 (`ensure_sqlite_vec_idempotent` test が `src/storage.rs:47` で pin)。読者は **「`Connection::open` 前に呼ぶ必要があるが、複数回呼んでも害なし」** と読み替えてほしい。"一度だけ" は "registration が effective に成立するのは 1 度きり" の意味で、caller 側の呼び出し回数を縛るものではない。
+
 ## Context and Problem Statement
 
 rurico の storage 層は sqlite-vec の vec0 仮想テーブルを使うが、sqlite-vec は **process-level auto-extension** として登録する idiom を取る (`sqlite_auto_extension` がプロセス内の全 `Connection::open` に対して以後自動 load する)。`src/storage.rs::ensure_sqlite_vec` (`pub fn`) が registration を行い、未完了の状態で開かれた Connection からは vec0 にアクセスできない。downstream CLI (`yomu` / `sae` / `amici`) は `Connection::open` 前に必ず `ensure_sqlite_vec` を呼ぶ必要があるが、この ordering 契約はコード型システムでは強制できず文書化に頼る。
