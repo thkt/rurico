@@ -2,6 +2,7 @@
 
 - Status: Superseded by [`amici/docs/decisions/0002-evaluation-methodology.md`](https://github.com/thkt/amici/blob/main/docs/decisions/0002-evaluation-methodology.md) (migration recorded in [ADR 0006](./0006-eval-harness-migration-to-amici.md))
 - Date: 2026-04-25
+- Scope: [rust, evaluation]
 - Confidence: medium-high. Reference composition pattern is empirically established in `recall/src/hybrid.rs`; statistical significance via bootstrap CI on 140+ query fixtures is a well-known IR convention; the unknown is whether mlx inference f32 drift across machines / mlx-rs versions stays inside the regeneration tolerance already adopted by ADR 0002.
 
 > **Note (2026-05-08)**: `rrf_merge` references in this ADR are superseded by issue #104. The canonical RRF primitive is now `retrieval::WeightedRrf` (configurable via `HybridSearchConfig`, `WeightedRrf::default()` is bit-equal to the removed legacy fn).
