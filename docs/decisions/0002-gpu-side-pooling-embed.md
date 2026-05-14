@@ -4,6 +4,10 @@
 - Date: 2026-04-24
 - Confidence: medium. The mlx-rs 0.25.3 Array API surface for reduction + broadcasting divide is unconfirmed, and the empirical precision margin over NFR-001 is unmeasured pre-prototype.
 
+> **Note (2026-05-14, post-Phase-3c)**: Sub-decision 2 originally justified `pub fn gpu_pool_and_normalize` on the need for the Phase 3a probe binary (`src/bin/gpu_pool_probe.rs`) to call it from a separate crate target. Phase 3c removed the probe binary; no external caller remains. The function is narrowed to `pub(crate) fn` to match LANG.md `Visibility: Minimum required`. The `[`pub use pooling::gpu_pool_and_normalize`](src/embed.rs) re-export was already `pub(crate) use` from Phase 3b — only the definition-site visibility lagged.
+
+> **Note (2026-05-14, FR-001a defense-in-depth update)**: Consequences originally described FR-001a's defense-in-depth as distributed across `validate_attention_mask` (upstream rejection) **plus the probe bin's `is_finite` guard**. With the probe bin removed in Phase 3c, the `is_finite` guard moved into production `split_pooled` (`src/embed/mlx.rs:572`), keeping the defense-in-depth posture intact. The pairing is now `validate_attention_mask` + `split_pooled::is_finite`.
+
 ## Context
 
 Phase 2 (length-bucket batching, PR #55-#61) reduced W3 `padding_ratio` from 2.316 to 1.165 and brought W2 and W3 into the primary SLA + padding thresholds. W1 (long-document mix, all three chunks at `seq_len ≈ 8K` resolving to bucket 3) stayed at `padding_ratio = 1.474` and batch/sequential `ratio = 1.254`. Bucket batching is a mechanical no-op for single-bucket workloads, so closing W1 needs a different lever.

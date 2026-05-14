@@ -23,7 +23,7 @@ use mlx_rs::{Array, Dtype, error::Exception, ops::maximum};
 // drop-before-clear at compile time. `clippy` can't see that cross-function
 // intent, so suppress the lint here.
 #[allow(clippy::needless_pass_by_value)]
-pub fn gpu_pool_and_normalize(hidden: Array, mask: &Array) -> Result<Array, Exception> {
+pub(crate) fn gpu_pool_and_normalize(hidden: Array, mask: &Array) -> Result<Array, Exception> {
     let shape = mask.shape();
     let batch = shape[0];
     let seq = shape[1];
