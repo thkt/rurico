@@ -1,8 +1,12 @@
-# ADR 0004: Retrieval and Rerank Pipeline Contract for `rurico`
+---
+status: "accepted"
+date: 2026-04-27
+decision-makers: thkt
+---
 
-- Status: Accepted
-- Date: 2026-04-26 (proposed) · 2026-04-27 (accepted)
-- Confidence: medium at proposal. The 5-stage shape was empirically validated by `src/eval/pipeline.rs` (Phase 1c) and mirrored the production pipeline in `recall/src/search.rs`. The unknown was whether the Phase 3 aggregation step fit cleanly between merge and rerank for downstream crates whose hybrid wiring evolved independently (`sae`, `yomu`); resolved by Phase 3 (#67) + the chunk-level retrieval follow-up (#76), which landed the `Aggregator` trait at the contracted position with no shape change.
+# Retrieval and Rerank Pipeline Contract for `rurico`
+
+> **Confidence**: medium at proposal (proposed 2026-04-26 · accepted 2026-04-27). The 5-stage shape was empirically validated by `src/eval/pipeline.rs` (Phase 1c) and mirrored the production pipeline in `recall/src/search.rs`. The unknown was whether the Phase 3 aggregation step fit cleanly between merge and rerank for downstream crates whose hybrid wiring evolved independently (`sae`, `yomu`); resolved by Phase 3 (#67) + the chunk-level retrieval follow-up (#76), which landed the `Aggregator` trait at the contracted position with no shape change.
 
 > **Note (2026-05-08)**: `rrf_merge` references in this ADR are superseded by issue #104. The canonical RRF primitive is now `retrieval::WeightedRrf` — this ADR's own Stage-2 `MergeStrategy::WeightedRrf` (configurable via `HybridSearchConfig`, `WeightedRrf::default()` is bit-equal to the removed legacy fn).
 

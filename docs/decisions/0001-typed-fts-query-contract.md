@@ -1,8 +1,12 @@
-# ADR 0001: Adopt a Typed FTS Query Contract in `rurico`
+---
+status: "accepted"
+date: 2026-03-28
+decision-makers: thkt
+---
 
-- Status: Accepted
-- Date: 2026-03-28
-- Confidence: high - The current API contract is ambiguous, and the migration path across downstream crates is clear.
+# Adopt a Typed FTS Query Contract in `rurico`
+
+> **Confidence**: high - The current API contract is ambiguous, and the migration path across downstream crates is clear.
 
 > **Note (2026-05-14, visibility clarification)**: `SanitizedFtsQuery`, `sanitize_fts_query`, and `fts_expand_short_terms` are `pub(crate)` (not `pub`). The downstream-visible surface is `MatchFtsQuery` + `prepare_match_query` only — intermediate sanitization types stay crate-private to match LANG.md `Visibility: Minimum required`. The Migration Plan below remains valid because downstream callers reach the typed contract through `prepare_match_query` regardless.
 

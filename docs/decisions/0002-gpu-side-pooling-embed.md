@@ -1,8 +1,12 @@
-# ADR 0002: GPU-side Pooling for the embed Pipeline
+---
+status: "accepted"
+date: 2026-04-24
+decision-makers: thkt
+---
 
-- Status: Accepted
-- Date: 2026-04-24
-- Confidence: medium. The mlx-rs 0.25.3 Array API surface for reduction + broadcasting divide is unconfirmed, and the empirical precision margin over NFR-001 is unmeasured pre-prototype.
+# GPU-side Pooling for the embed Pipeline
+
+> **Confidence**: medium. The mlx-rs 0.25.3 Array API surface for reduction + broadcasting divide is unconfirmed, and the empirical precision margin over NFR-001 is unmeasured pre-prototype.
 
 > **Note (2026-05-14, post-Phase-3c)**: Sub-decision 2 originally justified `pub fn gpu_pool_and_normalize` on the need for the Phase 3a probe binary (`src/bin/gpu_pool_probe.rs`) to call it from a separate crate target. Phase 3c removed the probe binary; no external caller remains. The function is narrowed to `pub(crate) fn` to match LANG.md `Visibility: Minimum required`. The `[`pub use pooling::gpu_pool_and_normalize`](src/embed.rs) re-export was already `pub(crate) use` from Phase 3b — only the definition-site visibility lagged.
 
