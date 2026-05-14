@@ -1,8 +1,12 @@
-# ADR 0007: Library Logging Boundary — `rurico` Emits Internal Recovery Warns, CLI Emits Caller Boundary Warns
+---
+status: "accepted"
+date: 2026-04-30
+decision-makers: thkt
+---
 
-- Status: Accepted
-- Date: 2026-04-30
-- Confidence: high. The boundary is observable from the existing call graph: `yomu/src/query.rs:487-493` already warns on `embed_query` failures (caller boundary); `rurico::embed::Embedder::forward` callers are the only consumers that decide whether a typed error becomes `degraded=true`, so a `rurico`-side warn at that point would duplicate. The internal-recovery sites (`split_pooled` non-finite output, `mlx_cache` lock poisoning, probe subprocess timeout, etc.) are decisions `rurico` makes that the caller cannot see, so a `rurico`-side warn is the only place where the diagnostic information exists.
+# Library Logging Boundary — `rurico` Emits Internal Recovery Warns, CLI Emits Caller Boundary Warns
+
+> **Confidence**: high. The boundary is observable from the existing call graph: `yomu/src/query.rs:487-493` already warns on `embed_query` failures (caller boundary); `rurico::embed::Embedder::forward` callers are the only consumers that decide whether a typed error becomes `degraded=true`, so a `rurico`-side warn at that point would duplicate. The internal-recovery sites (`split_pooled` non-finite output, `mlx_cache` lock poisoning, probe subprocess timeout, etc.) are decisions `rurico` makes that the caller cannot see, so a `rurico`-side warn is the only place where the diagnostic information exists.
 
 ## Context
 

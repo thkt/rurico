@@ -1,8 +1,12 @@
-# ADR 0005: Phase 6 Prefix-Ensemble Experiment — Not Adopted
+---
+status: "accepted"
+date: 2026-04-27
+decision-makers: thkt
+---
 
-- Status: Accepted
-- Date: 2026-04-27
-- Confidence: high. Outcome falsified the hypothesis on a fixed fixture / model / mlx-rs revision; the *experimental* nature of the issue means a single empirical run against the locked adoption gate is the contract for closure (#70).
+# Phase 6 Prefix-Ensemble Experiment — Not Adopted
+
+> **Confidence**: high. Outcome falsified the hypothesis on a fixed fixture / model / mlx-rs revision; the *experimental* nature of the issue means a single empirical run against the locked adoption gate is the contract for closure (#70).
 
 ## Context
 
