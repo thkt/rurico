@@ -6,6 +6,8 @@
 
 > **Note (2026-05-08)**: `rrf_merge` references in this ADR are superseded by issue #104. The canonical RRF primitive is now `retrieval::WeightedRrf` — this ADR's own Stage-2 `MergeStrategy::WeightedRrf` (configurable via `HybridSearchConfig`, `WeightedRrf::default()` is bit-equal to the removed legacy fn).
 
+> **Note (2026-05-14, post-ADR-0006 stage ownership clarification)**: Stage 4 (Rerank) and Stage 5 (Final) types (`RerankedHit`, `FinalHit`, `apply_reranker`) do not exist in `rurico` today. The reference composition that originally hosted them in `src/eval/pipeline.rs` was migrated to `amici` by ADR 0006 (see [`amici/docs/decisions/0002-evaluation-methodology.md`](https://github.com/thkt/amici/blob/main/docs/decisions/0002-evaluation-methodology.md)). `rurico::retrieval` owns the Stage 2 (`MergeStrategy` / `WeightedRrf` / `HybridSearchConfig` / `RecencyConfig`) and Stage 3 (`Aggregator` trait + `IdentityAggregator` / `MaxChunkAggregator` / `DedupeAggregator` / `TopKAverageAggregator`) primitives only; Stage 1 / 4 / 5 contracts live downstream — `amici` for the reference eval composition, `recall` / `sae` / `yomu` for their production pipelines.
+
 ## Context
 
 Issue #53 plans a six-phase retrieval-quality programme. Phase 1 (#65, ADR 0003) delivered the evaluation harness; Phases 3–6 will implement aggregation (#67), hybrid weights (#68), query normalization (#69), and prefix ensemble (#70). Issue #66 (this ADR) freezes the **interfaces** Phases 3–6 will plug into.
@@ -168,6 +170,7 @@ Positive:
 - Phase 5 (#69) and Phase 6 (#70) gain explicit insertion points (Stage 1 query normalization, Stage 1 source variants).
 - Eval and production pipelines stop being parallel candidates — the eval baseline measures the same code Phase 3+ ships.
 - Downstream consumers (recall/sae/yomu) have a single migration target rather than per-Phase API churn.
+- All Stage 2 / 3 outputs are sorted by `score` descending, then `doc_id` ascending, then `chunk_id` ascending — a stable 3-key total order pinned by `weighted_rrf_default_breaks_ties_by_doc_id` (T-104-001) and the chunk-level aggregator tests; downstream pagination and tie-break assertions can rely on it.
 
 Negative:
 

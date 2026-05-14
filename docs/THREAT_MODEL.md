@@ -82,6 +82,66 @@ dynamic library lookups in the child.
   compared to the parent's full env. High-risk injection vectors not
   required by MLX (notably `DYLD_INSERT_LIBRARIES`) are excluded.
 
+### SEC-005: Probe child grandchild reader-thread leak
+
+`probe_via_subprocess_with` (`src/model_probe.rs:431-451`) spawns dedicated
+reader threads via `spawn_drain_pipe` to drain the child's stdout/stderr.
+`collect_pipe` (`src/model_probe.rs:487-512`) caps its `recv_timeout` at
+`COLLECT_PIPE_TIMEOUT = 2s`. When the direct child has exited but a
+grandchild has inherited the pipe FDs and keeps them open, the reader
+thread's `read_to_end` cannot see EOF and stays blocked indefinitely — the
+parent drops the channel after the 2s timeout and the reader thread leaks
+until the parent process exits.
+
+**Accepted because:**
+
+- Grandchild FD inheritance from the probe child requires the model-load
+  step to spawn its own subprocess; the current `Embedder::probe` /
+  `Reranker::probe` load paths do not do this, so the leak path is reached
+  only by a hostile or malformed probe handler. Such a handler is already
+  covered by `ProbeError::HandlerNotInstalled` triage.
+- The leaked thread is blocked on a kernel pipe read, so it consumes one
+  OS thread slot but no CPU. Across O(N) probes in a single process this
+  is bounded by the per-process thread limit, which is well above realistic
+  probe counts.
+- A `kill(grandchild)` mechanism would require enumerating descendants
+  (libproc on macOS, `/proc` on Linux) and reasoning about transient PIDs;
+  the cost is large relative to the exceptional nature of the scenario.
+
+The 2s `COLLECT_PIPE_TIMEOUT` is itself the safeguard — the parent's hot
+path is not delayed beyond that, regardless of whether the reader thread
+gets reaped.
+
+## Maintenance rules
+
+### FORWARD allowlist maintenance
+
+`FORWARD` (`src/model_probe.rs:345-387`) is the env-var allowlist applied
+to the probe child after `Command::env_clear`. The list is intentionally
+conservative — `Command::env_clear` plus this allowlist is the SEC-004
+mitigation surface.
+
+**When adding a new runtime dependency that reads environment variables:**
+
+| Step | Action |
+| ---- | ------ |
+| 1    | Identify which env vars the new dependency reads (check its crate-level docs + source) |
+| 2    | Add each var to `FORWARD` with an inline comment naming the dependency and the var's purpose |
+| 3    | Run the existing probe smoke (`just probe-embed` / `just probe-reranker`) to confirm the child can still load with the new entry |
+| 4    | Audit the new var for injection risk — if it can redirect dynamic loading, library lookup, or filesystem search (e.g. `LD_*`, `DYLD_*`, `_PATH`), document the trade-off in this file alongside SEC-004 |
+
+**When removing a runtime dependency:**
+
+| Step | Action |
+| ---- | ------ |
+| 1    | Search `FORWARD` for entries whose inline comment names the removed dependency |
+| 2    | Remove them unless another active dependency still reads the same var |
+| 3    | Run probe smoke to confirm no regression |
+
+The allowlist is a positive list — silently letting an env var through
+because "it might be needed" defeats SEC-004's hardening. Each entry must
+have an attributable need.
+
 ## Wire format commitments
 
 The probe pathway exposes a small surface that downstream tooling (incident
