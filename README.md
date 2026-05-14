@@ -36,10 +36,10 @@ Apple Silicon (MLX) 上で日本語テキストのembedding・reranking・類似
 
 ```toml
 [dependencies]
-rurico = { git = "https://github.com/thkt/rurico", tag = "v0.2.0" }
+rurico = { git = "https://github.com/thkt/rurico", rev = "cf13d32" }
 ```
 
-`tag` は [Cargo.toml の `version`](Cargo.toml) と同期する。新しい release を取り込む場合は [tag 一覧](https://github.com/thkt/rurico/tags) から最新 tag を確認して上書きする。
+`rev` は rurico の commit SHA で固定する。新しい更新を取り込む場合は [rurico の最新 commit](https://github.com/thkt/rurico/commits/main) から sha を確認して上書きする。
 
 MLXの初期化失敗はプロセスをabortする可能性がある。`probe` でモデルのロード可否を子プロセスで検証してからEmbedderを作成する。
 
@@ -84,7 +84,6 @@ for chunk_vec in &doc.chunks {
 | ---------------------- | ---------------- | ---------------------------------------------------------------------------------- |
 | `EMBEDDING_DIMS`       | `768`            | デフォルトモデル (310m) の出力次元数。実行時は `Embedder::embedding_dims()` で取得 |
 | `MAX_SEQ_LEN`          | `8192`           | モデル入力全体長（BOS + prefix + text + EOS）                                      |
-| `CHUNK_OVERLAP_TOKENS` | `2048`           | document chunk 間の overlap token 数                                               |
 | `QUERY_PREFIX`         | `"検索クエリ: "` | クエリ埋め込みときに先頭へ付加                                                     |
 | `DOCUMENT_PREFIX`      | `"検索文書: "`   | ドキュメント埋め込みときに先頭へ付加                                               |
 | `SEMANTIC_PREFIX`      | `""`             | semantic/clustering タスク用（プレフィックスなし）                                 |
@@ -323,6 +322,15 @@ stmt.execute(rusqlite::params![bytes])?;
 | `Tokenizer`           | tokenizer エンコード失敗                   |
 | `NonFiniteOutput`     | embedding 出力に NaN または Inf が含まれる |
 
+**`RerankerError`** — `Rerank` トレイトメソッド（reranker 推論）フェーズ
+
+| variant           | 発生条件                                                                  |
+| ----------------- | ------------------------------------------------------------------------- |
+| `Inference`       | MLX forward pass 失敗                                                     |
+| `Tokenizer`       | tokenizer エンコード失敗                                                  |
+| `NonFiniteOutput` | reranker 出力に NaN または Inf が含まれる                                 |
+| `InitFailed`      | `LazyReranker` 初回呼び出し時の初期化失敗（cache 参照・ロード・DL）       |
+
 公開APIの失敗契約はrustdocの `# Errors` に記載する。repoの運用ルールは
 [`docs/errors.md`](docs/errors.md) を参照。
 
@@ -350,12 +358,12 @@ require_unsandboxed_mlx_runtime();
 
 ```toml
 [dev-dependencies]
-rurico = { git = "https://github.com/thkt/rurico", rev = "main", features = ["test-support"] }
+rurico = { git = "https://github.com/thkt/rurico", rev = "cf13d32", features = ["test-support"] }
 ```
 
 | struct                | 振る舞い                                                                          |
 | --------------------- | --------------------------------------------------------------------------------- |
-| `MockEmbedder`        | 決定的な one-hot ベクトルを返す                                                   |
+| `MockEmbedder`        | 入力位置ごとに決定的な one-hot ベクトルを返す（バッチ時は入力順 `i`、単発は `0`） |
 | `FailingEmbedder`     | 設定に応じてエラーを返す                                                          |
 | `MismatchEmbedder`    | batch で入力より少ないベクトルを返す                                              |
 | `AlternatingEmbedder` | `embed_document` が成功と失敗を交互に返す（初回は失敗）                           |
@@ -365,7 +373,7 @@ rurico = { git = "https://github.com/thkt/rurico", rev = "main", features = ["te
 ```rust
 use rurico::embed::{Embed, MockEmbedder};
 
-let embedder = MockEmbedder;
+let embedder = MockEmbedder::default();
 let v = embedder.embed_query("テスト")?;
 assert_eq!(v.len(), 768);
 ```
