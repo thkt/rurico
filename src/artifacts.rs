@@ -19,10 +19,19 @@ use crate::modernbert::Config;
 // ── Kind markers ────────────────────────────────────────────────────────────
 
 /// Kind marker for embedding models (ruri-v3 embed variants).
+///
+/// **Sealed**: the private `()` field prevents external crates from constructing
+/// this marker, ensuring the kind ↔ model id binding (via
+/// [`ModelArtifact::Kind`](crate::model_io::ModelArtifact::Kind)) is enforced
+/// at the type level. Downstream callers cannot construct a kind unrelated to
+/// the model id they hold.
 #[derive(Debug)]
 pub struct EmbedKind(());
 
 /// Kind marker for reranker models (ruri-v3-reranker variants).
+///
+/// **Sealed**: same sealed-pattern as [`EmbedKind`] — the private `()` field
+/// blocks external construction, so kind ↔ model id binding stays type-level.
 #[derive(Debug)]
 pub struct RerankerKind(());
 

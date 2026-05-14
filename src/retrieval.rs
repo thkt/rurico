@@ -338,11 +338,12 @@ impl MergeStrategy for WeightedRrf {
 pub trait Aggregator {
     /// Aggregate `hits` into the form Stage 4 expects.
     ///
-    /// **Output MUST be sorted by `score` descending** (with deterministic
-    /// tiebreaking by `doc_id` when scores are equal). The pipeline truncates
-    /// the result to `config.k` after this call, so non-sorted output would
-    /// silently drop higher-scoring hits. Output length may be ≤ input
-    /// length (dedupe / max-chunk collapse duplicates).
+    /// **Output MUST be sorted by `score` descending**, then `doc_id`
+    /// ascending, then `chunk_id` ascending (3-key total order, matching the
+    /// `MergeStrategy::merge` contract in this module). The pipeline
+    /// truncates the result to `config.k` after this call, so non-sorted
+    /// output would silently drop higher-scoring hits. Output length may be
+    /// ≤ input length (dedupe / max-chunk collapse duplicates).
     fn aggregate(&self, hits: &[MergedHit]) -> Vec<MergedHit>;
 }
 
