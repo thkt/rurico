@@ -36,6 +36,20 @@ binary 版を直接呼ぶ場合:
 cargo run --features smoke --bin mlx_smoke
 ```
 
+### `visibility` integration test (trybuild + Metal Toolchain)
+
+`tests/visibility.rs` は trybuild で `tests/ui/*.rs` を compile_fail として exercise する。各 fixture の build に Metal Toolchain (Xcode Command Line Tools 同梱) を要する。
+
+- CI (macOS-latest runner): Xcode CLT 同梱、通常通り走る
+- ローカル環境で Metal Toolchain 不在: `cannot execute tool 'metal'` で trybuild が build fail する
+
+Toolchain 不在の環境で他テストだけ走らせる場合:
+
+```sh
+xcode-select --install                  # Metal Toolchain を導入する場合
+cargo test --workspace --lib --bins     # または trybuild test target を含めず走らせる
+```
+
 ## ブランチと commit
 
 - ブランチ名は `<type>/<short-topic>` 形式（例: `fix/foo-bar`, `ci/baz-qux`）。
@@ -49,3 +63,11 @@ PR 提出前に以下が通ることを確認する。
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo fmt -- --check
 ```
+
+## `docs/issues/`
+
+ローカル issue メモ用ディレクトリ。`.gitignore` で `docs/issues/` が指定されており、新規ファイルは git 追跡されない。
+
+- 個人の作業メモ・調査草稿などを置く場所
+- リポジトリに残したい issue / ADR / audit 結果は `docs/decisions/` (ADR) または `docs/audit/` (監査結果) に昇格させる
+- gitignore 追加前から追跡されていた既存ファイル (`docs/issues/typed-fts-query-contract-migration.md` 等) は継続追跡される (`git update-index --skip-worktree` していないため、編集すると diff が出る)
