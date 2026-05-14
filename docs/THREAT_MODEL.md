@@ -82,6 +82,42 @@ dynamic library lookups in the child.
   compared to the parent's full env. High-risk injection vectors not
   required by MLX (notably `DYLD_INSERT_LIBRARIES`) are excluded.
 
+## Wire format commitments
+
+The probe pathway exposes a small surface that downstream tooling (incident
+triage, log aggregation, monitoring) is allowed to grep. These are pinned
+contracts — changes are visible to consumers and need a deprecation cycle.
+
+### SEC-002: Probe setup-rejection stderr message format
+
+When the probe child rejects a path / env-vars during the setup phase, it
+writes `"probe setup rejected: <label>"` to stderr and exits with the
+matching `PROBE_EXIT_*` code. `<label>` is sourced from
+`SetupReason::label()` (`src/model_probe.rs:100-108`) and is one of:
+
+| Label                       | Exit code                          |
+| --------------------------- | ---------------------------------- |
+| `env incomplete`            | `PROBE_EXIT_ENV_INCOMPLETE` (3)    |
+| `path canonicalize failed`  | `PROBE_EXIT_CANONICALIZE_FAILED` (4) |
+| `path outside cache`        | `PROBE_EXIT_PATH_OUTSIDE_CACHE` (5)  |
+| `cache root invalid`        | `PROBE_EXIT_CACHE_ROOT_INVALID` (6)  |
+
+**Pinned by:** `setup_reason_label_is_stable_per_variant` (T-115-D,
+`src/model_probe/tests.rs:597`) — label drift breaks the test.
+
+**Why a commitment, not an accepted risk:** the stderr text is the only
+mechanism for an external observer to distinguish the four setup-phase
+rejection causes (the exit code triple SEC-003 already accepts is the
+oracle for "rejected vs. ok"; this anchor lets it be triaged further).
+A future maintainer who renames a label must update both the label table
+above and any downstream log-grep tooling — the rename is a breaking
+change to the wire.
+
+> **Note (2026-05-14, audit clarification)**: the
+> `docs/audit/2026-05-14-undocumented-decisions.md` report referred to
+> "SEC-001 / SEC-002 enumeration" but `SEC-001` is not a real identifier —
+> SEC-002 is the only orphaned anchor. This section closes the orphan.
+
 ## Reporting Vulnerabilities
 
 For potentially sensitive issues, contact the maintainers privately rather
