@@ -271,9 +271,17 @@ pub(crate) fn artifacts_from_cache<Id: ModelArtifact>(
 /// Token-count ceiling for a single forward pass through the bucketed
 /// inference path.
 ///
+/// 256K-position budget per sub-batch — chosen empirically to keep padded
+/// MLX tensors under safe Apple Silicon GPU memory ceilings and avoid
+/// Metal OOM (commit `3c86e90`). Combined with [`BUCKET_BOUNDS`], the
+/// derived `(TOKEN_BUDGET / bucket_len)` sub-batch sizes are
+/// `(2000, 500, 125, 31)` for bucket lengths `(128, 512, 2048, 8192)`,
+/// pinned by `compute_sub_batch_size_matches_formula_per_bucket`.
+///
 /// Embed and reranker callers both size their sub-batches against this budget
 /// so memory consumption is bounded by the same ceiling regardless of which
-/// path drives a given call.
+/// path drives a given call. See `docs/decisions/0009-adopt-bucketbounds-as-cross-module-forward-pass-invariant.md`
+/// for the cross-module forward-pass invariant.
 pub(crate) const TOKEN_BUDGET: usize = 256_000;
 
 /// Sub-batch size that keeps each forward pass under [`TOKEN_BUDGET`] when
