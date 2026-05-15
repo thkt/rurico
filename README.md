@@ -393,7 +393,8 @@ This installs a pre-commit hook that runs `cargo fmt --all -- --check` and `carg
 ### Common commands
 
 ```sh
-cargo test --workspace                                                  # all tests
+cargo nextest run --workspace                                           # all tests (doctest を除く)
+cargo test --doc --workspace                                            # doctest (nextest は doctest を走らせない)
 cargo clippy --workspace --all-targets --all-features -- -D warnings    # lint (matches CI)
 cargo fmt --all -- --check                                              # format check
 ```
@@ -401,9 +402,9 @@ cargo fmt --all -- --check                                              # format
 ## テスト
 
 ```sh
-cargo test --workspace                                                   # MLX ランタイム不要のテスト
-cargo test --workspace --features test-mlx -- --ignored                  # MLX ランタイムテスト（通常 Terminal 推奨）
-cargo run --bin mlx_smoke --features smoke --release -- verify-fixture   # embed 数値同等性検証（smoke binary）
+cargo nextest run --workspace                                                  # MLX ランタイム不要のテスト
+cargo nextest run --workspace --features test-mlx --run-ignored=ignored-only   # MLX ランタイムテスト（通常 Terminal 推奨）
+cargo run --bin mlx_smoke --features smoke --release -- verify-fixture         # embed 数値同等性検証（smoke binary）
 ```
 
 Codex Desktop の `CODEX_SANDBOX=seatbelt` 環境では、MLX / Metal 初期化が abort することがあるため、

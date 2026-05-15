@@ -5,8 +5,11 @@
 CI で実行されるテスト一式は以下で再現できる。
 
 ```sh
-cargo test --workspace --features test-support,test-mlx
+cargo nextest run --workspace --features test-support,test-mlx
+cargo test --doc --workspace --features test-support,test-mlx
 ```
+
+`cargo nextest run` は doctest を走らせないため、`cargo test --doc` を別途実行する。nextest 未インストールの場合は `brew install cargo-nextest` または `cargo install cargo-nextest --locked`。
 
 `test-support` / `test-mlx` feature を有効にすることで、CI の clippy step (`cargo clippy --workspace --all-targets --all-features -- -D warnings`) が見ているコードを test 側でも exercise する。CI の test step もこの組み合わせで実行される。
 
@@ -16,7 +19,7 @@ cargo test --workspace --features test-support,test-mlx
 
 ```sh
 # 実モデルを HF Hub からダウンロードして tokenizer 動作を検証
-cargo test -- --ignored g_001_real_tokenizer_extract_prefix_tokens
+cargo nextest run --run-ignored=ignored-only g_001_real_tokenizer_extract_prefix_tokens
 ```
 
 `src/embed/tests.rs` の 3 件と、`src/reranker/tests.rs` 内 `mlx_runtime_tests` モジュールの test がこのカテゴリに該当する。
@@ -27,7 +30,7 @@ cargo test -- --ignored g_001_real_tokenizer_extract_prefix_tokens
 
 ```sh
 # ruri-v3 系モデルがローカル HF cache にあることを前提に走らせる
-cargo test --workspace --features smoke --test mlx_smoke -- --ignored
+cargo nextest run --workspace --features smoke --test mlx_smoke --run-ignored=ignored-only
 ```
 
 binary 版を直接呼ぶ場合:
@@ -46,8 +49,8 @@ cargo run --features smoke --bin mlx_smoke
 Toolchain 不在の環境で他テストだけ走らせる場合:
 
 ```sh
-xcode-select --install                  # Metal Toolchain を導入する場合
-cargo test --workspace --lib --bins     # または trybuild test target を含めず走らせる
+xcode-select --install                          # Metal Toolchain を導入する場合
+cargo nextest run --workspace --lib --bins     # または trybuild test target を含めず走らせる
 ```
 
 ## ブランチと commit
