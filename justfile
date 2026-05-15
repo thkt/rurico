@@ -13,7 +13,8 @@ default:
 check: test lint fmt-check
 
 test:
-    cargo test --workspace --all-features
+    cargo nextest run --workspace --all-features
+    cargo test --doc --workspace --all-features
 
 lint:
     cargo clippy --workspace --all-targets --all-features -- -D warnings
@@ -26,7 +27,7 @@ fmt:
 
 # Run only the chunk-level retrieval tests (T-076-001..008, MLX-free)
 chunk-test:
-    cargo test --lib chunk
+    cargo nextest run --lib chunk
 
 # === embed スピード + 数値同等性ハーネス (mlx_smoke, ADR 0002) ===
 

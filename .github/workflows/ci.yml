@@ -36,8 +36,16 @@ jobs:
       - name: Check
         run: cargo check --workspace --features test-support,test-mlx
 
+      - name: Install nextest
+        uses: taiki-e/install-action@184183c2401be73c3bf42c2e61268aa5855379c1 # v2
+        with:
+          tool: cargo-nextest
+
       - name: Test
-        run: cargo test --workspace --features test-support,test-mlx
+        run: cargo nextest run --workspace --features test-support,test-mlx --profile ci
+
+      - name: Doctests
+        run: cargo test --doc --workspace --features test-support,test-mlx
 
       - name: Clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
