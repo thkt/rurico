@@ -223,10 +223,10 @@ Negative:
 - Phase 3 issue #67 (aggregation), Phase 4 #68 (weights), Phase 5 #69 (normalization), Phase 6 #70 (prefix ensemble)
 - ADR 0001 (`docs/decisions/0001-typed-fts-query-contract.md`) — typed FTS query primitive
 - ADR 0003 (`docs/decisions/0003-evaluation-methodology.md`) — Phase 1 reference composition + cyclic-dep posture
-- `src/eval/pipeline.rs` — Phase 1c reference composition (Phase 3 promotion target)
-- `src/storage/search.rs:146-198` — `rrf_merge`, `prepare_match_query` primitives
+- `amici/src/eval/pipeline.rs` — Phase 1c reference composition (migrated to `amici` per ADR 0006 — see Note 2026-05-14)
+- `src/storage/search.rs` — `prepare_match_query` primitive (`rrf_merge` removed; superseded by `src/retrieval.rs::WeightedRrf` — see Note 2026-05-08)
 - `src/embed/embedder.rs` — `Embed` trait surface
-- `src/reranker.rs:202-219` — `Rerank` trait + `RankedResult`
+- `src/reranker.rs` — `Rerank` trait + `RankedResult`
 - `recall/src/search.rs:352-429` — downstream hybrid pipeline (structural reference)
 - `recall/src/hybrid.rs` — recency boost helper (downstream-owned for now)
 - `recall/Cargo.toml:19` — `recall → rurico` git-ref dependency (cyclic constraint)
