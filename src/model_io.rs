@@ -447,26 +447,16 @@ mod tests {
 
     // ── compute_sub_batch_size tests ────────────────────────────────────────
 
-    // Pin the canonical sub-batch formula `(TOKEN_BUDGET / bucket_len).max(1)`
-    // so embed and reranker callers cannot drift apart silently.
+    // Pin the concrete per-bucket sub-batch sizes, not the formula: asserting
+    // against `TOKEN_BUDGET / BUCKET_BOUNDS[i]` would track both sides and stay
+    // green even if TOKEN_BUDGET drifted. 256_000 / (128, 512, 2048, 8192) =
+    // (2000, 500, 125, 31); embed and reranker callers share this function.
     #[test]
     fn compute_sub_batch_size_matches_formula_per_bucket() {
-        assert_eq!(
-            compute_sub_batch_size(BUCKET_BOUNDS[0]),
-            TOKEN_BUDGET / BUCKET_BOUNDS[0],
-        );
-        assert_eq!(
-            compute_sub_batch_size(BUCKET_BOUNDS[1]),
-            TOKEN_BUDGET / BUCKET_BOUNDS[1],
-        );
-        assert_eq!(
-            compute_sub_batch_size(BUCKET_BOUNDS[2]),
-            TOKEN_BUDGET / BUCKET_BOUNDS[2],
-        );
-        assert_eq!(
-            compute_sub_batch_size(BUCKET_BOUNDS[3]),
-            TOKEN_BUDGET / BUCKET_BOUNDS[3],
-        );
+        assert_eq!(compute_sub_batch_size(BUCKET_BOUNDS[0]), 2000);
+        assert_eq!(compute_sub_batch_size(BUCKET_BOUNDS[1]), 500);
+        assert_eq!(compute_sub_batch_size(BUCKET_BOUNDS[2]), 125);
+        assert_eq!(compute_sub_batch_size(BUCKET_BOUNDS[3]), 31);
     }
 
     // `max(1)` floor: pathological bucket_len > TOKEN_BUDGET cannot happen in

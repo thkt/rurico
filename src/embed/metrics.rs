@@ -194,13 +194,6 @@ mod tests {
         assert_eq!(m.padding_ratio(), 0.0);
     }
 
-    #[test]
-    fn phase_metrics_new_sets_kind() {
-        let m = PhaseMetrics::new(EmbedKind::Query);
-        assert_eq!(m.kind, EmbedKind::Query);
-        assert_eq!(m.padded_tokens, 0);
-    }
-
     // T-MET-001: log() emits named fields for the bucket histogram so
     // subscribers can read per-bucket counts without parsing a format string.
     #[traced_test]

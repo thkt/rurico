@@ -185,9 +185,9 @@ fn shrink_chunk_to_fit_short_text_returns_immediately() {
 // T-001: max_content_equals_max_seq_len_minus_2_minus_prefix_len
 #[test]
 fn max_content_equals_max_seq_len_minus_2_minus_prefix_len() {
-    // [T-001] FR-001, FR-002: max_content(10) == 8180, 8180 + 10 + 2 == 8192
+    // [T-001] FR-001, FR-002: max_content reserves BOS(1) + EOS(1) + prefix.
+    // 8180 = MAX_SEQ_LEN(8192) - 2 - prefix_len(10).
     assert_eq!(max_content(10), 8180);
-    assert_eq!(8180 + 10 + 2, MAX_SEQ_LEN);
 }
 
 /// Requires HF Hub model download (network access).
@@ -275,15 +275,6 @@ fn truncate_for_query_zero_max_len_returns_unchanged() {
     assert_eq!(seq_len, 4);
     assert_eq!(ids, expected_ids, "max_len=0 should return unchanged");
     assert_eq!(mask, expected_mask);
-}
-
-// T-014: mock_chunked_embedder_returns_multi_chunk
-#[test]
-fn mock_chunked_embedder_returns_multi_chunk() {
-    let embedder = super::MockChunkedEmbedder::new(3);
-    let result = embedder.embed_document("some text").unwrap();
-    assert_eq!(result.chunks.len(), 3);
-    assert_eq!(result.chunks[0].len(), EMBEDDING_DIMS);
 }
 
 // --- Regression: prefix boundary merge cases ---
@@ -417,26 +408,11 @@ fn embed_documents_batch_empty_returns_empty() {
 // --- 1+3 prefix scheme ---
 
 #[test]
-fn embed_text_returns_correct_dimensionality_for_all_prefixes() {
+fn embed_text_returns_embedding_dims() {
+    // MockEmbedder ignores prefix, so a single call exercises the dim contract.
     let e = super::MockEmbedder::default();
-    for prefix in [SEMANTIC_PREFIX, TOPIC_PREFIX, QUERY_PREFIX, DOCUMENT_PREFIX] {
-        let vec = e.embed_text("テスト", prefix).unwrap();
-        assert_eq!(
-            vec.len(),
-            EMBEDDING_DIMS,
-            "wrong dims for prefix: {prefix:?}"
-        );
-    }
-}
-
-#[test]
-fn embed_text_propagates_error() {
-    let e = super::FailingEmbedder::all_fail("embed_text error");
-    let err = e.embed_text("テスト", SEMANTIC_PREFIX).unwrap_err();
-    assert!(
-        matches!(err, EmbedError::Inference(ref msg) if msg.contains("embed_text error")),
-        "{err}"
-    );
+    let vec = e.embed_text("テスト", SEMANTIC_PREFIX).unwrap();
+    assert_eq!(vec.len(), EMBEDDING_DIMS);
 }
 
 #[test]

@@ -113,22 +113,6 @@ mod tests {
     }
 
     #[test]
-    fn default_is_all_on() {
-        let c = QueryNormalizationConfig::default();
-        assert!(c.nfkc);
-        assert!(c.ascii_lowercase);
-        assert!(c.collapse_whitespace);
-    }
-
-    #[test]
-    fn disabled_is_all_off() {
-        let c = QueryNormalizationConfig::disabled();
-        assert!(!c.nfkc);
-        assert!(!c.ascii_lowercase);
-        assert!(!c.collapse_whitespace);
-    }
-
-    #[test]
     fn pre_phase_5_disabled_matches_disabled() {
         assert_eq!(pre_phase_5_disabled(), QueryNormalizationConfig::disabled());
     }

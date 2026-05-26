@@ -610,15 +610,19 @@ fn setup_reason_label_is_stable_per_variant() {
 // T-115-E
 #[test]
 fn setup_reason_display_combines_code_and_label() {
+    // Full literal (code 5 == PROBE_EXIT_PATH_OUTSIDE_CACHE) so a change to
+    // Display's format string is caught, not mirrored by rebuilding it here.
     assert_eq!(
         format!("{}", SetupReason::PathOutsideCache),
-        format!("code {PROBE_EXIT_PATH_OUTSIDE_CACHE}: path outside cache"),
+        "code 5: path outside cache",
     );
 }
 
-// T-012: FORWARD list contains exactly the 22 expected keys
+// T-012: FORWARD is exactly this allowlist, in declaration order. Equality
+// (not len + contains) so an extra key — an env-injection vector — fails the
+// test instead of slipping past a containment-only check.
 #[test]
-fn forward_list_contains_expected_22_keys() {
+fn forward_list_is_exact_allowlist() {
     let expected: &[&str] = &[
         "PATH",
         "HOME",
@@ -643,13 +647,7 @@ fn forward_list_contains_expected_22_keys() {
         "RUST_LOG",
         "RUST_BACKTRACE",
     ];
-    assert_eq!(super::FORWARD.len(), 22);
-    for key in expected {
-        assert!(
-            super::FORWARD.contains(key),
-            "FORWARD list missing key {key}"
-        );
-    }
+    assert_eq!(super::FORWARD, expected);
 }
 
 // T-013: child_env_for_spawn forwards HF_HOME, drops attacker-injected env
