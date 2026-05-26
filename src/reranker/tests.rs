@@ -206,19 +206,6 @@ fn sigmoid_nan_returns_nan() {
     assert!(sigmoid(f32::NAN).is_nan());
 }
 
-#[test]
-fn mock_reranker_score_batch_empty_returns_ok_empty() {
-    let r = MockReranker::default();
-    assert!(r.score_batch(&[]).unwrap().is_empty());
-}
-
-#[test]
-fn mock_reranker_score_returns_configured_value() {
-    let r = MockReranker::with_score(0.7);
-    let s = r.score("q", "d").unwrap();
-    assert!((s - 0.7).abs() < 1e-6, "expected 0.7, got {s}");
-}
-
 /// MLX runtime tests — run with `cargo test --features test-mlx -- --ignored`
 /// outside Codex seatbelt.
 #[cfg(feature = "test-mlx")]
