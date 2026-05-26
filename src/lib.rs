@@ -3,6 +3,8 @@
 
 /// Typed artifact verification: [`CandidateArtifacts`](embed::CandidateArtifacts) → [`VerifiedArtifacts`](artifacts::VerifiedArtifacts).
 pub mod artifacts;
+/// Throwaway coverage-gate probe (DELETE after verifying the gate fails).
+pub mod coverage_probe;
 /// Top-level probe dispatch wiring embed and reranker domains.
 pub mod dispatch;
 /// Embedding models and the [`Embed`](embed::Embed) trait.
