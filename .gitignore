@@ -4,3 +4,7 @@
 docs/issues/
 target/
 workspace/
+
+# Coverage artifacts (cargo llvm-cov)
+*.profraw
+/lcov.info
