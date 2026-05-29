@@ -40,12 +40,4 @@ pub fn ensure_sqlite_vec() -> Result<(), String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn ensure_sqlite_vec_idempotent() {
-        ensure_sqlite_vec().unwrap();
-        ensure_sqlite_vec().unwrap();
-    }
-}
+mod tests;
