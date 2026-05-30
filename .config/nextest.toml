@@ -5,3 +5,13 @@ fail-fast = false
 fail-fast = false
 slow-timeout = { period = "120s", terminate-after = 2 }
 final-status-level = "flaky"
+
+# visibility::ui is a trybuild test: it compiles tests/ui/*.rs as a separate
+# target, cold-building the whole workspace dependency graph (including mlx-sys's
+# C++ FFI), so it takes 120-240s. The fleet-standard 240s ceiling leaves almost
+# no margin and CI load jitter terminates it (main passes at ~133s by a hair).
+# Widen the ceiling for this binary only; the default 240s still guards the
+# model_probe timeout-verification tests against real hangs.
+[[profile.ci.overrides]]
+filter = 'binary(visibility)'
+slow-timeout = { period = "300s", terminate-after = 2 }
