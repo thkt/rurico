@@ -37,7 +37,7 @@ jobs:
         run: cargo check --workspace --features test-support,test-mlx
 
       - name: Install nextest
-        uses: taiki-e/install-action@3771e22aa892e03fd35585fae288baad1755695c # v2.78.2
+        uses: taiki-e/install-action@6c1f7cf125e42770ff087ea443901b487cc5471a # v2.79.5
         with:
           tool: cargo-nextest
 
@@ -86,7 +86,7 @@ jobs:
           cache-bin: false
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@3771e22aa892e03fd35585fae288baad1755695c # v2.78.2
+        uses: taiki-e/install-action@6c1f7cf125e42770ff087ea443901b487cc5471a # v2.79.5
         with:
           tool: cargo-llvm-cov
 
