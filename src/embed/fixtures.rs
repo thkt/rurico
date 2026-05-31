@@ -11,7 +11,7 @@
 //! ```text
 //! u32 LE  num_docs
 //!   per doc:
-//!     u32 LE  num_chunks
+//!     u32 LE  num_chunks (must be >= 1)
 //!     per chunk:
 //!       u32 LE  hidden_dim
 //!       f32 LE × hidden_dim
@@ -94,9 +94,9 @@ pub fn save<W: Write>(w: &mut W, docs: &[ChunkedEmbedding]) -> io::Result<()> {
     let num_docs = u32::try_from(docs.len()).expect("num_docs fits in u32");
     w.write_all(&num_docs.to_le_bytes())?;
     for doc in docs {
-        let num_chunks = u32::try_from(doc.chunks.len()).expect("num_chunks fits in u32");
+        let num_chunks = u32::try_from(doc.chunks().len()).expect("num_chunks fits in u32");
         w.write_all(&num_chunks.to_le_bytes())?;
-        for chunk in &doc.chunks {
+        for chunk in doc.chunks() {
             let dim = u32::try_from(chunk.len()).expect("hidden_dim fits in u32");
             w.write_all(&dim.to_le_bytes())?;
             w.write_all(bytemuck::cast_slice::<f32, u8>(chunk))?;
@@ -132,7 +132,10 @@ pub fn load<R: Read>(r: &mut R) -> io::Result<Vec<ChunkedEmbedding>> {
             let vec: Vec<f32> = bytemuck::cast_slice::<u8, f32>(&bytes).to_vec();
             chunks.push(vec);
         }
-        docs.push(ChunkedEmbedding::new(chunks));
+        docs.push(
+            ChunkedEmbedding::try_new(chunks)
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
+        );
     }
     Ok(docs)
 }
@@ -167,14 +170,14 @@ pub fn compare(
     let mut max_abs_diff = 0.0f32;
     let mut cosine_min = 1.0f32;
     for (d_idx, (exp_doc, act_doc)) in expected.iter().zip(actual).enumerate() {
-        if exp_doc.chunks.len() != act_doc.chunks.len() {
+        if exp_doc.chunks().len() != act_doc.chunks().len() {
             return Err(ShapeMismatch::ChunkCount {
                 doc: d_idx,
-                expected: exp_doc.chunks.len(),
-                actual: act_doc.chunks.len(),
+                expected: exp_doc.chunks().len(),
+                actual: act_doc.chunks().len(),
             });
         }
-        for (c_idx, (exp_ch, act_ch)) in exp_doc.chunks.iter().zip(&act_doc.chunks).enumerate() {
+        for (c_idx, (exp_ch, act_ch)) in exp_doc.chunks().iter().zip(act_doc.chunks()).enumerate() {
             if exp_ch.len() != act_ch.len() {
                 return Err(ShapeMismatch::Dim {
                     doc: d_idx,

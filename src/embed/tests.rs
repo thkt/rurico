@@ -1,7 +1,7 @@
 use super::mlx::shrink_chunk_to_fit;
 use super::*;
 use crate::artifacts::EmbedKind;
-use crate::model_io::{EOS_TOKEN_ID, artifacts_from_cache, load_tokenizer};
+use crate::model_io::{EOS_TOKEN_ID, ModelArtifact, artifacts_from_cache, load_tokenizer};
 #[cfg(unix)]
 use crate::test_support::assert_probe_env_to_paths_preserves_snapshot_symlink_filename;
 use crate::test_support::{
@@ -10,6 +10,7 @@ use crate::test_support::{
     assert_from_probe_error_maps_correctly,
     assert_probe_env_to_paths_returns_paths_when_all_present, setup_fake_hf_cache,
 };
+use std::error::Error;
 use std::fs;
 use std::path::Path;
 
@@ -40,19 +41,19 @@ fn setup_fake_cache_for(hub_dir: &Path, model: ModelId) {
 
 #[test]
 fn cache_lookup_returns_none_when_empty() {
-    assert_cache_lookup_returns_none_when_empty(ModelId::default());
+    assert_cache_lookup_returns_none_when_empty(ModelId::DEFAULT);
 }
 
 #[test]
 fn cache_lookup_returns_some_when_all_files_present() {
-    assert_cache_lookup_returns_some_when_all_files_present(ModelId::default());
+    assert_cache_lookup_returns_some_when_all_files_present(ModelId::DEFAULT);
 }
 
 #[test]
 fn cache_lookup_returns_none_when_partial() {
     let dir = tempfile::tempdir().unwrap();
-    setup_fake_cache_for(dir.path(), ModelId::default());
-    let repo_slug = ModelId::default().repo_id().replace('/', "--");
+    setup_fake_cache_for(dir.path(), ModelId::DEFAULT);
+    let repo_slug = ModelId::DEFAULT.repo_id().replace('/', "--");
     let snapshot_dir = dir
         .path()
         .join(format!("models--{repo_slug}/snapshots/abc123"));
@@ -60,7 +61,7 @@ fn cache_lookup_returns_none_when_partial() {
     fs::remove_file(snapshot_dir.join("tokenizer.json")).unwrap();
 
     let cache = hf_hub::Cache::new(dir.path().to_path_buf());
-    let result = artifacts_from_cache(&cache, ModelId::default()).unwrap();
+    let result = artifacts_from_cache(&cache, ModelId::DEFAULT).unwrap();
     assert!(result.is_none());
 }
 
@@ -143,7 +144,7 @@ fn shrink_chunk_to_fit_rejects_empty_range() {
     let mut end = 0usize;
     let err = shrink_chunk_to_fit(&tokenizer, "hello", &offsets, 0, &mut end).unwrap_err();
     assert!(
-        matches!(err, EmbedError::Inference(ref msg) if msg.contains("cannot fit")),
+        matches!(err, EmbedError::Inference { ref message, .. } if message.contains("cannot fit")),
         "{err}"
     );
 }
@@ -194,7 +195,7 @@ fn max_content_equals_max_seq_len_minus_2_minus_prefix_len() {
 #[test]
 #[ignore]
 fn g_001_real_tokenizer_extract_prefix_tokens() {
-    let artifacts = download_model(ModelId::default()).expect("download model");
+    let artifacts = download_model(ModelId::DEFAULT).expect("download model");
     let tokenizer = load_tokenizer(&artifacts.paths.tokenizer).unwrap();
     let prefix_tokens = extract_prefix_tokens(&tokenizer, DOCUMENT_PREFIX).unwrap();
     assert!(!prefix_tokens.is_empty());
@@ -293,7 +294,7 @@ fn truncate_for_query_zero_max_len_returns_unchanged() {
 fn regression_prefix_merge_standalone_vs_full_tokenization_diverges() {
     // Verify that the prefix boundary actually diverges for these texts,
     // confirming the need for Approach A.
-    let artifacts = download_model(ModelId::default()).expect("download model");
+    let artifacts = download_model(ModelId::DEFAULT).expect("download model");
     let tokenizer = load_tokenizer(&artifacts.paths.tokenizer).unwrap();
     let prefix_tokens = extract_prefix_tokens(&tokenizer, DOCUMENT_PREFIX).unwrap();
     let pe = 1 + prefix_tokens.len(); // BOS + prefix length
@@ -323,7 +324,7 @@ fn regression_long_document_sequential_planner_overlap_and_coverage() {
     // 2. Adjacent chunks overlap >= CHUNK_OVERLAP_TOKENS (overlap contract)
     // 3. First chunk starts at byte 0 (head preserved)
     // 4. Last chunk ends at document end (tail preserved)
-    let artifacts = download_model(ModelId::default()).expect("download model");
+    let artifacts = download_model(ModelId::DEFAULT).expect("download model");
     let tokenizer = load_tokenizer(&artifacts.paths.tokenizer).unwrap();
     let prefix_tokens = extract_prefix_tokens(&tokenizer, DOCUMENT_PREFIX).unwrap();
     let mc = max_content(prefix_tokens.len());
@@ -420,21 +421,75 @@ fn from_probe_error_maps_correctly() {
     assert_from_probe_error_maps_correctly();
 }
 
-// T-105-010: chunked_embedding_new_with_empty_input_yields_empty_fields
-//
-// Pin the Option β invariant from issue #105: `new(vec![])` is non-fallible
-// and returns a structurally valid value with both `chunks` and `chunk_ids`
-// empty. Producers that require non-emptiness must enforce that themselves —
-// the constructor is intentionally a thin builder, not a guard.
+#[derive(Debug, thiserror::Error)]
+#[error("outer embed failure")]
+struct OuterEmbedTestError {
+    #[source]
+    source: InnerEmbedTestError,
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("inner embed failure")]
+struct InnerEmbedTestError;
+
 #[test]
-fn chunked_embedding_new_with_empty_input_yields_empty_fields() {
-    let ce = ChunkedEmbedding::new(Vec::new());
+fn embed_error_helpers_preserve_source_chain() {
+    let inference = EmbedError::inference(OuterEmbedTestError {
+        source: InnerEmbedTestError,
+    });
     assert!(
-        ce.chunks.is_empty(),
-        "new(vec![]) must keep chunks empty without panicking"
+        matches!(
+            inference,
+            EmbedError::Inference {
+                ref message,
+                source: Some(_),
+            } if message == "outer embed failure"
+        ),
+        "expected Inference with boxed source, got: {inference:?}"
     );
+    let inference_source = inference.source().expect("inference source");
+    assert_eq!(inference_source.to_string(), "outer embed failure");
+    assert_eq!(
+        inference_source
+            .source()
+            .expect("nested source")
+            .to_string(),
+        "inner embed failure"
+    );
+
+    let tokenizer = EmbedError::tokenizer(OuterEmbedTestError {
+        source: InnerEmbedTestError,
+    });
     assert!(
-        ce.chunk_ids.is_empty(),
-        "chunk_ids length must mirror chunks (zero on empty input)"
+        matches!(
+            tokenizer,
+            EmbedError::Tokenizer {
+                ref message,
+                source: Some(_),
+            } if message == "outer embed failure"
+        ),
+        "expected Tokenizer with boxed source, got: {tokenizer:?}"
     );
+    let tokenizer_source = tokenizer.source().expect("tokenizer source");
+    assert_eq!(tokenizer_source.to_string(), "outer embed failure");
+    assert_eq!(
+        tokenizer_source
+            .source()
+            .expect("nested source")
+            .to_string(),
+        "inner embed failure"
+    );
+}
+
+// T-187-001: empty chunk lists are rejected by the public constructor.
+#[test]
+fn chunked_embedding_try_new_rejects_empty_input() {
+    let err = ChunkedEmbedding::try_new(Vec::new()).unwrap_err();
+    assert_eq!(err, EmptyChunksError);
+}
+
+#[test]
+fn chunked_embedding_try_new_generates_matching_chunk_ids() {
+    let ce = ChunkedEmbedding::try_new(vec![vec![0.0], vec![1.0]]).unwrap();
+    assert_eq!(ce.chunk_ids(), ["c0", "c1"]);
 }

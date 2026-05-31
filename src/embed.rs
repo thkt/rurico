@@ -35,7 +35,7 @@ pub(crate) use pooling::gpu_pool_and_normalize;
 
 use crate::artifacts;
 use crate::model_io::{ModelArtifact, truncate_with_eos};
-use std::fmt;
+use std::{error::Error, fmt};
 
 /// Probe env-var key for the embedding model weights path.
 pub(crate) const PROBE_ENV_MODEL: &str = "__RURICO_PROBE_MODEL";
@@ -103,28 +103,21 @@ pub(crate) const fn max_content(prefix_len: usize) -> usize {
 ///
 /// `chunk_ids` carries a stable per-chunk identifier (`"c0"`, `"c1"`, …) used
 /// by chunk-level retrieval (Issue #76 / ADR 0004 Stage 1) to keep child
-/// chunks distinguishable through Stage 1 candidates and Stage 2 fusion. The
-/// vector length is always equal to `chunks.len()`; constructors enforce this
-/// invariant.
-///
-/// `ChunkedEmbedding::new` is non-fallible: producers (`Embed::embed_document`
-/// and friends) are expected to deliver at least one chunk, but the
-/// constructor does not enforce non-emptiness. Callers are responsible for
-/// avoiding `new(vec![])` — the resulting value is structurally valid (with
-/// `chunks` and `chunk_ids` both empty) and will not panic, but downstream
-/// code that assumes "always non-empty" must justify that assumption itself.
+/// chunks distinguishable through Stage 1 candidates and Stage 2 fusion.
+/// Public construction goes through [`ChunkedEmbedding::try_new`], which
+/// enforces that `chunks` is non-empty and that `chunk_ids.len() == chunks.len()`.
+/// Use [`ChunkedEmbedding::chunks`] and [`ChunkedEmbedding::chunk_ids`] for
+/// read access.
 #[derive(Debug, Clone)]
 pub struct ChunkedEmbedding {
-    /// One embedding vector per chunk. Producers always return at least one
-    /// chunk; [`ChunkedEmbedding::new`] does not enforce this — see the type
-    /// doc for caller responsibility.
-    pub chunks: Vec<Vec<f32>>,
-    /// Stable identifier per chunk. Same length as `chunks`. Auto-generated
-    /// as `"c0"`, `"c1"`, … by [`ChunkedEmbedding::new`]; persistence formats
-    /// (e.g. [`crate::embed::fixtures`]) regenerate the default labels at
-    /// load time so historical fixtures round-trip without format changes.
-    pub chunk_ids: Vec<String>,
+    chunks: Vec<Vec<f32>>,
+    chunk_ids: Vec<String>,
 }
+
+/// Error returned when constructing a [`ChunkedEmbedding`] without any chunks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("chunked embedding requires at least one chunk")]
+pub struct EmptyChunksError;
 
 impl ChunkedEmbedding {
     /// Construct from chunk vectors with auto-generated chunk IDs (`"c0"`,
@@ -132,11 +125,32 @@ impl ChunkedEmbedding {
     /// embedder, mocks, persistence loaders) consistent without forcing each
     /// caller to mint its own scheme.
     ///
-    /// Non-fallible by design: passing an empty `chunks` vector returns a
-    /// value with both `chunks` and `chunk_ids` empty rather than panicking
-    /// or returning a `Result`. See the type-level doc for the
-    /// caller-responsibility contract.
-    pub fn new(chunks: Vec<Vec<f32>>) -> Self {
+    /// # Errors
+    ///
+    /// Returns [`EmptyChunksError`] when `chunks` is empty.
+    pub fn try_new(chunks: Vec<Vec<f32>>) -> Result<Self, EmptyChunksError> {
+        if chunks.is_empty() {
+            return Err(EmptyChunksError);
+        }
+        Ok(Self::new_unchecked(chunks))
+    }
+
+    /// Return the embedding vector for each chunk.
+    pub fn chunks(&self) -> &[Vec<f32>] {
+        &self.chunks
+    }
+
+    /// Return the stable identifier for each chunk.
+    ///
+    /// The returned slice has the same length and order as [`Self::chunks`].
+    pub fn chunk_ids(&self) -> &[String] {
+        &self.chunk_ids
+    }
+
+    /// Construct without checking non-emptiness.
+    ///
+    /// Use only after an upstream proof that at least one chunk exists.
+    pub(crate) fn new_unchecked(chunks: Vec<Vec<f32>>) -> Self {
         let chunk_ids = (0..chunks.len()).map(|i| format!("c{i}")).collect();
         Self { chunks, chunk_ids }
     }
@@ -184,7 +198,7 @@ pub(crate) fn truncate_for_query(
 /// All variants share the same tokenizer, prefix scheme, and max sequence length (8192).
 /// The embedding dimension varies per model and is read from `config.json.hidden_size`
 /// at load time — use [`Embedder::embedding_dims`] to query the actual dimension.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModelId {
     /// `cl-nagoya/ruri-v3-30m` — 256-dimensional.
     RuriV3_30m,
@@ -192,14 +206,19 @@ pub enum ModelId {
     RuriV3_70m,
     /// `cl-nagoya/ruri-v3-130m` — 512-dimensional.
     RuriV3_130m,
-    /// `cl-nagoya/ruri-v3-310m` — 768-dimensional (default).
-    #[default]
+    /// `cl-nagoya/ruri-v3-310m` — 768-dimensional.
     RuriV3_310m,
 }
 
 impl ModelId {
-    /// HuggingFace repository ID for this model.
-    pub fn repo_id(self) -> &'static str {
+    /// Product-chosen default embedding model.
+    pub const DEFAULT: Self = Self::RuriV3_310m;
+}
+
+impl ModelArtifact for ModelId {
+    type Kind = EmbedKind;
+
+    fn repo_id(self) -> &'static str {
         match self {
             Self::RuriV3_30m => "cl-nagoya/ruri-v3-30m",
             Self::RuriV3_70m => "cl-nagoya/ruri-v3-70m",
@@ -218,18 +237,6 @@ impl ModelId {
     }
 }
 
-impl ModelArtifact for ModelId {
-    type Kind = EmbedKind;
-
-    fn repo_id(self) -> &'static str {
-        ModelId::repo_id(self)
-    }
-
-    fn revision(self) -> &'static str {
-        self.revision()
-    }
-}
-
 // ── EmbedInitError ────────────────────────────────────────────────────────────
 
 // ── EmbedError (runtime) ──────────────────────────────────────────────────────
@@ -239,6 +246,7 @@ impl ModelArtifact for ModelId {
 /// These errors occur during calls to [`Embed`] trait methods after the
 /// [`Embedder`] has been successfully initialised.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum EmbedError {
     /// Model returned an empty sequence (seq_len is 0).
     #[error("empty sequence: seq_len is 0")]
@@ -251,24 +259,56 @@ pub enum EmbedError {
         /// Actual total elements.
         actual: usize,
     },
+    /// A producer attempted to construct a chunked embedding with no chunks.
+    #[error(transparent)]
+    EmptyChunks(#[from] EmptyChunksError),
     /// MLX inference failure during a forward pass.
-    #[error("inference error: {0}")]
-    Inference(String),
+    #[error("inference error: {message}")]
+    Inference {
+        /// Display rendering at construction.
+        message: String,
+        /// Source for chain walking.
+        #[source]
+        source: Option<Box<dyn Error + Send + Sync>>,
+    },
     /// Tokenizer encode failure (e.g. unsupported character sequence).
-    #[error("tokenizer error: {0}")]
-    Tokenizer(String),
+    #[error("tokenizer error: {message}")]
+    Tokenizer {
+        /// Display rendering at construction.
+        message: String,
+        /// Source for chain walking.
+        #[source]
+        source: Option<Box<dyn Error + Send + Sync>>,
+    },
     /// Embedding output contains non-finite values (NaN or infinity).
     #[error("non-finite values in embedding output (NaN or inf)")]
     NonFiniteOutput,
 }
 
 impl EmbedError {
-    pub(crate) fn inference(e: impl fmt::Display) -> Self {
-        Self::Inference(e.to_string())
+    pub(crate) fn inference(e: impl Into<Box<dyn Error + Send + Sync>>) -> Self {
+        let source = e.into();
+        let message = source.to_string();
+        Self::Inference {
+            message,
+            source: Some(source),
+        }
     }
 
-    pub(crate) fn tokenizer(e: impl fmt::Display) -> Self {
-        Self::Tokenizer(e.to_string())
+    pub(crate) fn inference_message(message: impl fmt::Display) -> Self {
+        Self::Inference {
+            message: message.to_string(),
+            source: None,
+        }
+    }
+
+    pub(crate) fn tokenizer(e: impl Into<Box<dyn Error + Send + Sync>>) -> Self {
+        let source = e.into();
+        let message = source.to_string();
+        Self::Tokenizer {
+            message,
+            source: Some(source),
+        }
     }
 }
 
@@ -304,15 +344,17 @@ pub trait Embed: Send + Sync {
     fn embed_document(&self, text: &str) -> Result<ChunkedEmbedding, EmbedError>;
 
     /// Batch-embed documents. Returns one [`ChunkedEmbedding`] per input text, in the
-    /// same order as `texts`. Default calls [`embed_document`](Self::embed_document) per item.
+    /// same order as `texts`.
+    ///
+    /// Implementations must choose and encode their semantics explicitly. A
+    /// per-document fallback may call [`embed_document`](Self::embed_document)
+    /// per item, while accelerated implementations may use a fused forward pass.
     ///
     /// # Errors
     ///
-    /// The default implementation returns the first error produced by
-    /// [`embed_document`](Self::embed_document).
-    fn embed_documents_batch(&self, texts: &[&str]) -> Result<Vec<ChunkedEmbedding>, EmbedError> {
-        texts.iter().map(|t| self.embed_document(t)).collect()
-    }
+    /// Implementations should return the first operational failure they
+    /// encounter and preserve input ordering for successful outputs.
+    fn embed_documents_batch(&self, texts: &[&str]) -> Result<Vec<ChunkedEmbedding>, EmbedError>;
 
     /// Embed text using the specified prefix (prepended before tokenization).
     /// The text is truncated if it exceeds [`MAX_SEQ_LEN`] (no chunking).

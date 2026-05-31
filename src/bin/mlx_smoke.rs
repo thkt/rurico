@@ -64,7 +64,7 @@ fn main() {
 
     sandbox::exit_if_seatbelt(env!("CARGO_BIN_NAME"));
 
-    let artifacts = embed::cached_artifacts(embed::ModelId::default())
+    let artifacts = embed::cached_artifacts(embed::ModelId::DEFAULT)
         .expect("cache lookup failed")
         .expect("model not cached; run download first");
 
@@ -103,8 +103,8 @@ fn run_assertions(embedder: &embed::Embedder) {
     let d = embedder
         .embed_document("function useAuth() { return user; }")
         .expect("short doc");
-    assert_eq!(d.chunks.len(), 1, "short doc: 1 chunk");
-    assert_eq!(d.chunks[0].len(), dims, "short doc dims");
+    assert_eq!(d.chunks().len(), 1, "short doc: 1 chunk");
+    assert_eq!(d.chunks()[0].len(), dims, "short doc dims");
 
     let batch = embedder
         .embed_documents_batch(&[
@@ -121,15 +121,15 @@ fn run_assertions(embedder: &embed::Embedder) {
     let sentence = "apple pie is a traditional dessert enjoyed around the world. ";
     let long_text = sentence.repeat(800);
     let ld = embedder.embed_document(&long_text).expect("long doc");
-    assert!(ld.chunks.len() >= 2, "long doc: ≥2 chunks");
-    for (i, chunk) in ld.chunks.iter().enumerate() {
+    assert!(ld.chunks().len() >= 2, "long doc: ≥2 chunks");
+    for (i, chunk) in ld.chunks().iter().enumerate() {
         assert_eq!(chunk.len(), dims, "long doc chunk {i} dims");
     }
 
     for text in ["apple pie", "the cat", "Rust", "This is a test"] {
         let r = embedder.embed_document(text).expect(text);
-        assert_eq!(r.chunks.len(), 1, "'{text}': 1 chunk");
-        assert_eq!(r.chunks[0].len(), dims, "'{text}' dims");
+        assert_eq!(r.chunks().len(), 1, "'{text}': 1 chunk");
+        assert_eq!(r.chunks()[0].len(), dims, "'{text}' dims");
     }
 
     eprintln!("smoke: all checks passed");

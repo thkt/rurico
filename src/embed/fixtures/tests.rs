@@ -3,8 +3,8 @@ use std::io::Cursor;
 
 fn sample_docs() -> Vec<ChunkedEmbedding> {
     vec![
-        ChunkedEmbedding::new(vec![vec![0.1, 0.2, 0.3], vec![0.4, 0.5, 0.6]]),
-        ChunkedEmbedding::new(vec![vec![-0.7, 0.8, 0.9]]),
+        ChunkedEmbedding::try_new(vec![vec![0.1, 0.2, 0.3], vec![0.4, 0.5, 0.6]]).unwrap(),
+        ChunkedEmbedding::try_new(vec![vec![-0.7, 0.8, 0.9]]).unwrap(),
     ]
 }
 
@@ -36,7 +36,7 @@ fn compare_identical_fixtures_reports_zero_diff() {
 // so the NFR-001 threshold stays passable on zero-norm inputs.
 #[test]
 fn compare_identical_zero_fixtures_reports_cosine_one() {
-    let zeros = vec![ChunkedEmbedding::new(vec![vec![0.0f32; 8]])];
+    let zeros = vec![ChunkedEmbedding::try_new(vec![vec![0.0f32; 8]]).unwrap()];
     let diff = compare(&zeros, &zeros).unwrap();
     assert_eq!(diff.cosine_min, 1.0);
     assert_eq!(diff.max_abs_diff, 0.0);
@@ -45,8 +45,8 @@ fn compare_identical_zero_fixtures_reports_cosine_one() {
 // Regression: zero vs nonzero must report cosine=0.0 (clear mismatch).
 #[test]
 fn compare_zero_versus_nonzero_reports_cosine_zero() {
-    let a = vec![ChunkedEmbedding::new(vec![vec![0.0f32; 3]])];
-    let b = vec![ChunkedEmbedding::new(vec![vec![1.0, 2.0, 3.0]])];
+    let a = vec![ChunkedEmbedding::try_new(vec![vec![0.0f32; 3]]).unwrap()];
+    let b = vec![ChunkedEmbedding::try_new(vec![vec![1.0, 2.0, 3.0]]).unwrap()];
     let diff = compare(&a, &b).unwrap();
     assert_eq!(diff.cosine_min, 0.0);
 }
@@ -129,6 +129,20 @@ fn load_rejects_truncated_header_after_num_docs() {
     let bytes = (1u32).to_le_bytes().to_vec();
     let err = load(&mut Cursor::new(&bytes)).expect_err("truncated header must error");
     assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof);
+}
+
+#[test]
+fn load_rejects_doc_with_zero_chunks() {
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(&1u32.to_le_bytes()); // num_docs = 1
+    bytes.extend_from_slice(&0u32.to_le_bytes()); // num_chunks = 0
+
+    let err = load(&mut Cursor::new(&bytes)).expect_err("zero chunks must error");
+    assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+    assert!(
+        err.to_string().contains("at least one chunk"),
+        "unexpected error: {err}"
+    );
 }
 
 // Corrupt header: a chunk declares `dim` but the f32 payload is shorter

@@ -136,9 +136,9 @@ fn build_indexed_chunks_rejects_chunks_per_doc_excess() {
     let err = build_indexed_chunks(all_chunks, &[2])
         .expect_err("chunks_per_doc total > all_chunk_tokens length must error");
     match err {
-        EmbedError::Inference(msg) => assert!(
-            msg.contains("chunks_per_doc total exceeds"),
-            "expected chunks_per_doc-side error wording, got: {msg}"
+        EmbedError::Inference { message, .. } => assert!(
+            message.contains("chunks_per_doc total exceeds"),
+            "expected chunks_per_doc-side error wording, got: {message}"
         ),
         other => panic!("expected Inference, got {other:?}"),
     }
@@ -150,9 +150,9 @@ fn build_indexed_chunks_rejects_all_chunk_tokens_excess() {
     let err = build_indexed_chunks(all_chunks, &[1])
         .expect_err("all_chunk_tokens length > chunks_per_doc total must error");
     match err {
-        EmbedError::Inference(msg) => assert!(
-            msg.contains("all_chunk_tokens has 1 more"),
-            "expected extras count in surplus-side error wording, got: {msg}"
+        EmbedError::Inference { message, .. } => assert!(
+            message.contains("all_chunk_tokens has 1 more"),
+            "expected extras count in surplus-side error wording, got: {message}"
         ),
         other => panic!("expected Inference, got {other:?}"),
     }

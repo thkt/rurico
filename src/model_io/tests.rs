@@ -149,7 +149,7 @@ fn model_artifact_kind_associated_type_is_fixed_per_id() {
     assert_kind::<RerankerModelId, RerankerKind>();
 
     // Force at least one runtime assertion so the test body is not empty.
-    assert_eq!(ModelId::default().repo_id(), "cl-nagoya/ruri-v3-310m");
+    assert_eq!(ModelId::DEFAULT.repo_id(), "cl-nagoya/ruri-v3-310m");
 }
 
 // ── download_artifacts_with seam tests ──────────────────────────────────
@@ -163,7 +163,7 @@ fn download_artifacts_with_routes_success_to_caller() {
     let fake = ModelPaths::from_dir(dir.path());
     let expected = fake.model.clone();
     let result = download_artifacts_with(
-        ModelId::default(),
+        ModelId::DEFAULT,
         DOWNLOAD_TIMEOUT,
         move |_repo_id, _revision| Ok(fake),
     )
@@ -174,11 +174,9 @@ fn download_artifacts_with_routes_success_to_caller() {
 // T-106-005: download_artifacts_with
 #[test]
 fn download_artifacts_with_routes_error_to_caller() {
-    let err = download_artifacts_with(
-        ModelId::default(),
-        DOWNLOAD_TIMEOUT,
-        |_repo_id, _revision| Err(ModelIoError::Download("simulated".to_owned())),
-    )
+    let err = download_artifacts_with(ModelId::DEFAULT, DOWNLOAD_TIMEOUT, |_repo_id, _revision| {
+        Err(ModelIoError::Download("simulated".to_owned()))
+    })
     .unwrap_err();
     assert!(
         matches!(err, ModelIoError::Download(ref s) if s == "simulated"),
@@ -190,7 +188,7 @@ fn download_artifacts_with_routes_error_to_caller() {
 #[test]
 fn download_artifacts_with_returns_timeout_when_worker_exceeds_budget() {
     let err = download_artifacts_with(
-        ModelId::default(),
+        ModelId::DEFAULT,
         Duration::from_millis(50),
         |_repo_id, _revision| {
             thread::sleep(Duration::from_secs(2));
