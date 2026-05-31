@@ -491,5 +491,5 @@ fn chunked_embedding_try_new_rejects_empty_input() {
 #[test]
 fn chunked_embedding_try_new_generates_matching_chunk_ids() {
     let ce = ChunkedEmbedding::try_new(vec![vec![0.0], vec![1.0]]).unwrap();
-    assert_eq!(ce.chunk_ids, ["c0", "c1"]);
+    assert_eq!(ce.chunk_ids(), ["c0", "c1"]);
 }

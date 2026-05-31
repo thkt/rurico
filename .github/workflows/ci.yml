@@ -91,7 +91,17 @@ jobs:
           tool: cargo-llvm-cov
 
       - name: Generate lcov coverage
-        run: cargo llvm-cov --workspace --features test-support,test-mlx --lcov --output-path lcov.info
+        run: |
+          # Drop files that cannot run in CI from the diff-coverage denominator:
+          # test_support mocks (test infra, downstream-only — not run by rurico's
+          # own tests), the MLX backend (mlx.rs / embedder.rs run only under
+          # #[ignore] with a cached model), and smoke bins (need a downloaded
+          # model). Pure logic (embed.rs, reranker.rs, lazy.rs) stays measured.
+          # Mirrors yomu's ignore-regex; without it new mock/MLX lines a PR
+          # touches count as uncovered and fail the gate (e.g. PR #205).
+          cargo llvm-cov --workspace --features test-support,test-mlx \
+            --ignore-filename-regex '(test_support\.rs|/bin/|embed/(mlx|embedder)\.rs|reranker/mlx\.rs)' \
+            --lcov --output-path lcov.info
 
       - name: Diff coverage gate (changed lines >= 95%)
         run: |
