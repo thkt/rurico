@@ -11,9 +11,10 @@
 ///   (see `rurico::mlx_cache::MLX_CACHE_LOCK`).
 #[allow(unsafe_code)]
 pub fn mlx_clear_cache() -> i32 {
-    // SAFETY: mlx_clear_cache is a stateless global cache flush.
-    // The caller must ensure no MLX arrays are borrowed at this point
-    // and that concurrent calls are serialized via MLX_CACHE_LOCK.
+    // SAFETY: the caller must ensure no MLX arrays are borrowed at this point
+    // and that concurrent calls are serialized via MLX_CACHE_LOCK. MLX mutates
+    // process-global cache state internally; this wrapper makes no post-panic
+    // consistency guarantee beyond forwarding the MLX return code.
     unsafe { mlx_sys::mlx_clear_cache() }
 }
 

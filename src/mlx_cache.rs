@@ -25,8 +25,11 @@ impl Component {
 
 /// Process-global lock for [`mlx_sys::mlx_clear_cache`] and [`mlx_sys::mlx_detail_compile_clear_cache`] calls.
 ///
-/// Recover from poison: cache-clear is stateless (guards `()`), safe to
-/// proceed after a panic in another thread.
+/// Poison recovery is best-effort. The Rust-side guard is stateless (`()`), but
+/// the protected MLX cache state is process-global FFI state and may be
+/// internally inconsistent after a panic during a prior cache-clear call.
+/// Continuing is acceptable because the worst expected failure mode is a
+/// leaked compile-cache entry, not a Rust memory-safety violation.
 pub(crate) static MLX_CACHE_LOCK: Mutex<()> = Mutex::new(());
 
 /// Consume an MLX output array and attempt to clear the GPU cache.
