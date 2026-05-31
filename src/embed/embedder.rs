@@ -100,7 +100,7 @@ impl Embedder {
                 error = %e,
                 "embedder: mutex poisoned (prior panic in critical section)"
             );
-            EmbedError::inference("embedder lock poisoned")
+            EmbedError::inference_message("embedder lock poisoned")
         })
     }
 }

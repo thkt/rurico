@@ -69,7 +69,7 @@ fn build_indexed_chunks(
     for (doc_idx, &count) in chunks_per_doc.iter().enumerate() {
         for chunk_in_doc in 0..count {
             let tokens = tokens_iter.next().ok_or_else(|| {
-                EmbedError::inference(format!(
+                EmbedError::inference_message(format!(
                     "chunks_per_doc total exceeds all_chunk_tokens length \
                      (doc_idx={doc_idx}, chunk_in_doc={chunk_in_doc})"
                 ))
@@ -84,7 +84,7 @@ fn build_indexed_chunks(
     }
     if tokens_iter.next().is_some() {
         let extras = tokens_iter.count() + 1;
-        return Err(EmbedError::inference(format!(
+        return Err(EmbedError::inference_message(format!(
             "all_chunk_tokens has {extras} more entries than chunks_per_doc total"
         )));
     }
@@ -284,7 +284,7 @@ impl EmbedderInner {
             .enumerate()
             .map(|(idx, slot)| {
                 slot.ok_or_else(|| {
-                    EmbedError::inference(format!(
+                    EmbedError::inference_message(format!(
                         "chunk slot {idx} not filled by any bucket forward (distribution bug)"
                     ))
                 })
@@ -295,7 +295,7 @@ impl EmbedderInner {
         let mut iter = all_embeddings.into_iter();
         for &count in &chunks_per_doc {
             let chunks: Vec<_> = iter.by_ref().take(count).collect();
-            results.push(ChunkedEmbedding::new(chunks));
+            results.push(ChunkedEmbedding::try_new(chunks)?);
         }
 
         Ok((results, batch_metrics))
@@ -476,7 +476,7 @@ pub(super) fn shrink_chunk_to_fit(
                 total_offsets = offsets.len(),
                 "chunk cannot fit within MAX_SEQ_LEN after adaptive shrink"
             );
-            return Err(EmbedError::inference(format!(
+            return Err(EmbedError::inference_message(format!(
                 "chunk at token {start} cannot fit within \
                  MAX_SEQ_LEN after adaptive shrink"
             )));

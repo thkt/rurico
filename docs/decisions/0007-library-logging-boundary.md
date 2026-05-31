@@ -101,7 +101,7 @@ Positive:
 
 Negative:
 
-- The boundary requires judgement on borderline cases (e.g. `EmbedError::Inference` returned from a tokenizer encoding error in `plan_long_document`: is the tokenizer error caller-observable? In this codebase yes, so `rurico` does not warn). Reviewers must apply the rule.
+- The boundary requires judgement on borderline cases (e.g. `EmbedError::Tokenizer` returned from a tokenizer encoding error in `plan_long_document`: is the tokenizer error caller-observable? In this codebase yes, so `rurico` does not warn). Reviewers must apply the rule.
 - `tracing` becomes a public-API-shape concern for `rurico`: removing or renaming a structured field is a downstream-grep-breaking change. Mitigated by the structured-field naming convention listed under Decision §Field discipline.
 - `rurico` Cargo.toml gains a `tracing` runtime dependency and a `tracing-subscriber` dependency for the `mlx_smoke` binary. The library code itself never initialises a subscriber (LANG.md compliance); only the smoke binary does.
 

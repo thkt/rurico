@@ -27,12 +27,12 @@ where
 {
 }
 
-// T-010: download_model(ModelId::default()) returns Result<VerifiedArtifacts<EmbedKind>, ArtifactError>
+// T-010: download_model(ModelId::DEFAULT) returns Result<VerifiedArtifacts<EmbedKind>, ArtifactError>
 #[test]
 fn download_model_for_embed_id_returns_verified_artifacts_of_embed_kind() {
     // Compile-time signature check only; do not invoke (would hit network).
     assert_returns::<_, Result<VerifiedArtifacts<EmbedKind>, ArtifactError>>(|| {
-        download_model(ModelId::default())
+        download_model(ModelId::DEFAULT)
     });
 }
 
@@ -44,7 +44,7 @@ fn download_model_for_reranker_id_returns_verified_artifacts_of_reranker_kind() 
     });
 }
 
-// T-012: cached_artifacts(ModelId::default()) with all artifacts present → Ok(Some(VerifiedArtifacts<EmbedKind>))
+// T-012: cached_artifacts(ModelId::DEFAULT) with all artifacts present → Ok(Some(VerifiedArtifacts<EmbedKind>))
 #[test]
 fn cached_artifacts_for_embed_id_returns_some_when_cache_populated() {
     let hf_home = tempfile::tempdir().unwrap();
@@ -54,7 +54,7 @@ fn cached_artifacts_for_embed_id_returns_some_when_cache_populated() {
     // Stage real backbone-keyed safetensors + valid config + valid tokenizer
     // outside the cache, then point the fake HF cache at them via direct
     // file content so verify() can succeed.
-    let model_id = ModelId::default();
+    let model_id = ModelId::DEFAULT;
     let scratch = tempfile::tempdir().unwrap();
     let model_path = scratch.path().join("model.safetensors");
     write_embed_safetensors(&model_path);

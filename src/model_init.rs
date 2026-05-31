@@ -15,6 +15,7 @@ use crate::model_probe::ProbeError;
 /// These errors occur after artifact verification has already succeeded. They
 /// indicate a failure during MLX backend setup or model weight loading.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum ModelInitError {
     /// MLX backend initialisation, weight loading, or subprocess probe failure.
     ///

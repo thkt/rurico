@@ -37,15 +37,15 @@ impl Embed for MockEmbedder {
     }
 
     fn embed_document(&self, _text: &str) -> Result<ChunkedEmbedding, EmbedError> {
-        Ok(ChunkedEmbedding::new(vec![one_hot(0, self.dims)]))
+        Ok(ChunkedEmbedding::try_new(vec![one_hot(0, self.dims)])?)
     }
 
     fn embed_documents_batch(&self, texts: &[&str]) -> Result<Vec<ChunkedEmbedding>, EmbedError> {
         Ok(texts
             .iter()
             .enumerate()
-            .map(|(i, _)| ChunkedEmbedding::new(vec![one_hot(i, self.dims)]))
-            .collect())
+            .map(|(i, _)| ChunkedEmbedding::try_new(vec![one_hot(i, self.dims)]))
+            .collect::<Result<Vec<_>, _>>()?)
     }
 
     fn embed_text(&self, text: &str, _prefix: &str) -> Result<Vec<f32>, EmbedError> {
@@ -82,15 +82,19 @@ impl FailingEmbedder {
 
 impl Embed for FailingEmbedder {
     fn embed_query(&self, _text: &str) -> Result<Vec<f32>, EmbedError> {
-        Err(EmbedError::Inference(self.message.into()))
+        Err(EmbedError::inference_message(self.message))
     }
 
     fn embed_document(&self, _text: &str) -> Result<ChunkedEmbedding, EmbedError> {
         if self.docs_fail {
-            Err(EmbedError::Inference(self.message.into()))
+            Err(EmbedError::inference_message(self.message))
         } else {
-            Ok(ChunkedEmbedding::new(vec![one_hot(0, self.dims)]))
+            Ok(ChunkedEmbedding::try_new(vec![one_hot(0, self.dims)])?)
         }
+    }
+
+    fn embed_documents_batch(&self, texts: &[&str]) -> Result<Vec<ChunkedEmbedding>, EmbedError> {
+        texts.iter().map(|text| self.embed_document(text)).collect()
     }
 
     fn embed_text(&self, text: &str, _prefix: &str) -> Result<Vec<f32>, EmbedError> {
@@ -107,14 +111,14 @@ impl Embed for MismatchEmbedder {
     }
 
     fn embed_document(&self, _text: &str) -> Result<ChunkedEmbedding, EmbedError> {
-        Ok(ChunkedEmbedding::new(vec![one_hot(0, EMBEDDING_DIMS)]))
+        Ok(ChunkedEmbedding::try_new(vec![one_hot(0, EMBEDDING_DIMS)])?)
     }
 
     fn embed_documents_batch(&self, _texts: &[&str]) -> Result<Vec<ChunkedEmbedding>, EmbedError> {
-        Ok(vec![ChunkedEmbedding::new(vec![one_hot(
+        Ok(vec![ChunkedEmbedding::try_new(vec![one_hot(
             0,
             EMBEDDING_DIMS,
-        )])])
+        )])?])
     }
 
     fn embed_text(&self, text: &str, _prefix: &str) -> Result<Vec<f32>, EmbedError> {
@@ -158,11 +162,11 @@ impl Embed for MockChunkedEmbedder {
     }
 
     fn embed_document(&self, _text: &str) -> Result<ChunkedEmbedding, EmbedError> {
-        Ok(ChunkedEmbedding::new(
+        Ok(ChunkedEmbedding::try_new(
             (0..self.chunks_per_doc)
                 .map(|i| one_hot(i, self.dims))
                 .collect(),
-        ))
+        )?)
     }
 
     fn embed_documents_batch(&self, texts: &[&str]) -> Result<Vec<ChunkedEmbedding>, EmbedError> {
@@ -170,13 +174,13 @@ impl Embed for MockChunkedEmbedder {
             .iter()
             .enumerate()
             .map(|(i, _)| {
-                ChunkedEmbedding::new(
+                ChunkedEmbedding::try_new(
                     (0..self.chunks_per_doc)
                         .map(|j| one_hot(i * self.chunks_per_doc + j, self.dims))
                         .collect(),
                 )
             })
-            .collect())
+            .collect::<Result<Vec<_>, _>>()?)
     }
 
     fn embed_text(&self, text: &str, _prefix: &str) -> Result<Vec<f32>, EmbedError> {
@@ -215,10 +219,14 @@ impl Embed for AlternatingEmbedder {
     fn embed_document(&self, _text: &str) -> Result<ChunkedEmbedding, EmbedError> {
         let n = self.call_count.fetch_add(1, Ordering::SeqCst);
         if n.is_multiple_of(2) {
-            Err(EmbedError::Inference("alternating failure".into()))
+            Err(EmbedError::inference_message("alternating failure"))
         } else {
-            Ok(ChunkedEmbedding::new(vec![one_hot(0, self.dims)]))
+            Ok(ChunkedEmbedding::try_new(vec![one_hot(0, self.dims)])?)
         }
+    }
+
+    fn embed_documents_batch(&self, texts: &[&str]) -> Result<Vec<ChunkedEmbedding>, EmbedError> {
+        texts.iter().map(|text| self.embed_document(text)).collect()
     }
 
     fn embed_text(&self, text: &str, _prefix: &str) -> Result<Vec<f32>, EmbedError> {

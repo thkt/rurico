@@ -60,6 +60,24 @@
   Migration: callers that pattern-match on either variant must remove
   the corresponding match arm. `ProbeStatus::BackendUnavailable` is the
   replacement for backend-availability detection.
+- **`ModelId::default()` removed.** Use the explicit `ModelId::DEFAULT`
+  constant when callers want the product-chosen default embedding model.
+- **`ModelId::repo_id()` inherent helper removed.** Model artifact metadata is
+  now owned by the internal `ModelArtifact` implementation, avoiding a method
+  name collision between the inherent helper and trait method.
+- **`ChunkedEmbedding::new` replaced by `ChunkedEmbedding::try_new`.** Empty
+  chunk lists now return `EmptyChunksError`; `chunks` / `chunk_ids` fields are
+  now private to keep the invariant enforceable. Use `chunks()` and
+  `chunk_ids()` for read access.
+- **`Embed::embed_documents_batch` no longer has a default implementation.**
+  Implementors must explicitly choose a per-document fallback or a fused batch
+  implementation.
+- **Public error enums are now `#[non_exhaustive]`.** Downstream `match`
+  expressions over `ModelInitError`, `EmbedError`, or `ArtifactError` must
+  include a wildcard arm. The crate-internal `ModelIoError` is also annotated.
+- **`EmbedError::Inference` and `EmbedError::Tokenizer` are struct variants
+  with source chains.** Match on `message` / `source` fields instead of the old
+  tuple payload.
 - **MSRV bump to 1.95.** `rust-version` in `Cargo.toml` is now `1.95`.
   Downstream crates pinning an older toolchain must upgrade.
 

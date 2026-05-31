@@ -19,7 +19,7 @@ fn main() {
 
     sandbox::exit_if_seatbelt(env!("CARGO_BIN_NAME"));
 
-    let artifacts = cached_artifacts(ModelId::default())
+    let artifacts = cached_artifacts(ModelId::DEFAULT)
         .expect("embed cache lookup failed")
         .expect("embed model not cached — download ruri-v3-310m before running");
 

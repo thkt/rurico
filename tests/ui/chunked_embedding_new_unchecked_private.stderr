@@ -1,0 +1,10 @@
+error[E0624]: associated function `new_unchecked` is private
+ --> tests/ui/chunked_embedding_new_unchecked_private.rs:5:46
+  |
+5 |     let _ = rurico::embed::ChunkedEmbedding::new_unchecked(Vec::new());
+  |                                              ^^^^^^^^^^^^^ private associated function
+  |
+ ::: src/embed.rs
+  |
+  |     pub(crate) fn new_unchecked(chunks: Vec<Vec<f32>>) -> Self {
+  |     ---------------------------------------------------------- private associated function defined here

@@ -11,7 +11,7 @@
 //! ```text
 //! u32 LE  num_docs
 //!   per doc:
-//!     u32 LE  num_chunks
+//!     u32 LE  num_chunks (must be >= 1)
 //!     per chunk:
 //!       u32 LE  hidden_dim
 //!       f32 LE × hidden_dim
@@ -132,7 +132,10 @@ pub fn load<R: Read>(r: &mut R) -> io::Result<Vec<ChunkedEmbedding>> {
             let vec: Vec<f32> = bytemuck::cast_slice::<u8, f32>(&bytes).to_vec();
             chunks.push(vec);
         }
-        docs.push(ChunkedEmbedding::new(chunks));
+        docs.push(
+            ChunkedEmbedding::try_new(chunks)
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
+        );
     }
     Ok(docs)
 }

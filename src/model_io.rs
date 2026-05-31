@@ -83,6 +83,7 @@ pub trait ModelArtifact: Copy {
 
 /// Errors from model I/O operations.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum ModelIoError {
     /// Config file missing or unparseable.
     #[error("config error at {path}: {reason}")]

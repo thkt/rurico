@@ -103,6 +103,7 @@ impl<K> VerifiedArtifacts<K> {
 
 /// Errors from artifact verification or model download.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum ArtifactError {
     /// A required model file is missing from disk.
     #[error("missing file: {}", path.display())]
