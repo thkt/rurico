@@ -22,9 +22,9 @@
 - **`download_model` and `cached_artifacts` signatures changed.** Both
   functions are now generic over `ModelArtifact` and live in
   `rurico::model_lifecycle`: `pub fn download_model<Id: ModelArtifact>(model: Id)
-  -> Result<VerifiedArtifacts<Id::Kind>, ArtifactError>` and
+-> Result<VerifiedArtifacts<Id::Kind>, ArtifactError>` and
   `pub fn cached_artifacts<Id: ModelArtifact>(model: Id)
-  -> Result<Option<VerifiedArtifacts<Id::Kind>>, ArtifactError>`.
+-> Result<Option<VerifiedArtifacts<Id::Kind>>, ArtifactError>`.
   `embed::download_model` / `embed::cached_artifacts` /
   `reranker::download_model` / `reranker::cached_artifacts` remain as
   `pub use` re-exports of the canonical functions, so existing call
@@ -34,7 +34,7 @@
   so it has no external implementors and this is not a caller-visible
   change. The associated type binds each model identifier to its kind
   marker (`ModelId::Kind = EmbedKind`, `RerankerModelId::Kind =
-  RerankerKind`), which lets `download_model(model)` return
+RerankerKind`), which lets `download_model(model)` return
   `VerifiedArtifacts<Id::Kind>` without an explicit kind type parameter.
   Wrong-kind combinations (e.g. constructing a candidate for the embed
   kind from a `RerankerModelId`) are no longer expressible at the call
@@ -46,7 +46,7 @@
   `CandidateArtifacts<RerankerKind>` respectively.
 - **`embed_document` returns `ChunkedEmbedding` instead of `Vec<f32>`.** Long
   documents are split into overlapping chunks. Short documents return
-  `chunks.len() == 1` with an identical embedding value.
+  `chunks().len() == 1` with an identical embedding value.
 - **`embed_documents_batch` returns `Vec<ChunkedEmbedding>` instead of
   `Vec<Vec<f32>>`.** Each element maps 1:1 to an input document.
 - **Remove `mlx` Cargo feature.** `mlx-rs` is now a regular (non-optional)

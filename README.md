@@ -10,20 +10,20 @@ Apple Silicon (MLX) 上で日本語テキストのembedding・reranking・類似
 
 ## モジュール構成
 
-| モジュール        | 役割                                                                                                                                                        |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `embed`           | embedding 生成（MLX 推論、tokenization、pooling、probe）                                                                                                    |
-| `reranker`        | 検索結果の reranking（cross-encoder スコアリング、probe）                                                                                                   |
-| `modernbert`      | ModernBERT モデル定義と config                                                                                                                              |
-| `storage`         | SQLite + sqlite-vec のベクトル検索プリミティブ（FTS sanitize / `MatchFtsQuery`、`QueryNormalizationConfig`）                                                |
-| `retrieval`       | 5-stage retrieval pipeline contract — `Candidate` / `MergedHit` / `MergeStrategy` / `Aggregator` / `HybridSearchConfig` / `RecencyConfig`                   |
-| `text`            | テキスト分割（段落 > 行 > 文字境界で UTF-8 安全に分割）                                                                                                     |
-| `artifacts`       | モデルファイルの型付き検証パイプライン（`CandidateArtifacts<K>` → `VerifiedArtifacts<K>`）                                                                  |
-| `model_init`      | embed / reranker 共通の初期化エラー型 `ModelInitError`                                                                                                      |
-| `model_lifecycle` | kind 汎用の `download_model` / `cached_artifacts`（`embed` / `reranker` からも re-export）                                                                  |
-| `model_probe`     | サブプロセス probe 基盤（`ProbeStatus`、`Embedder::probe` / `Reranker::probe` の実装基盤）                                                                  |
-| `dispatch`        | top-level probe dispatcher。crate root から `handle_probe_if_needed` を提供し、embed と reranker の probe を一括 wire する                                  |
-| `sandbox`         | Codex seatbelt 検出（`exit_if_seatbelt` / `require_unsandboxed_mlx_runtime`）。MLX/Metal が abort する環境で smoke / runtime テストを早期に skip する        |
+| モジュール        | 役割                                                                                                                                                  |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `embed`           | embedding 生成（MLX 推論、tokenization、pooling、probe）                                                                                              |
+| `reranker`        | 検索結果の reranking（cross-encoder スコアリング、probe）                                                                                             |
+| `modernbert`      | ModernBERT モデル定義と config                                                                                                                        |
+| `storage`         | SQLite + sqlite-vec のベクトル検索プリミティブ（FTS sanitize / `MatchFtsQuery`、`QueryNormalizationConfig`）                                          |
+| `retrieval`       | 5-stage retrieval pipeline contract — `Candidate` / `MergedHit` / `MergeStrategy` / `Aggregator` / `HybridSearchConfig` / `RecencyConfig`             |
+| `text`            | テキスト分割（段落 > 行 > 文字境界で UTF-8 安全に分割）                                                                                               |
+| `artifacts`       | モデルファイルの型付き検証パイプライン（`CandidateArtifacts<K>` → `VerifiedArtifacts<K>`）                                                            |
+| `model_init`      | embed / reranker 共通の初期化エラー型 `ModelInitError`                                                                                                |
+| `model_lifecycle` | kind 汎用の `download_model` / `cached_artifacts`（`embed` / `reranker` からも re-export）                                                            |
+| `model_probe`     | サブプロセス probe 基盤（`ProbeStatus`、`Embedder::probe` / `Reranker::probe` の実装基盤）                                                            |
+| `dispatch`        | top-level probe dispatcher。crate root から `handle_probe_if_needed` を提供し、embed と reranker の probe を一括 wire する                            |
+| `sandbox`         | Codex seatbelt 検出（`exit_if_seatbelt` / `require_unsandboxed_mlx_runtime`）。MLX/Metal が abort する環境で smoke / runtime テストを早期に skip する |
 
 検索品質の評価ハーネス（Recall@k / MRR@k / nDCG@k）は [`amici`](https://github.com/thkt/amici) に移譲した。
 
@@ -80,18 +80,18 @@ for chunk_vec in doc.chunks() {
 
 ### 定数
 
-| 定数                   | 値               | 用途                                                                               |
-| ---------------------- | ---------------- | ---------------------------------------------------------------------------------- |
-| `EMBEDDING_DIMS`       | `768`            | デフォルトモデル (310m) の出力次元数。実行時は `Embedder::embedding_dims()` で取得 |
-| `MAX_SEQ_LEN`          | `8192`           | モデル入力全体長（BOS + prefix + text + EOS）                                      |
-| `QUERY_PREFIX`         | `"検索クエリ: "` | クエリ埋め込みときに先頭へ付加                                                     |
-| `DOCUMENT_PREFIX`      | `"検索文書: "`   | ドキュメント埋め込みときに先頭へ付加                                               |
-| `SEMANTIC_PREFIX`      | `""`             | semantic/clustering タスク用（プレフィックスなし）                                 |
-| `TOPIC_PREFIX`         | `"トピック: "`   | 分類・クラスタリングタスク用                                                       |
+| 定数              | 値               | 用途                                                                               |
+| ----------------- | ---------------- | ---------------------------------------------------------------------------------- |
+| `EMBEDDING_DIMS`  | `768`            | デフォルトモデル (310m) の出力次元数。実行時は `Embedder::embedding_dims()` で取得 |
+| `MAX_SEQ_LEN`     | `8192`           | モデル入力全体長（BOS + prefix + text + EOS）                                      |
+| `QUERY_PREFIX`    | `"検索クエリ: "` | クエリ埋め込みときに先頭へ付加                                                     |
+| `DOCUMENT_PREFIX` | `"検索文書: "`   | ドキュメント埋め込みときに先頭へ付加                                               |
+| `SEMANTIC_PREFIX` | `""`             | semantic/clustering タスク用（プレフィックスなし）                                 |
+| `TOPIC_PREFIX`    | `"トピック: "`   | 分類・クラスタリングタスク用                                                       |
 
 ### Document Embedding
 
-`embed_document` は `ChunkedEmbedding` を返す。テキストが `MAX_SEQ_LEN` 以内なら `chunks.len() == 1` で従来と同等のembeddingを返す。超過時はprefixを保持したoverlapping chunksに分割され、各chunkが独立したembeddingになる（次元数はモデルにより異なる）。
+`embed_document` は `ChunkedEmbedding` を返す。テキストが `MAX_SEQ_LEN` 以内なら `chunks().len() == 1` で従来と同等のembeddingを返す。超過時はprefixを保持したoverlapping chunksに分割され、各chunkが独立したembeddingになる（次元数はモデルにより異なる）。
 
 `embed_documents_batch` は入力件数と同数の `Vec<ChunkedEmbedding>` を返し、入力順を保持する。
 
@@ -222,13 +222,13 @@ let merged = WeightedRrf::default().merge(&candidates);
 
 `retrieval` モジュールは 5 ステージの pipeline contract を提供する。`storage::prepare_match_query` と組み合わせる際の標準配線で、aggregation hook、hybrid weight/recency（`RecencyConfig` + `merge_with_recency`）、chunk-level retrieval を備える。
 
-| Stage | 入力 → 出力                              | 提供型・関数                                                                                                                                                |
-| ----- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1     | `&str` → `Vec<Candidate>`                | `Candidate { source, doc_id, chunk_id, score, rank }`、`CandidateSource` 閉enum (`Fts` / `Vector`)                                                          |
-| 2     | `&[Candidate]` → `Vec<MergedHit>`        | `MergeStrategy` trait、default impl `WeightedRrf`、設定 `HybridSearchConfig { rrf_k, source_weights }`、`merge_with_recency` + `RecencyConfig`              |
-| 3     | `&[MergedHit]` → `Vec<MergedHit>`        | `Aggregator` trait + 4 impl (`IdentityAggregator` / `MaxChunkAggregator` / `DedupeAggregator` / `TopKAverageAggregator { k }`)、`group_by_parent` helper |
-| 4     | `(&str, &[MergedHit], corpus)` → 並べ替え | 既存の `Rerank` trait に corpus lookup を組み合わせて呼ぶ                                                                                                   |
-| 5     | rerank 結果 → top_k                      | downstream の表示層が責任を持つ                                                                                                                             |
+| Stage | 入力 → 出力                               | 提供型・関数                                                                                                                                             |
+| ----- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | `&str` → `Vec<Candidate>`                 | `Candidate { source, doc_id, chunk_id, score, rank }`、`CandidateSource` 閉enum (`Fts` / `Vector`)                                                       |
+| 2     | `&[Candidate]` → `Vec<MergedHit>`         | `MergeStrategy` trait、default impl `WeightedRrf`、設定 `HybridSearchConfig { rrf_k, source_weights }`、`merge_with_recency` + `RecencyConfig`           |
+| 3     | `&[MergedHit]` → `Vec<MergedHit>`         | `Aggregator` trait + 4 impl (`IdentityAggregator` / `MaxChunkAggregator` / `DedupeAggregator` / `TopKAverageAggregator { k }`)、`group_by_parent` helper |
+| 4     | `(&str, &[MergedHit], corpus)` → 並べ替え | 既存の `Rerank` trait に corpus lookup を組み合わせて呼ぶ                                                                                                |
+| 5     | rerank 結果 → top_k                       | downstream の表示層が責任を持つ                                                                                                                          |
 
 ```rust
 use std::collections::HashMap;
@@ -270,12 +270,12 @@ let aggregated = aggregator.aggregate(&merged);
 
 `MergedHit.chunk_id` が `Some(_)` のとき（chunk-level retrieval）に意味のある集約を提供する。`None` のままだと Stage 2 fusion が `doc_id` だけで折りたたんでいるため、すべての aggregator が identity と等価になる。
 
-| Aggregator                       | 振る舞い                                                                                  |
-| -------------------------------- | ----------------------------------------------------------------------------------------- |
-| `IdentityAggregator`             | パススルー。chunk-level identity を Stage 4 に届ける。default                             |
-| `MaxChunkAggregator`             | parent ごとに最高スコアの chunk を残し、`chunk_id = None` で parent 単位に折りたたむ      |
-| `DedupeAggregator`               | parent ごとに先頭 1 件のみ残す（順序保持の dedupe）                                       |
-| `TopKAverageAggregator { k }`    | parent ごとに上位 `k` chunk スコアの平均を採用（`TopKAverageAggregator::new(k)` も可）   |
+| Aggregator                    | 振る舞い                                                                               |
+| ----------------------------- | -------------------------------------------------------------------------------------- |
+| `IdentityAggregator`          | パススルー。chunk-level identity を Stage 4 に届ける。default                          |
+| `MaxChunkAggregator`          | parent ごとに最高スコアの chunk を残し、`chunk_id = None` で parent 単位に折りたたむ   |
+| `DedupeAggregator`            | parent ごとに先頭 1 件のみ残す（順序保持の dedupe）                                    |
+| `TopKAverageAggregator { k }` | parent ごとに上位 `k` chunk スコアの平均を採用（`TopKAverageAggregator::new(k)` も可） |
 
 独自の `Aggregator` を実装する場合は `group_by_parent(&merged) -> HashMap<&str, Vec<&MergedHit>>` で parent 単位にバケットできる。
 
@@ -307,23 +307,23 @@ stmt.execute(rusqlite::params![bytes])?;
 
 **`ModelInitError`** — `Embedder::new` / `Embedder::probe` / `Reranker::new` / `Reranker::probe` フェーズ（embed と reranker で共通）
 
-| variant        | 発生条件                                                  |
-| -------------- | --------------------------------------------------------- |
+| variant        | 発生条件                                                   |
+| -------------- | ---------------------------------------------------------- |
 | `Backend`      | MLX バックエンド初期化・重みロード・probe サブプロセス失敗 |
-| `ModelCorrupt` | 重みは読めたがモデルが破損/非互換                         |
+| `ModelCorrupt` | 重みは読めたがモデルが破損/非互換                          |
 
 `Backend` は `message: String` と `source: Option<Box<dyn Error + Send + Sync>>` を持ち、`std::error::Error::source()` で原因チェーンを辿れる。
 
 **`EmbedError`** — `Embed` トレイトメソッド（推論）フェーズ
 
-| variant               | 発生条件                                      |
-| --------------------- | --------------------------------------------- |
-| `EmptySequence`       | モデルが seq_len=0 の出力を返した             |
-| `BufferShapeMismatch` | 推論出力のバッファサイズが期待値と不一致      |
+| variant               | 発生条件                                    |
+| --------------------- | ------------------------------------------- |
+| `EmptySequence`       | モデルが seq_len=0 の出力を返した           |
+| `BufferShapeMismatch` | 推論出力のバッファサイズが期待値と不一致    |
 | `EmptyChunks`         | chunked embedding が chunk なしで構築された |
-| `Inference`           | MLX 推論失敗                                  |
-| `Tokenizer`           | tokenizer エンコード失敗                      |
-| `NonFiniteOutput`     | embedding 出力に NaN または Inf が含まれる    |
+| `Inference`           | MLX 推論失敗                                |
+| `Tokenizer`           | tokenizer エンコード失敗                    |
+| `NonFiniteOutput`     | embedding 出力に NaN または Inf が含まれる  |
 
 `Inference` / `Tokenizer` は `message: String` と
 `source: Option<Box<dyn Error + Send + Sync>>` を持ち、
@@ -331,12 +331,12 @@ stmt.execute(rusqlite::params![bytes])?;
 
 **`RerankerError`** — `Rerank` トレイトメソッド（reranker 推論）フェーズ
 
-| variant           | 発生条件                                                                  |
-| ----------------- | ------------------------------------------------------------------------- |
-| `Inference`       | MLX forward pass 失敗                                                     |
-| `Tokenizer`       | tokenizer エンコード失敗                                                  |
-| `NonFiniteOutput` | reranker 出力に NaN または Inf が含まれる                                 |
-| `InitFailed`      | `LazyReranker` 初回呼び出し時の初期化失敗（cache 参照・ロード・DL）       |
+| variant           | 発生条件                                                            |
+| ----------------- | ------------------------------------------------------------------- |
+| `Inference`       | MLX forward pass 失敗                                               |
+| `Tokenizer`       | tokenizer エンコード失敗                                            |
+| `NonFiniteOutput` | reranker 出力に NaN または Inf が含まれる                           |
+| `InitFailed`      | `LazyReranker` 初回呼び出し時の初期化失敗（cache 参照・ロード・DL） |
 
 公開APIの失敗契約はrustdocの `# Errors` に記載する。repoの運用ルールは
 [`docs/errors.md`](docs/errors.md) を参照。
@@ -368,13 +368,13 @@ require_unsandboxed_mlx_runtime();
 rurico = { git = "https://github.com/thkt/rurico", rev = "cf13d32", features = ["test-support"] }
 ```
 
-| struct                | 振る舞い                                                                          |
-| --------------------- | --------------------------------------------------------------------------------- |
-| `MockEmbedder`        | 入力位置ごとに決定的な one-hot ベクトルを返す（バッチ時は入力順 `i`、単発は `0`） |
-| `FailingEmbedder`     | 設定に応じてエラーを返す                                                          |
-| `MismatchEmbedder`    | batch で入力より少ないベクトルを返す                                              |
-| `AlternatingEmbedder` | `embed_document` が成功と失敗を交互に返す（初回は失敗）                           |
-| `MockChunkedEmbedder` | 指定数の chunk を返す（multi-chunk テスト用）                                     |
+| struct                | 振る舞い                                                                             |
+| --------------------- | ------------------------------------------------------------------------------------ |
+| `MockEmbedder`        | 入力位置ごとに決定的な one-hot ベクトルを返す（バッチ時は入力順 `i`、単発は `0`）    |
+| `FailingEmbedder`     | 設定に応じてエラーを返す                                                             |
+| `MismatchEmbedder`    | batch で入力より少ないベクトルを返す                                                 |
+| `AlternatingEmbedder` | `embed_document` が成功と失敗を交互に返す（初回は失敗）                              |
+| `MockChunkedEmbedder` | 指定数の chunk を返す（multi-chunk テスト用）                                        |
 | `MockReranker`        | `Rerank` トレイト用。全ペアに固定スコア（default 0.5、`with_score(s)` で指定）を返す |
 
 ```rust
