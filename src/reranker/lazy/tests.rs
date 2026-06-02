@@ -1,3 +1,4 @@
+use std::assert_matches;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Barrier};
 use std::thread;
@@ -63,18 +64,12 @@ fn failure_is_cached_across_methods() {
         counter_clone.fetch_add(1, Ordering::SeqCst);
         Err(String::from("boom"))
     });
-    assert!(matches!(
-        lazy.score("q", "d"),
-        Err(RerankerError::InitFailed(_))
-    ));
-    assert!(matches!(
+    assert_matches!(lazy.score("q", "d"), Err(RerankerError::InitFailed(_)));
+    assert_matches!(
         lazy.score_batch(&[("q", "d")]),
         Err(RerankerError::InitFailed(_))
-    ));
-    assert!(matches!(
-        lazy.rerank("q", &["d"]),
-        Err(RerankerError::InitFailed(_))
-    ));
+    );
+    assert_matches!(lazy.rerank("q", &["d"]), Err(RerankerError::InitFailed(_)));
     assert_eq!(
         counter.load(Ordering::SeqCst),
         1,
