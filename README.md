@@ -30,7 +30,7 @@ Apple Silicon (MLX) 上で日本語テキストのembedding・reranking・類似
 ## 要件
 
 - macOS (Apple Silicon) — MLX backend必須
-- Rust 1.95+ (edition 2024)
+- Rust 1.96+ (edition 2024)
 
 ## 使い方
 

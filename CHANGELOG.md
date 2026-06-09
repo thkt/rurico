@@ -78,7 +78,8 @@ RerankerKind`), which lets `download_model(model)` return
 - **`EmbedError::Inference` and `EmbedError::Tokenizer` are struct variants
   with source chains.** Match on `message` / `source` fields instead of the old
   tuple payload.
-- **MSRV bump to 1.95.** `rust-version` in `Cargo.toml` is now `1.95`.
+- **MSRV bump to 1.96.** `rust-version` in `Cargo.toml` is now `1.96`
+  (`assert_matches!`, stabilized in 1.96, is now used in tests).
   Downstream crates pinning an older toolchain must upgrade.
 
 ### Added
