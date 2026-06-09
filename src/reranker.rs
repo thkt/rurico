@@ -234,7 +234,7 @@ impl Reranker {
     /// crash is contained and reported as [`ProbeStatus::BackendUnavailable`].
     ///
     /// The host binary must call
-    /// [`model_probe::handle_probe_if_needed`](crate::model_probe::handle_probe_if_needed)
+    /// [`handle_probe_if_needed`](crate::handle_probe_if_needed)
     /// at the start of `main()`.
     pub fn probe(artifacts: &Artifacts) -> Result<ProbeStatus, ModelInitError> {
         probe_via_subprocess(artifacts)

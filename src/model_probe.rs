@@ -188,7 +188,7 @@ pub enum ProbeStatus {
 pub enum ProbeError {
     /// Probe handler not installed in host binary.
     #[error(
-        "probe handler not installed; call rurico::model_probe::handle_probe_if_needed() \
+        "probe handler not installed; call rurico::handle_probe_if_needed() \
          at the start of main()"
     )]
     HandlerNotInstalled,
