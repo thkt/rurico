@@ -18,7 +18,7 @@ Apple Silicon (MLX) 上で日本語テキストのembedding・reranking・類似
 | `storage`         | SQLite + sqlite-vec のベクトル検索プリミティブ（FTS sanitize / `MatchFtsQuery`、`QueryNormalizationConfig`）                                          |
 | `retrieval`       | 5-stage retrieval pipeline contract — `Candidate` / `MergedHit` / `MergeStrategy` / `Aggregator` / `HybridSearchConfig` / `RecencyConfig`             |
 | `text`            | テキスト分割（段落 > 行 > 文字境界で UTF-8 安全に分割）                                                                                               |
-| `artifacts`       | モデルファイルの型付き検証パイプライン（`CandidateArtifacts<K>` → `VerifiedArtifacts<K>`）                                                            |
+| `artifacts`       | モデルファイルの型付き検証。downstream は `VerifiedArtifacts<K>` を受け取る（`CandidateArtifacts<K>` は内部 staging）                                 |
 | `model_init`      | embed / reranker 共通の初期化エラー型 `ModelInitError`                                                                                                |
 | `model_lifecycle` | kind 汎用の `download_model` / `cached_artifacts`（`embed` / `reranker` からも re-export）                                                            |
 | `model_probe`     | サブプロセス probe 基盤（`ProbeStatus`、`Embedder::probe` / `Reranker::probe` の実装基盤）                                                            |

@@ -1,9 +1,9 @@
 //! Typed artifact verification for ruri-v3 model files.
 //!
-//! Provides a two-phase pipeline: per-module
-//! [`CandidateArtifacts`](crate::artifacts::CandidateArtifacts) (unverified) →
-//! [`VerifiedArtifacts<K>`](crate::artifacts::VerifiedArtifacts) (verified,
-//! kind-checked).
+//! Provides a two-phase pipeline: the crate builds an internal
+//! [`CandidateArtifacts`](crate::artifacts::CandidateArtifacts) (unverified) and
+//! verifies it into [`VerifiedArtifacts<K>`](crate::artifacts::VerifiedArtifacts)
+//! (verified, kind-checked) — the type downstream actually receives.
 //!
 //! Consumers use the domain aliases:
 //! - [`embed::Artifacts`](crate::embed::Artifacts) = `VerifiedArtifacts<EmbedKind>`
