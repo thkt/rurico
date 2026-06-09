@@ -81,7 +81,7 @@ impl Embedder {
     /// Re-execs the current binary as a probe subprocess (via `Command`), so a
     /// crash is contained and reported as [`ProbeStatus::BackendUnavailable`].
     ///
-    /// The host binary must call [`crate::model_probe::handle_probe_if_needed`] at the start of `main()`.
+    /// The host binary must call [`crate::handle_probe_if_needed`] at the start of `main()`.
     ///
     /// # Errors
     ///

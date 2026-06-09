@@ -3,8 +3,9 @@
 //! Host binaries call [`handle_probe_if_needed`](crate::handle_probe_if_needed)
 //! once at the start of `main()` — that lives in [`crate::dispatch`] because it
 //! needs to know about both embed and reranker domains. Individual modules
-//! (embed, reranker) call [`probe_via_subprocess`] to re-exec the current
-//! binary as an isolated probe.
+//! (embed, reranker) call
+//! [`probe_via_subprocess`](crate::model_probe::probe_via_subprocess) to re-exec
+//! the current binary as an isolated probe.
 //!
 //! # Probe child exit codes
 //!
@@ -188,7 +189,7 @@ pub enum ProbeStatus {
 pub enum ProbeError {
     /// Probe handler not installed in host binary.
     #[error(
-        "probe handler not installed; call rurico::model_probe::handle_probe_if_needed() \
+        "probe handler not installed; call rurico::handle_probe_if_needed() \
          at the start of main()"
     )]
     HandlerNotInstalled,
