@@ -177,7 +177,8 @@ pub struct HybridSearchConfig {
     /// rank; a positive `rrf_k` always suffices. A candidate whose
     /// `rrf_k + rank` is non-positive or non-finite (NaN, ±inf, or
     /// `rrf_k <= -rank`) has its contribution dropped — the same handling as a
-    /// zero-weight source — so the fused score never becomes inf or NaN.
+    /// zero-weight source — so a misconfigured `rrf_k` never drives the fused
+    /// score to inf or NaN.
     pub rrf_k: f64,
     /// Per-source weights. Missing entries are treated as `0.0`.
     pub source_weights: HashMap<CandidateSource, f64>,

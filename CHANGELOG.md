@@ -104,7 +104,7 @@ RerankerKind`), which lets `download_model(model)` return
 
 ### Fixed
 
-- **`WeightedRrf` no longer emits non-finite fused scores.** A
+- **`WeightedRrf` no longer emits `rrf_k`-induced non-finite fused scores.** A
   `HybridSearchConfig` with `rrf_k <= 0`, NaN, or ±inf could drive the RRF
   denominator (`rrf_k + rank`) non-positive or non-finite, producing `inf` or
   NaN `MergedHit.score` values that corrupt Stage 3/4 ranking and JSON output.
