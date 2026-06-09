@@ -1,12 +1,16 @@
 //! Retrieval pipeline contract (ADR 0004, Issue #67 / Phase 3).
 //!
 //! Plug-in points frozen by ADR 0004:
-//! - Stage 3 aggregation: [`Aggregator`] trait between merge and rerank.
-//!   Default impl is [`IdentityAggregator`].
+//! - Stage 3 aggregation: [`Aggregator`](crate::retrieval::Aggregator) trait
+//!   between merge and rerank. Default impl is
+//!   [`IdentityAggregator`](crate::retrieval::IdentityAggregator).
 //!
-//! Concrete strategies ([`MaxChunkAggregator`], [`DedupeAggregator`],
-//! [`TopKAverageAggregator`]) live alongside the trait; downstream crates can
-//! also supply their own `impl Aggregator` for domain-specific dedupers.
+//! Concrete strategies
+//! ([`MaxChunkAggregator`](crate::retrieval::MaxChunkAggregator),
+//! [`DedupeAggregator`](crate::retrieval::DedupeAggregator),
+//! [`TopKAverageAggregator`](crate::retrieval::TopKAverageAggregator)) live
+//! alongside the trait; downstream crates can also supply their own
+//! `impl Aggregator` for domain-specific dedupers.
 
 use std::collections::HashMap;
 use std::f64::consts::LN_2;

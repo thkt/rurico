@@ -29,7 +29,7 @@ impl EmbedKind {
     }
 }
 
-/// Public batch-level metrics snapshot mirroring the `"batch"` [`PhaseMetrics`]
+/// Public batch-level metrics snapshot mirroring the `"batch"` `PhaseMetrics`
 /// record. Returned alongside embeddings by
 /// [`Embedder::embed_documents_batch_with_metrics`](super::Embedder::embed_documents_batch_with_metrics)
 /// so callers (smoke harness, downstream indexers) can observe padding,

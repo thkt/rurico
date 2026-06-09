@@ -1,7 +1,9 @@
 //! Typed artifact verification for ruri-v3 model files.
 //!
-//! Provides a two-phase pipeline: per-module [`CandidateArtifacts`] (unverified)
-//! → [`VerifiedArtifacts<K>`] (verified, kind-checked).
+//! Provides a two-phase pipeline: per-module
+//! [`CandidateArtifacts`](crate::artifacts::CandidateArtifacts) (unverified) →
+//! [`VerifiedArtifacts<K>`](crate::artifacts::VerifiedArtifacts) (verified,
+//! kind-checked).
 //!
 //! Consumers use the domain aliases:
 //! - [`embed::Artifacts`](crate::embed::Artifacts) = `VerifiedArtifacts<EmbedKind>`
@@ -22,7 +24,7 @@ use crate::modernbert::Config;
 ///
 /// **Sealed**: the private `()` field prevents external crates from constructing
 /// this marker, ensuring the kind ↔ model id binding (via
-/// [`ModelArtifact::Kind`](crate::model_io::ModelArtifact::Kind)) is enforced
+/// `ModelArtifact::Kind`) is enforced
 /// at the type level. Downstream callers cannot construct a kind unrelated to
 /// the model id they hold.
 #[derive(Debug)]

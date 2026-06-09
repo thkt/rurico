@@ -3,9 +3,11 @@
 //! Provides the three kind-generic entry points that replace the per-module
 //! duplicates that previously lived in `embed.rs` / `reranker.rs`:
 //!
-//! - [`download_model`] -- fetch HF Hub artifacts and verify them as `Id::Kind`.
-//! - [`cached_artifacts`] -- inspect the local HF cache for `Id::Kind` artifacts.
-//! - [`probe_env_to_paths`] -- resolve probe env vars into a kind-bound candidate.
+//! - [`download_model`](crate::model_lifecycle::download_model) -- fetch HF Hub
+//!   artifacts and verify them as `Id::Kind`.
+//! - [`cached_artifacts`](crate::model_lifecycle::cached_artifacts) -- inspect
+//!   the local HF cache for `Id::Kind` artifacts.
+//! - `probe_env_to_paths` -- resolve probe env vars into a kind-bound candidate.
 //!
 //! The single `Id::Kind` associated type binds the model identifier to its
 //! kind marker so wrong-kind combinations (e.g. an embed identifier returning
