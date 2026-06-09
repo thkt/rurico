@@ -39,8 +39,11 @@ pub struct RerankerKind(());
 
 /// Verified model artifacts, bound to a specific model kind `K`.
 ///
-/// Constructed via [`embed::CandidateArtifacts::verify`](crate::embed::CandidateArtifacts::verify)
-/// or [`reranker::CandidateArtifacts::verify`](crate::reranker::CandidateArtifacts::verify).
+/// Obtained from the model lifecycle entry points
+/// [`download_model`](crate::model_lifecycle::download_model) /
+/// [`cached_artifacts`](crate::model_lifecycle::cached_artifacts), which build
+/// and verify the artifacts internally. Pass the result to the kind's runtime
+/// constructor (`Embedder::new` / `Reranker::new`).
 ///
 /// Guarantees:
 /// - All three artifact files exist on disk.
@@ -183,10 +186,17 @@ impl ModelKind for RerankerKind {
 
 /// Unverified model artifact paths bound to a kind marker `K`.
 ///
-/// Construct with [`from_paths`](Self::from_paths) (or [`from_dir`](Self::from_dir)
-/// in test contexts), then call [`verify`](Self::verify) to obtain a
-/// [`VerifiedArtifacts<K>`] that can be passed to the kind's runtime
-/// constructor (e.g. `Embedder::new` / `Reranker::new`).
+/// Internal staging type in the verification pipeline. The model lifecycle
+/// entry points ([`download_model`](crate::model_lifecycle::download_model) /
+/// [`cached_artifacts`](crate::model_lifecycle::cached_artifacts)) build a
+/// `CandidateArtifacts` from a download or the local cache, then call
+/// [`verify`](Self::verify) to obtain a [`VerifiedArtifacts<K>`] that feeds the
+/// kind's runtime constructor (`Embedder::new` / `Reranker::new`).
+///
+/// Downstream crates receive `VerifiedArtifacts<K>` directly from those entry
+/// points and do not construct `CandidateArtifacts` themselves: the
+/// constructors are crate-internal by design (the `pub(crate)` visibility of
+/// `from_paths` is pinned by `tests/ui/from_paths_pub_crate.rs`).
 pub struct CandidateArtifacts<K> {
     pub(crate) paths: ModelPaths,
     _kind: PhantomData<K>,
