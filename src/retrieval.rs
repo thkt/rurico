@@ -168,6 +168,12 @@ pub trait MergeStrategy {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HybridSearchConfig {
     /// RRF damping constant. Default `60.0`.
+    ///
+    /// Must be finite and keep `rrf_k + rank` positive for every candidate
+    /// rank; a positive `rrf_k` always suffices. A candidate whose
+    /// `rrf_k + rank` is non-positive or non-finite (e.g. `rrf_k <= 0`, NaN,
+    /// or ±inf) has its contribution dropped — the same handling as a
+    /// zero-weight source — so the fused score never becomes inf or NaN.
     pub rrf_k: f64,
     /// Per-source weights. Missing entries are treated as `0.0`.
     pub source_weights: HashMap<CandidateSource, f64>,
@@ -304,7 +310,18 @@ impl MergeStrategy for WeightedRrf {
             }
             #[allow(clippy::cast_precision_loss)]
             let rank_f = cand.rank as f64;
-            let contribution = weight / (self.config.rrf_k + rank_f);
+            let denom = self.config.rrf_k + rank_f;
+            // A non-finite or non-positive denominator (rrf_k is NaN/±inf, or
+            // rrf_k + rank <= 0) would emit inf/NaN fused scores that poison
+            // Stage 3/4 ranking, JSON output, and debug surfaces. Drop the
+            // contribution — same posture as a zero-weight source — so a
+            // misconfigured rrf_k degrades to "candidate skipped" rather than a
+            // non-finite score. Default rrf_k = 60.0 keeps denom >= 60, so valid
+            // configs stay bit-equal.
+            if !denom.is_finite() || denom <= 0.0 {
+                continue;
+            }
+            let contribution = weight / denom;
             let key = (cand.doc_id.as_str(), cand.chunk_id.as_deref());
             let entry = acc.entry(key).or_default();
             entry.score += contribution;

@@ -100,3 +100,13 @@ RerankerKind`), which lets `download_model(model)` return
   with the document prefix to avoid token boundary mismatch from prefix
   merging. Chunk boundaries are adjusted to fit within `MAX_SEQ_LEN` without
   truncation.
+
+### Fixed
+
+- **`WeightedRrf` no longer emits non-finite fused scores.** A
+  `HybridSearchConfig` with `rrf_k <= 0`, NaN, or ±inf could drive the RRF
+  denominator (`rrf_k + rank`) non-positive or non-finite, producing `inf` or
+  NaN `MergedHit.score` values that corrupt Stage 3/4 ranking and JSON output.
+  Such contributions are now dropped (same handling as a zero-weight source),
+  and the valid range for `rrf_k` is documented on `HybridSearchConfig::rrf_k`.
+  Default `rrf_k = 60.0` is unaffected (bit-equal).

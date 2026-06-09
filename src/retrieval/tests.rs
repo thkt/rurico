@@ -324,6 +324,94 @@ fn weighted_rrf_zero_weight_drops_source() {
     assert!((output[0].score - 1.0 / 60.0).abs() < f64::EPSILON);
 }
 
+// T-214-001: weighted_rrf_drops_contribution_when_denominator_is_zero
+//
+// rrf_k = 0 with a rank-0 candidate makes the denominator (rrf_k + rank) zero,
+// which without the guard emits an `inf` fused score. The contribution must be
+// dropped (like a zero-weight source) so the lone candidate yields no hit.
+#[test]
+fn weighted_rrf_drops_contribution_when_denominator_is_zero() {
+    let config = HybridSearchConfig {
+        rrf_k: 0.0,
+        ..HybridSearchConfig::default()
+    };
+    let strategy = WeightedRrf::new(config);
+    let output = strategy.merge(&[candidate(CandidateSource::Fts, "d1", 0)]);
+    assert!(
+        output.is_empty(),
+        "rrf_k=0 with rank=0 must drop the contribution, got: {output:?}"
+    );
+}
+
+// T-214-002: weighted_rrf_drops_contribution_for_non_positive_denominator
+//
+// A negative rrf_k can zero the denominator (rank cancels it) or drive it
+// negative; both must be dropped so no negative or infinite fused score escapes.
+#[test]
+fn weighted_rrf_drops_contribution_for_non_positive_denominator() {
+    let config = HybridSearchConfig {
+        rrf_k: -1.0,
+        ..HybridSearchConfig::default()
+    };
+    let strategy = WeightedRrf::new(config);
+    let output = strategy.merge(&[
+        candidate(CandidateSource::Fts, "zero_denom", 1), // -1 + 1 = 0
+        candidate(CandidateSource::Fts, "neg_denom", 0),  // -1 + 0 = -1
+    ]);
+    assert!(
+        output.is_empty(),
+        "non-positive denominators must be dropped, got: {output:?}"
+    );
+}
+
+// T-214-003: weighted_rrf_drops_contribution_for_non_finite_rrf_k
+//
+// A NaN or infinite rrf_k makes the denominator non-finite; the guard drops the
+// contribution so no NaN/inf score escapes merge.
+#[test]
+fn weighted_rrf_drops_contribution_for_non_finite_rrf_k() {
+    for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        let config = HybridSearchConfig {
+            rrf_k: bad,
+            ..HybridSearchConfig::default()
+        };
+        let strategy = WeightedRrf::new(config);
+        let output = strategy.merge(&[candidate(CandidateSource::Fts, "d1", 0)]);
+        assert!(
+            output.is_empty(),
+            "non-finite rrf_k {bad} must drop the contribution, got: {output:?}"
+        );
+    }
+}
+
+// T-214-004: weighted_rrf_partial_drop_keeps_valid_denominator_hits
+//
+// With a negative rrf_k, only candidates whose rank pushes the denominator
+// positive survive; survivors keep finite scores while invalid ones are dropped.
+#[test]
+fn weighted_rrf_partial_drop_keeps_valid_denominator_hits() {
+    let config = HybridSearchConfig {
+        rrf_k: -1.0,
+        ..HybridSearchConfig::default()
+    };
+    let strategy = WeightedRrf::new(config);
+    let output = strategy.merge(&[
+        candidate(CandidateSource::Fts, "dropped", 0), // -1 + 0 = -1 → drop
+        candidate(CandidateSource::Fts, "kept", 2),    // -1 + 2 = 1 → keep
+    ]);
+    assert_eq!(
+        output.len(),
+        1,
+        "only the valid-denominator candidate survives"
+    );
+    assert_eq!(output[0].doc_id, "kept");
+    assert!(
+        output[0].score.is_finite() && (output[0].score - 1.0).abs() < f64::EPSILON,
+        "surviving score must be finite (weight 1.0 / denom 1.0 = 1.0), got: {}",
+        output[0].score
+    );
+}
+
 // T-068-007: weighted_rrf_records_per_source_contributions
 #[test]
 fn weighted_rrf_records_per_source_contributions() {
