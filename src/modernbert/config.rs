@@ -40,13 +40,15 @@ pub struct Config {
 }
 
 impl Config {
-    /// Validate invariants (non-zero sizes, divisibility).
+    /// Validate invariants (size bounds, divisibility, finite positive epsilon).
     ///
     /// # Errors
     ///
     /// Returns an opaque validation message if any required size is zero or
-    /// `hidden_size` is not divisible by `num_attention_heads`. The exact
-    /// message text is not part of the stable API contract.
+    /// too large for the MLX backend's `i32` dimensions, `hidden_size` is not
+    /// divisible by `num_attention_heads`, or `layer_norm_eps` is not finite
+    /// and positive after conversion to `f32`. The exact message text is not
+    /// part of the stable API contract.
     pub fn validate(&self) -> Result<(), String> {
         // `hidden_size * 3` is computed during Wqkv construction.
         validate_i32_bound("hidden_size", self.hidden_size, 3)?;
@@ -63,6 +65,9 @@ impl Config {
                 self.hidden_size, self.num_attention_heads
             ));
         }
+        if self.num_hidden_layers == 0 {
+            return Err("num_hidden_layers must be > 0".into());
+        }
         if self.global_attn_every_n_layers == 0 {
             return Err("global_attn_every_n_layers must be > 0".into());
         }
@@ -72,6 +77,9 @@ impl Config {
         }
         // `intermediate_size * 2` is computed during Wi construction.
         validate_i32_bound("intermediate_size", self.intermediate_size, 2)?;
+        if self.intermediate_size == 0 {
+            return Err("intermediate_size must be > 0".into());
+        }
         validate_i32_bound("max_position_embeddings", self.max_position_embeddings, 1)?;
         if self.max_position_embeddings == 0 {
             return Err("max_position_embeddings must be > 0".into());
@@ -85,6 +93,17 @@ impl Config {
             return Err(format!(
                 "local_attention must be <= {max_local} (local_attention / 2 must fit in i32)"
             ));
+        }
+        if self.local_attention == 0 {
+            return Err("local_attention must be > 0".into());
+        }
+        // layer_norm_eps is consumed as f32 (`layer_norm_eps_f32` in model.rs), so
+        // validate the post-cast value: 1e39 overflows to inf and 1e-50 flushes to
+        // 0.0 even though both pass an f64 check. The f32 check subsumes the f64 one.
+        #[allow(clippy::cast_possible_truncation)]
+        let eps = self.layer_norm_eps as f32;
+        if !eps.is_finite() || eps <= 0.0 {
+            return Err("layer_norm_eps must be finite and > 0 after f32 conversion".into());
         }
         Ok(())
     }
