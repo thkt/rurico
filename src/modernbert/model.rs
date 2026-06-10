@@ -276,6 +276,14 @@ impl ModernBert {
 
     /// Run a forward pass, returning final hidden states `[batch_size, seq_len, hidden_size]`.
     ///
+    /// Each distinct `seq_len` caches an `O(seq_len^2)` local attention mask
+    /// inside the model for its lifetime, with no eviction. Keep `seq_len`
+    /// aligned to a small fixed set of lengths: internal callers round up to
+    /// the bucket ceilings `128`, `512`, `2048`, and `8192`, which bounds the
+    /// cache at four entries. Calling with many distinct sequence lengths
+    /// grows memory monotonically (one cached mask at `seq_len = 8192` is
+    /// about 256 MiB).
+    ///
     /// # Errors
     ///
     /// Returns an MLX [`Exception`] if:
