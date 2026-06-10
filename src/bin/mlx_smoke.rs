@@ -233,6 +233,19 @@ fn median_u128(values: &mut [u128]) -> u128 {
     values[values.len() / 2]
 }
 
+/// Single definition of the `batch_ms / sequential_ms` workload ratio so the
+/// stderr `baseline[wN]` line and the `check_thresholds` gate always read the
+/// same value. `sequential_ms == 0` maps to `0.0` — the no-violation side —
+/// instead of `inf`, which would turn an unmeasurable baseline into a
+/// spurious primary SLA failure.
+fn workload_ratio(batch_ms: u128, sequential_ms: u128) -> f64 {
+    if sequential_ms > 0 {
+        batch_ms as f64 / sequential_ms as f64
+    } else {
+        0.0
+    }
+}
+
 fn run_measure_baseline(embedder: &embed::Embedder) {
     // MLX compiles a kernel per distinct (batch_size, max_seq_len) shape. Warm
     // each workload's batched shape AND each per-document shape used by the
@@ -284,11 +297,7 @@ fn run_measure_baseline(embedder: &embed::Embedder) {
         // Align `forward_eval_ms` with the median timing path so the R²
         // linearity gate never reads a one-shot outlier (Codex P2).
         last_metrics.forward_eval_ms = median_u128(&mut forward_eval_samples);
-        let ratio = if sequential_ms > 0 {
-            batch_ms as f64 / sequential_ms as f64
-        } else {
-            0.0
-        };
+        let ratio = workload_ratio(batch_ms, sequential_ms);
 
         let m = &last_metrics;
         let bucket_str = format!(
@@ -341,8 +350,7 @@ fn run_measure_baseline(embedder: &embed::Embedder) {
 
         results.push(WorkloadResult {
             name,
-            batch_ms,
-            sequential_ms,
+            ratio,
             metrics: last_metrics,
         });
     }
@@ -403,8 +411,10 @@ fn run_measure_baseline(embedder: &embed::Embedder) {
 
 struct WorkloadResult {
     name: &'static str,
-    batch_ms: u128,
-    sequential_ms: u128,
+    /// Computed once via [`workload_ratio`] when the workload is measured;
+    /// `check_thresholds` reads this field instead of re-deriving the ratio,
+    /// so the displayed and gated values cannot diverge.
+    ratio: f64,
     metrics: BatchMetrics,
 }
 
@@ -545,7 +555,7 @@ fn check_thresholds(results: &[WorkloadResult], r2: f64) -> ThresholdReport {
     for r in results {
         let saturated = is_bucket_saturated(&r.metrics.bucket_hist);
         let sla_amenable = is_sla_amenable(&r.metrics.bucket_hist);
-        let ratio = r.batch_ms as f64 / r.sequential_ms as f64;
+        let ratio = r.ratio;
         let padding = r.metrics.padding_ratio;
 
         if let Some((tier, threshold)) = classify_deviation(
@@ -614,8 +624,7 @@ mod tests {
     ) -> WorkloadResult {
         WorkloadResult {
             name,
-            batch_ms,
-            sequential_ms,
+            ratio: workload_ratio(batch_ms, sequential_ms),
             metrics: BatchMetrics {
                 padding_ratio,
                 real_tokens: 1000,
@@ -943,5 +952,32 @@ mod tests {
             "missing primary RSquared: {:?}",
             report.primary_violations
         );
+    }
+
+    #[test]
+    fn workload_ratio_divides_batch_by_sequential() {
+        assert!((workload_ratio(500, 1000) - 0.5).abs() < FLOAT_EPS);
+        assert!((workload_ratio(1080, 1000) - 1.08).abs() < FLOAT_EPS);
+    }
+
+    #[test]
+    fn workload_ratio_returns_zero_when_sequential_is_zero() {
+        assert!((workload_ratio(500, 0) - 0.0).abs() < FLOAT_EPS);
+        assert!((workload_ratio(0, 0) - 0.0).abs() < FLOAT_EPS);
+    }
+
+    // Issue #230 regression: the gate used to re-derive the ratio without the
+    // zero guard, so `sequential_ms == 0` displayed `ratio=0.000` while
+    // `check_thresholds` saw `inf` and panicked with a primary SLA violation.
+    // The shared `workload_ratio` maps it to 0.0 on both sides — no violation.
+    #[test]
+    fn check_thresholds_zero_sequential_is_not_an_sla_violation() {
+        let results = [
+            mk_result("w1", 500, 1000, 1.05, BUCKET_SATURATED),
+            mk_result("w2", 500, 0, 1.05, BUCKET_SHORT_ONLY),
+            mk_result("w3", 500, 1000, 1.05, BUCKET_MIXED),
+        ];
+        let report = check_thresholds(&results, 0.98);
+        assert!(report.is_clean(), "expected clean report, got {report:?}");
     }
 }
