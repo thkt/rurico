@@ -265,7 +265,10 @@ pub(crate) fn fts_expand_short_terms(
         };
         parts.push(expanded.unwrap_or_else(|| fts_quote(token)));
     }
-    Ok(MatchFtsQuery(parts.join(" ")))
+    // Join with explicit AND: FTS5 implicit adjacency rejects parenthesised
+    // groups as operands (`(a OR b) c` is a syntax error); explicit AND
+    // accepts them with identical semantics.
+    Ok(MatchFtsQuery(parts.join(" AND ")))
 }
 
 #[cfg(test)]

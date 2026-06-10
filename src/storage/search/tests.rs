@@ -66,14 +66,14 @@ fn expand_operator_like_terms_are_quoted_not_expanded() {
     // not expanded via vocab (e.g. OR must not become "order" OR ...).
     let result =
         fts_expand_short_terms(&conn, &sanitized("NOT secret"), "fts_chunks_vocab").unwrap();
-    assert_eq!(result.as_str(), "\"NOT\" \"secret\"");
+    assert_eq!(result.as_str(), "\"NOT\" AND \"secret\"");
 
     let result = fts_expand_short_terms(&conn, &sanitized("OR"), "fts_chunks_vocab").unwrap();
     assert_eq!(result.as_str(), "\"OR\"");
 
     let result =
         fts_expand_short_terms(&conn, &sanitized("foo or bar"), "fts_chunks_vocab").unwrap();
-    assert_eq!(result.as_str(), "\"foo\" \"or\" \"bar\"");
+    assert_eq!(result.as_str(), "\"foo\" AND \"or\" AND \"bar\"");
 }
 
 #[test]
@@ -91,7 +91,7 @@ fn expand_special_chars_escaped() {
 fn expand_without_vocab_table_degrades() {
     let conn = Connection::open_in_memory().unwrap();
     let result = fts_expand_short_terms(&conn, &sanitized("au login"), "fts_chunks_vocab").unwrap();
-    assert_eq!(result.as_str(), "\"au\" \"login\"");
+    assert_eq!(result.as_str(), "\"au\" AND \"login\"");
 }
 
 #[test]
@@ -116,6 +116,29 @@ fn prepare_match_query_end_to_end() {
     assert!(result.as_str().contains(" OR "), "{}", result.as_str());
 }
 
+// #224: a vocab-expanded group adjacent to another token must form a valid
+// FTS5 expression. Implicit AND rejects parenthesised groups as operands
+// (`(a OR b) c` is an fts5 syntax error), so the query must execute, not
+// just look right as a string.
+#[test]
+fn prepare_match_query_expanded_group_is_executable() {
+    let conn = setup_fts_db();
+    let query = prepare_match_query(&conn, "au login", "fts_chunks_vocab", &no_norm()).unwrap();
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM fts_chunks WHERE fts_chunks MATCH ?1",
+            [query.as_str()],
+            |row| row.get(0),
+        )
+        .unwrap_or_else(|e| panic!("MATCH rejected {:?}: {e}", query.as_str()));
+    assert_eq!(
+        count,
+        1,
+        "expected exactly 'authentication login session' to match, query: {:?}",
+        query.as_str()
+    );
+}
+
 #[test]
 fn prepare_match_query_empty_input() {
     let conn = setup_fts_db();
@@ -129,7 +152,7 @@ fn prepare_match_query_empty_input() {
 fn prepare_match_query_operators_are_quoted() {
     let conn = setup_fts_db();
     let result = prepare_match_query(&conn, "foo OR bar", "fts_chunks_vocab", &no_norm()).unwrap();
-    assert_eq!(result.as_str(), "\"foo\" \"OR\" \"bar\"");
+    assert_eq!(result.as_str(), "\"foo\" AND \"OR\" AND \"bar\"");
 }
 
 #[test]
@@ -189,7 +212,7 @@ fn expand_surfaces_non_missing_vocab_errors() {
 fn prepare_match_query_with_missing_vocab_degrades() {
     let conn = Connection::open_in_memory().unwrap();
     let result = prepare_match_query(&conn, "au login", "fts_chunks_vocab", &no_norm()).unwrap();
-    assert_eq!(result.as_str(), "\"au\" \"login\"");
+    assert_eq!(result.as_str(), "\"au\" AND \"login\"");
 }
 
 #[test]
