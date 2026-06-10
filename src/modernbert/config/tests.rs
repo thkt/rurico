@@ -72,6 +72,41 @@ fn config_validate_zero_max_position_embeddings() {
 }
 
 #[test]
+fn config_validate_zero_num_hidden_layers() {
+    assert_rejects(|c| c.num_hidden_layers = 0, "num_hidden_layers");
+}
+
+#[test]
+fn config_validate_zero_intermediate_size() {
+    assert_rejects(|c| c.intermediate_size = 0, "intermediate_size");
+}
+
+#[test]
+fn config_validate_zero_local_attention() {
+    assert_rejects(|c| c.local_attention = 0, "local_attention");
+}
+
+#[test]
+fn config_validate_rejects_nan_layer_norm_eps() {
+    assert_rejects(|c| c.layer_norm_eps = f64::NAN, "layer_norm_eps");
+}
+
+#[test]
+fn config_validate_rejects_infinite_layer_norm_eps() {
+    assert_rejects(|c| c.layer_norm_eps = f64::INFINITY, "layer_norm_eps");
+}
+
+#[test]
+fn config_validate_rejects_zero_layer_norm_eps() {
+    assert_rejects(|c| c.layer_norm_eps = 0.0, "layer_norm_eps");
+}
+
+#[test]
+fn config_validate_rejects_negative_layer_norm_eps() {
+    assert_rejects(|c| c.layer_norm_eps = -1e-5, "layer_norm_eps");
+}
+
+#[test]
 fn config_validate_rejects_hidden_size_above_i32_max_div_3() {
     assert_rejects(
         |c| c.hidden_size = (i32::MAX / 3) as usize + 1,
