@@ -111,3 +111,17 @@ RerankerKind`), which lets `download_model(model)` return
   Such contributions are now dropped (same handling as a zero-weight source),
   and the valid range for `rrf_k` is documented on `HybridSearchConfig::rrf_k`.
   Default `rrf_k = 60.0` is unaffected (bit-equal).
+- **`WeightedRrf` no longer emits weight- or recency-induced non-finite fused
+  scores.** Follow-up to the `rrf_k` guard above: non-finite (NaN, ±inf)
+  weights slipped past the `== 0.0` guards under IEEE 754, and a non-finite
+  decay (NaN `half_life_days`, or `+inf` half-life with a `+inf` age from the
+  caller's `age_days_for` closure) leaked through the boost arithmetic — all
+  contaminating `MergedHit.score` with values that corrupt Stage 3/4 ranking
+  and JSON output. The guards now close each path:
+  - a non-finite `HybridSearchConfig::source_weights` entry has its source's
+    contribution dropped (same handling as a zero weight);
+  - a non-finite `RecencyConfig::weight` disables the recency boost;
+  - a per-hit non-finite boost (`weight × decay`) is skipped, retaining the
+    RRF score.
+    `half_life_days = +inf` with a finite age keeps its full boost (decay
+    exactly `1.0`), and all-finite configurations are unaffected (bit-equal).

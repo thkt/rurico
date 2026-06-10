@@ -21,6 +21,11 @@ use serde::{Deserialize, Serialize};
 ///
 /// Negative `age_days` is clamped to 0 (returns 1.0).
 /// Returns 0.0 when `half_life_days <= 0.0` (avoids division by zero).
+///
+/// May return NaN for non-finite inputs (NaN `half_life_days`, or `age_days`
+/// and `half_life_days` both `+inf`). The sole production caller
+/// ([`WeightedRrf::merge_with_recency`]) clamps the resulting boost with
+/// `is_finite()`; new callers must clamp likewise or move the clamp here.
 pub(crate) fn recency_decay(age_days: f64, half_life_days: f64) -> f64 {
     if half_life_days <= 0.0 {
         return 0.0;
@@ -180,7 +185,10 @@ pub struct HybridSearchConfig {
     /// zero-weight source — so a misconfigured `rrf_k` never drives the fused
     /// score to inf or NaN.
     pub rrf_k: f64,
-    /// Per-source weights. Missing entries are treated as `0.0`.
+    /// Per-source weights. Missing entries are treated as `0.0`. A non-finite
+    /// weight (NaN, ±inf) has its source's contribution dropped — the same
+    /// handling as a zero weight — so a misconfigured weight never drives the
+    /// fused score to inf or NaN.
     pub source_weights: HashMap<CandidateSource, f64>,
 }
 
@@ -208,9 +216,14 @@ impl Default for HybridSearchConfig {
 /// the strategy itself does not query any storage.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RecencyConfig {
-    /// Recency boost magnitude. `0.0` disables the boost.
+    /// Recency boost magnitude. `0.0` disables the boost, as does a
+    /// non-finite value (NaN, ±inf) — a non-finite magnitude would poison
+    /// every boosted score.
     pub weight: f64,
-    /// Half-life in days controlling the exponential decay.
+    /// Half-life in days controlling the exponential decay. `+inf` applies a
+    /// full boost (decay `1.0`) for any finite age; a boost that would come
+    /// out non-finite (NaN half-life, or half-life and age both `+inf`) is
+    /// skipped per hit, leaving the RRF score.
     pub half_life_days: f64,
 }
 
@@ -237,7 +250,9 @@ impl WeightedRrf {
     /// Calls [`Self::merge`] first, then layers `recency.weight *
     /// recency_decay(age, recency.half_life_days)` onto each hit whose
     /// `age_days_for` lookup returns `Some(age)`. Hits with `None` age are
-    /// left at their RRF score. Output is re-sorted after the boost.
+    /// left at their RRF score, as is any hit whose boost would come out
+    /// non-finite (see [`RecencyConfig`]). Output is re-sorted after the
+    /// boost.
     ///
     /// `source_scores` continues to record only per-source RRF
     /// contributions — the recency component lives in `score` only, since
@@ -252,13 +267,21 @@ impl WeightedRrf {
         F: Fn(&str) -> Option<f64>,
     {
         let mut hits = self.merge(candidates);
-        if recency.weight == 0.0 {
+        // A non-finite weight (NaN, ±inf) slips past `== 0.0` under IEEE 754
+        // and would poison every boosted score, so it disables the boost the
+        // same way as `weight = 0.0`.
+        if recency.weight == 0.0 || !recency.weight.is_finite() {
             return hits;
         }
         for hit in &mut hits {
             if let Some(age) = age_days_for(hit.doc_id.as_str()) {
-                let decay = recency_decay(age, recency.half_life_days);
-                hit.score += recency.weight * decay;
+                let boost = recency.weight * recency_decay(age, recency.half_life_days);
+                // A non-finite boost (NaN half_life, or half_life and age both
+                // +inf) would poison the fused score: skip it and keep the RRF
+                // score.
+                if boost.is_finite() {
+                    hit.score += boost;
+                }
             }
         }
         hits.sort_by(|a, b| {
@@ -309,8 +332,10 @@ impl MergeStrategy for WeightedRrf {
             // Zero-weight sources are disabled: skipping prevents docs that only
             // hit the disabled source from leaking into the merged set with a
             // score of 0.0, which would otherwise survive truncate-to-k and
-            // reach the reranker as if they were valid candidates.
-            if weight == 0.0 {
+            // reach the reranker as if they were valid candidates. A non-finite
+            // weight (NaN, ±inf) slips past `== 0.0` under IEEE 754 and would
+            // emit a non-finite fused score, so it is dropped the same way.
+            if weight == 0.0 || !weight.is_finite() {
                 continue;
             }
             #[allow(clippy::cast_precision_loss)]

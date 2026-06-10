@@ -412,6 +412,39 @@ fn weighted_rrf_partial_drop_keeps_valid_denominator_hits() {
     );
 }
 
+// T-217-001: weighted_rrf_drops_non_finite_source_weight
+//
+// A NaN or infinite source weight slips through the `weight == 0.0` guard via
+// IEEE 754 (`NaN == 0.0` is false), so `weight / denom` poisons the fused score.
+// Sibling of the #214 denominator guards: a non-finite source weight must drop
+// that source's contribution (same posture as weight=0.0). The FTS-only doc d1
+// disappears; the Vector doc d2 (weight 1.0) survives with a finite score.
+#[test]
+fn weighted_rrf_drops_non_finite_source_weight() {
+    for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        let mut config = HybridSearchConfig::default();
+        config.source_weights.insert(CandidateSource::Fts, bad);
+        let strategy = WeightedRrf::new(config);
+        let candidates = vec![
+            candidate(CandidateSource::Fts, "d1", 0),
+            candidate(CandidateSource::Vector, "d2", 0),
+        ];
+        let output = strategy.merge(&candidates);
+        assert!(
+            !output.iter().any(|h| h.doc_id == "d1"),
+            "non-finite FTS weight {bad} must drop the FTS-only doc d1, got: {output:?}"
+        );
+        assert!(
+            output.iter().any(|h| h.doc_id == "d2"),
+            "Vector doc d2 (weight 1.0) must survive non-finite FTS weight {bad}, got: {output:?}"
+        );
+        assert!(
+            output.iter().all(|h| h.score.is_finite()),
+            "every fused score must be finite under non-finite FTS weight {bad}, got: {output:?}"
+        );
+    }
+}
+
 // T-068-007: weighted_rrf_records_per_source_contributions
 #[test]
 fn weighted_rrf_records_per_source_contributions() {
@@ -501,6 +534,103 @@ fn weighted_rrf_recency_skips_missing_age() {
     // d1 boosted by 1.0; d2 only has RRF
     assert!((d1.score - (1.0 / 60.0 + 1.0)).abs() < f64::EPSILON);
     assert!((d2.score - 1.0 / 61.0).abs() < f64::EPSILON);
+}
+
+// T-217-002: weighted_rrf_recency_non_finite_weight_returns_unboosted
+//
+// A NaN or infinite recency weight slips through the `recency.weight == 0.0`
+// early return (`NaN == 0.0` is false), so every hit gets `weight * decay`
+// added and the score goes non-finite. A non-finite recency weight disables the
+// boost for all hits, so the output must equal the plain merge() result.
+#[test]
+fn weighted_rrf_recency_non_finite_weight_returns_unboosted() {
+    for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        let strategy = WeightedRrf::default();
+        let candidates = vec![
+            candidate(CandidateSource::Fts, "d1", 0),
+            candidate(CandidateSource::Fts, "d2", 1),
+        ];
+        let recency = RecencyConfig {
+            weight: bad,
+            half_life_days: 30.0,
+        };
+        let with_recency = strategy.merge_with_recency(&candidates, &recency, |_| Some(0.0));
+        assert_eq!(
+            with_recency,
+            strategy.merge(&candidates),
+            "non-finite recency weight {bad} must return the unboosted merge() result"
+        );
+    }
+}
+
+// T-217-003: weighted_rrf_recency_nan_half_life_keeps_finite_score
+//
+// half_life=NaN slips through `half_life_days <= 0.0` (`NaN <= 0.0` is false),
+// so recency_decay returns NaN and `score += weight * NaN` poisons the hit.
+// With a finite recency weight, the boost-clamp must skip the non-finite boost
+// and retain each hit's RRF score, keeping every score finite.
+#[test]
+fn weighted_rrf_recency_nan_half_life_keeps_finite_score() {
+    let strategy = WeightedRrf::default();
+    let candidates = vec![
+        candidate(CandidateSource::Fts, "d1", 0),
+        candidate(CandidateSource::Fts, "d2", 1),
+    ];
+    let recency = RecencyConfig {
+        weight: 1.0,
+        half_life_days: f64::NAN,
+    };
+    let output = strategy.merge_with_recency(&candidates, &recency, |_| Some(10.0));
+    assert!(
+        output.iter().all(|h| h.score.is_finite()),
+        "NaN half_life must skip the boost and keep every score finite, got: {output:?}"
+    );
+}
+
+// T-217-004: weighted_rrf_recency_inf_half_life_inf_age_keeps_finite_score
+//
+// half_life=+inf is harmless with a finite age (decay = exp(-0.0) = 1.0), but
+// age=+inf makes recency_decay compute (-inf / +inf).exp() = NaN, so the boost
+// goes non-finite. The boost-clamp on `weight * decay` must absorb this and
+// keep scores finite.
+#[test]
+fn weighted_rrf_recency_inf_half_life_inf_age_keeps_finite_score() {
+    let strategy = WeightedRrf::default();
+    let candidates = vec![candidate(CandidateSource::Fts, "d1", 0)];
+    let recency = RecencyConfig {
+        weight: 1.0,
+        half_life_days: f64::INFINITY,
+    };
+    let output = strategy.merge_with_recency(&candidates, &recency, |_| Some(f64::INFINITY));
+    assert!(
+        output.iter().all(|h| h.score.is_finite()),
+        "+inf half_life with +inf age must clamp the NaN boost and keep scores finite, got: {output:?}"
+    );
+}
+
+// T-217-005: weighted_rrf_recency_inf_half_life_finite_age_keeps_full_boost
+//
+// Regression guard (green before and after the fix): half_life=+inf with a
+// finite age decays to exp(-0.0)=1.0, so the hit must receive the full
+// recency.weight (1.0) boost on top of its RRF score (1/60). This pins that the
+// boost-clamp must NOT regress the finite-age full-boost case — only non-finite
+// boosts get skipped, never a legitimately finite 1.0 boost.
+#[test]
+fn weighted_rrf_recency_inf_half_life_finite_age_keeps_full_boost() {
+    let strategy = WeightedRrf::default();
+    let candidates = vec![candidate(CandidateSource::Fts, "d1", 0)];
+    let recency = RecencyConfig {
+        weight: 1.0,
+        half_life_days: f64::INFINITY,
+    };
+    let output = strategy.merge_with_recency(&candidates, &recency, |_| Some(10.0));
+    let d1 = output.iter().find(|h| h.doc_id == "d1").unwrap();
+    let expected = 1.0 / 60.0 + 1.0;
+    assert!(
+        d1.score.is_finite() && (d1.score - expected).abs() < f64::EPSILON,
+        "finite age under +inf half_life must keep full boost (RRF 1/60 + 1.0), got: {}",
+        d1.score
+    );
 }
 
 // T-076-001: weighted_rrf_fuses_chunks_separately_when_chunk_id_differs
