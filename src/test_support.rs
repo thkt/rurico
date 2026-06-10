@@ -202,10 +202,12 @@ pub(crate) fn assert_cache_lookup_returns_none_when_empty<Id: ModelArtifact>(mod
 
 /// Generic helper for `from_probe_error_maps_correctly`.
 ///
-/// Asserts that all four [`ProbeError`](crate::model_probe::ProbeError) variants
-/// map to the expected [`ModelInitError`](crate::model_init::ModelInitError)
-/// variant. Kind-agnostic because `ModelInitError` is unified across embed and
-/// reranker (FR-002).
+/// Asserts that three [`ProbeError`](crate::model_probe::ProbeError) variants
+/// (`HandlerNotInstalled` / `ModelLoadFailed` / `SubprocessFailed`) map to the
+/// expected [`ModelInitError`](crate::model_init::ModelInitError) variant.
+/// `SetupRejected` is covered separately by `model_init/tests.rs` (T-008 /
+/// T-125-B), which also pin the source chain. Kind-agnostic because
+/// `ModelInitError` is unified across embed and reranker (FR-002).
 pub(crate) fn assert_from_probe_error_maps_correctly() {
     let err: ModelInitError = ProbeError::HandlerNotInstalled.into();
     assert!(
