@@ -104,6 +104,22 @@ fn pad_sequences_target_len_keeps_actual_max_when_smaller() {
     assert_eq!(flat_mask, vec![1, 1, 1, 1, 1, 1, 0, 0]);
 }
 
+#[test]
+#[should_panic(expected = "masks length 1 != ids length 2")]
+fn pad_sequences_panics_when_masks_shorter_than_ids() {
+    let ids = vec![vec![1, 2], vec![3]];
+    let masks = vec![vec![1, 1]];
+    pad_sequences(&ids, Some(&masks), None);
+}
+
+#[test]
+#[should_panic(expected = "masks length 3 != ids length 2")]
+fn pad_sequences_panics_when_masks_longer_than_ids() {
+    let ids = vec![vec![1, 2], vec![3]];
+    let masks = vec![vec![1, 1], vec![1], vec![1]];
+    pad_sequences(&ids, Some(&masks), None);
+}
+
 // ── compute_sub_batch_size tests ────────────────────────────────────────
 
 // Pin the concrete per-bucket sub-batch sizes, not the formula: asserting

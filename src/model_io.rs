@@ -311,7 +311,7 @@ pub(crate) fn pad_sequences(
     masks: Option<&[Vec<u32>]>,
     target_len: Option<usize>,
 ) -> (Vec<u32>, Vec<u32>, usize, usize) {
-    debug_assert!(
+    assert!(
         masks.is_none_or(|m| m.len() == ids.len()),
         "masks length {} != ids length {}",
         masks.map_or(0, <[Vec<u32>]>::len),
