@@ -40,14 +40,15 @@ pub struct Config {
 }
 
 impl Config {
-    /// Validate invariants (non-zero sizes, divisibility, finite positive epsilon).
+    /// Validate invariants (size bounds, divisibility, finite positive epsilon).
     ///
     /// # Errors
     ///
-    /// Returns an opaque validation message if any required size is zero,
-    /// `hidden_size` is not divisible by `num_attention_heads`, or
-    /// `layer_norm_eps` is not finite and positive. The exact message text
-    /// is not part of the stable API contract.
+    /// Returns an opaque validation message if any required size is zero or
+    /// too large for the MLX backend's `i32` dimensions, `hidden_size` is not
+    /// divisible by `num_attention_heads`, or `layer_norm_eps` is not finite
+    /// and positive after conversion to `f32`. The exact message text is not
+    /// part of the stable API contract.
     pub fn validate(&self) -> Result<(), String> {
         // `hidden_size * 3` is computed during Wqkv construction.
         validate_i32_bound("hidden_size", self.hidden_size, 3)?;
@@ -96,8 +97,13 @@ impl Config {
         if self.local_attention == 0 {
             return Err("local_attention must be > 0".into());
         }
-        if !self.layer_norm_eps.is_finite() || self.layer_norm_eps <= 0.0 {
-            return Err("layer_norm_eps must be finite and > 0".into());
+        // layer_norm_eps is consumed as f32 (`layer_norm_eps_f32` in model.rs), so
+        // validate the post-cast value: 1e39 overflows to inf and 1e-50 flushes to
+        // 0.0 even though both pass an f64 check. The f32 check subsumes the f64 one.
+        #[allow(clippy::cast_possible_truncation)]
+        let eps = self.layer_norm_eps as f32;
+        if !eps.is_finite() || eps <= 0.0 {
+            return Err("layer_norm_eps must be finite and > 0 after f32 conversion".into());
         }
         Ok(())
     }

@@ -106,6 +106,18 @@ fn config_validate_rejects_negative_layer_norm_eps() {
     assert_rejects(|c| c.layer_norm_eps = -1e-5, "layer_norm_eps");
 }
 
+// 1e39 is finite in f64 but overflows to inf after the runtime f32 cast.
+#[test]
+fn config_validate_rejects_layer_norm_eps_overflowing_f32() {
+    assert_rejects(|c| c.layer_norm_eps = 1e39, "layer_norm_eps");
+}
+
+// 1e-50 is positive in f64 but flushes to 0.0 after the runtime f32 cast.
+#[test]
+fn config_validate_rejects_layer_norm_eps_underflowing_f32() {
+    assert_rejects(|c| c.layer_norm_eps = 1e-50, "layer_norm_eps");
+}
+
 #[test]
 fn config_validate_rejects_hidden_size_above_i32_max_div_3() {
     assert_rejects(
