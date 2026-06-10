@@ -158,8 +158,9 @@ pub fn group_by_parent<'a>(hits: &'a [MergedHit]) -> HashMap<&'a str, Vec<&'a Me
 pub trait MergeStrategy {
     /// Fuse `candidates` from multiple sources into Stage 3 input.
     ///
-    /// **Output MUST be sorted by `score` descending** (with deterministic
-    /// tiebreaking by `doc_id` ascending when scores are equal). Each
+    /// **Output MUST be sorted by `score` descending**, then `doc_id`
+    /// ascending, then `chunk_id` ascending (3-key total order, matching
+    /// the [`Aggregator::aggregate`] contract in this module). Each
     /// returned [`MergedHit`]'s `source_scores` records the per-source
     /// contributions to the fused score so downstream UIs can display
     /// score breakdown.
@@ -252,7 +253,9 @@ impl WeightedRrf {
     /// `age_days_for` lookup returns `Some(age)`. Hits with `None` age are
     /// left at their RRF score, as is any hit whose boost would come out
     /// non-finite (see [`RecencyConfig`]). Output is re-sorted after the
-    /// boost.
+    /// boost; the re-sort compares `score` then `doc_id` only, but stable
+    /// sorting plus the per-doc (not per-chunk) boost preserves the 3-key
+    /// order guaranteed by [`MergeStrategy::merge`].
     ///
     /// `source_scores` continues to record only per-source RRF
     /// contributions — the recency component lives in `score` only, since
