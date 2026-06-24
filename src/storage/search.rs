@@ -62,6 +62,18 @@ impl SanitizedFtsQuery {
 }
 
 /// A fully expanded and quoted FTS5 query string, safe to pass to `MATCH`.
+///
+/// # Cross-repo wire-format contract (amici ADR-0008)
+///
+/// The MATCH string emitted here is a wire-format contract consumed by amici's
+/// `parse_fts_segments` (`src/storage/fts.rs`): `"..."` quoting for fixed terms,
+/// `( ... )` for OR-groups, ` OR ` as the in-group separator, and ` AND ` as the
+/// top-level separator (see `fts_expand_short_terms`). amici parses this format
+/// rather than a typed API, so a separator or quoting change here is a contract
+/// change requiring a coordinated update to `parse_fts_segments`. Neither repo's
+/// compiler or unit tests can enforce this; amici's round-trip test
+/// (`src/storage/fts/tests.rs`, `parse_fts_segments_recovers_rurico_or_group_wire_format`)
+/// detects drift at rurico rev-bump time. Tracking issue: thkt/amici#159.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MatchFtsQuery(String);
 
@@ -268,6 +280,12 @@ pub(crate) fn fts_expand_short_terms(
     // Join with explicit AND: FTS5 implicit adjacency rejects parenthesised
     // groups as operands (`(a OR b) c` is a syntax error); explicit AND
     // accepts them with identical semantics.
+    //
+    // Wire-format contract (amici ADR-0008): this ` AND ` separator and the
+    // `"..."` / `( ... )` / ` OR ` shapes are parsed by amici's
+    // `parse_fts_segments`. Changing them is a cross-repo contract change;
+    // amici's round-trip test surfaces drift at rev-bump time. See
+    // [`MatchFtsQuery`].
     Ok(MatchFtsQuery(parts.join(" AND ")))
 }
 
