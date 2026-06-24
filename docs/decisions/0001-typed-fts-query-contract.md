@@ -10,6 +10,8 @@ decision-makers: thkt
 
 > **Note (2026-05-14, visibility clarification)**: `SanitizedFtsQuery`, `sanitize_fts_query`, and `fts_expand_short_terms` are `pub(crate)` (not `pub`). The downstream-visible surface is `MatchFtsQuery` + `prepare_match_query` only — intermediate sanitization types stay crate-private to match LANG.md `Visibility: Minimum required`. The Migration Plan below remains valid because downstream callers reach the typed contract through `prepare_match_query` regardless.
 
+> **Note (2026-06-24, operator-handling correction)**: Decision step 3 ("Preserve operator-like keywords (`AND`, `OR`, `NOT`) as literal terms during sanitization") and the Consequences bullet "literal `AND` / `OR` / `NOT` remain searchable across downstream crates" describe a literal-term policy (commit `d361c698`) that was reverted the same day by commit `c57293f`. The current contract in `src/storage/search.rs` treats `AND`/`OR`/`NOT` as FTS5 operators, not literal terms: an operator sandwiched between non-operator terms is kept unquoted (and acts as the FTS5 operator), while a dangling operator (e.g. leading `NOT`, or a trailing `OR` left after `NEAR()` removal) is dropped (`FTS5_OPERATORS` / `drop_dangling_operators` at `src/storage/search.rs:25-46`). Operators are never vocab-expanded. The two original lines are left unchanged per ADR immutability; this note is the authoritative description of the operator-handling contract. (Source: census drift report `docs/audit/2026-06-24-021959-adr-drift.md`.)
+
 ## Context
 
 `rurico::storage::sanitize_fts_query` currently returns a plain `String`. That leaves three contract gaps:
