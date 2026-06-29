@@ -19,30 +19,22 @@ fn write_embed_safetensors(path: &Path) {
     write_fake_safetensors(path, &[FAKE_BACKBONE_KEY]);
 }
 
-/// Compile-time signature assertion helper. The function body is unused;
-/// the `where` clause forces the type checker to confirm `F` returns `T`.
-fn assert_returns<F, T>(_f: F)
-where
-    F: FnOnce() -> T,
-{
-}
-
-// T-010: download_model(ModelId::DEFAULT) returns Result<VerifiedArtifacts<EmbedKind>, ArtifactError>
-#[test]
-fn download_model_for_embed_id_returns_verified_artifacts_of_embed_kind() {
-    // Compile-time signature check only; do not invoke (would hit network).
-    assert_returns::<_, Result<VerifiedArtifacts<EmbedKind>, ArtifactError>>(|| {
-        download_model(ModelId::DEFAULT)
-    });
-}
-
-// T-011: download_model(RerankerModelId::default()) returns Result<VerifiedArtifacts<RerankerKind>, ArtifactError>
-#[test]
-fn download_model_for_reranker_id_returns_verified_artifacts_of_reranker_kind() {
-    assert_returns::<_, Result<VerifiedArtifacts<RerankerKind>, ArtifactError>>(|| {
-        download_model(RerankerModelId::default())
-    });
-}
+// T-010 / T-011: each model identifier monomorphises `download_model` to the
+// `VerifiedArtifacts<K>` matching its kind — embed → EmbedKind, reranker →
+// RerankerKind — and a wrong-kind pairing fails to compile.
+//
+// Enforced at compile time by pinning each monomorphisation's full function
+// signature to a typed fn pointer. The prior `#[test]` form never executed:
+// it only type-checked a closure that was deliberately never called (invoking
+// it would hit the network), so it reported as a passing test while verifying
+// nothing at run time. Taking the function item's address checks the identical
+// contract — return type included — without the misleading runtime entry, and
+// T-012/T-013 below exercise the same kind dispatch at run time via a fake
+// cache.
+const _: fn(ModelId) -> Result<VerifiedArtifacts<EmbedKind>, ArtifactError> =
+    download_model::<ModelId>;
+const _: fn(RerankerModelId) -> Result<VerifiedArtifacts<RerankerKind>, ArtifactError> =
+    download_model::<RerankerModelId>;
 
 // T-012: cached_artifacts(ModelId::DEFAULT) with all artifacts present → Ok(Some(VerifiedArtifacts<EmbedKind>))
 #[test]
