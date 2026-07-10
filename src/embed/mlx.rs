@@ -267,7 +267,7 @@ impl EmbedderInner {
             // sub_batch_size against the bucket ceiling keeps every possible
             // sub-batch under TOKEN_BUDGET even when every chunk is at the
             // bucket_max boundary, matching the pre-bucketing OOM guarantee.
-            let sub_batch_size = compute_sub_batch_size(BUCKET_BOUNDS[bucket_idx]);
+            let sub_batch_size = compute_sub_batch_size(BUCKET_BOUNDS[bucket_idx], None);
             for sub_batch in bucket.chunks(sub_batch_size) {
                 self.forward_sub_batch(sub_batch, bucket_idx, &mut out, &mut metrics)?;
             }
