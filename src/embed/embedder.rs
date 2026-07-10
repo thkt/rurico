@@ -3,7 +3,9 @@ use std::sync::{Mutex, MutexGuard};
 
 use super::metrics::BatchMetrics;
 use super::mlx::EmbedderInner;
-use super::{Artifacts, ChunkedEmbedding, Embed, EmbedError, ModelInitError, QUERY_PREFIX};
+use super::{
+    Artifacts, ChunkedEmbedding, Embed, EmbedError, EmbedOptions, ModelInitError, QUERY_PREFIX,
+};
 use crate::model_probe::ProbeStatus;
 
 /// Thread-safe embedding model backed by MLX. Wraps the backend in a [`Mutex`].
@@ -73,7 +75,7 @@ impl Embedder {
         texts: &[&str],
     ) -> Result<(Vec<ChunkedEmbedding>, BatchMetrics), EmbedError> {
         self.lock_inner()?
-            .embed_documents_batch_chunked_with_metrics(texts)
+            .embed_documents_batch_chunked_with_metrics(texts, &EmbedOptions::default())
     }
 
     /// Test whether the model can load without aborting the caller.
@@ -116,6 +118,15 @@ impl Embed for Embedder {
 
     fn embed_documents_batch(&self, texts: &[&str]) -> Result<Vec<ChunkedEmbedding>, EmbedError> {
         self.lock_inner()?.embed_documents_batch_chunked(texts)
+    }
+
+    fn embed_documents_batch_with_options(
+        &self,
+        texts: &[&str],
+        options: &EmbedOptions,
+    ) -> Result<Vec<ChunkedEmbedding>, EmbedError> {
+        self.lock_inner()?
+            .embed_documents_batch_chunked_with_options(texts, options)
     }
 
     fn embed_text(&self, text: &str, prefix: &str) -> Result<Vec<f32>, EmbedError> {

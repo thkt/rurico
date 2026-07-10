@@ -285,12 +285,18 @@ pub(crate) fn artifacts_from_cache<Id: ModelArtifact>(
 /// for the cross-module forward-pass invariant.
 pub(crate) const TOKEN_BUDGET: usize = 256_000;
 
-/// Sub-batch size that keeps each forward pass under [`TOKEN_BUDGET`] when
-/// every item sits at the bucket boundary. Callers iterate
-/// `items.chunks(sub_batch_size)`. Floors at 1 so the loop progresses for
-/// `bucket_len > TOKEN_BUDGET`.
-pub(crate) fn compute_sub_batch_size(bucket_len: usize) -> usize {
-    (TOKEN_BUDGET / bucket_len).max(1)
+/// Sub-batch size that keeps each forward pass under [`TOKEN_BUDGET`] (or
+/// `budget_override` when `Some`) when every item sits at the bucket
+/// boundary. Callers iterate `items.chunks(sub_batch_size)`. Floors at 1 so
+/// the loop progresses when the effective budget is smaller than
+/// `bucket_len`.
+///
+/// `budget_override`: `Some(n)` uses `n` in place of [`TOKEN_BUDGET`]; `None`
+/// falls through to the const. Reranker callers pass `None` to preserve the
+/// ADR-0009 cross-module forward-pass invariant.
+pub(crate) fn compute_sub_batch_size(bucket_len: usize, budget_override: Option<usize>) -> usize {
+    let budget = budget_override.unwrap_or(TOKEN_BUDGET);
+    (budget / bucket_len).max(1)
 }
 
 /// Pad variable-length token sequences into contiguous flat arrays for batched inference.

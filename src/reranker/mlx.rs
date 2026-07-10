@@ -67,7 +67,7 @@ impl RerankerInner {
         let raw_max = all_ids.iter().map(Vec::len).max().unwrap_or(0);
         let bucket_idx = assign_bucket(raw_max);
         let bucket_len = BUCKET_BOUNDS[bucket_idx];
-        let sub_batch_size = compute_sub_batch_size(bucket_len);
+        let sub_batch_size = compute_sub_batch_size(bucket_len, None);
 
         let total_pairs = pairs.len();
         let sub_batch_count = total_pairs.div_ceil(sub_batch_size);

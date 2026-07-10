@@ -128,10 +128,10 @@ fn pad_sequences_panics_when_masks_longer_than_ids() {
 // (2000, 500, 125, 31); embed and reranker callers share this function.
 #[test]
 fn compute_sub_batch_size_matches_formula_per_bucket() {
-    assert_eq!(compute_sub_batch_size(BUCKET_BOUNDS[0]), 2000);
-    assert_eq!(compute_sub_batch_size(BUCKET_BOUNDS[1]), 500);
-    assert_eq!(compute_sub_batch_size(BUCKET_BOUNDS[2]), 125);
-    assert_eq!(compute_sub_batch_size(BUCKET_BOUNDS[3]), 31);
+    assert_eq!(compute_sub_batch_size(BUCKET_BOUNDS[0], None), 2000);
+    assert_eq!(compute_sub_batch_size(BUCKET_BOUNDS[1], None), 500);
+    assert_eq!(compute_sub_batch_size(BUCKET_BOUNDS[2], None), 125);
+    assert_eq!(compute_sub_batch_size(BUCKET_BOUNDS[3], None), 31);
 }
 
 // `max(1)` floor: pathological bucket_len > TOKEN_BUDGET cannot happen in
@@ -139,8 +139,23 @@ fn compute_sub_batch_size_matches_formula_per_bucket() {
 // from looping over zero-sized chunks if BUCKET_BOUNDS is later widened.
 #[test]
 fn compute_sub_batch_size_returns_one_when_bucket_exceeds_token_budget() {
-    assert_eq!(compute_sub_batch_size(TOKEN_BUDGET + 1), 1);
-    assert_eq!(compute_sub_batch_size(usize::MAX), 1);
+    assert_eq!(compute_sub_batch_size(TOKEN_BUDGET + 1, None), 1);
+    assert_eq!(compute_sub_batch_size(usize::MAX, None), 1);
+}
+
+// T-001: compute_sub_batch_size は budget_override=None で現行 const 由来の値を返す
+#[test]
+fn compute_sub_batch_size_with_none_override_matches_const_token_budget() {
+    assert_eq!(compute_sub_batch_size(BUCKET_BOUNDS[0], None), 2000);
+    assert_eq!(compute_sub_batch_size(BUCKET_BOUNDS[1], None), 500);
+    assert_eq!(compute_sub_batch_size(BUCKET_BOUNDS[2], None), 125);
+    assert_eq!(compute_sub_batch_size(BUCKET_BOUNDS[3], None), 31);
+}
+
+// T-002: compute_sub_batch_size は budget_override=Some で override し 1 で floor する
+#[test]
+fn compute_sub_batch_size_with_some_override_takes_priority_over_const_and_floors_at_one() {
+    assert_eq!(compute_sub_batch_size(8192, Some(2048)), 1);
 }
 
 // ── ModelArtifact::Kind associated type ─────────────────────────────────

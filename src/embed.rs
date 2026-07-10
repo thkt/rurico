@@ -35,6 +35,7 @@ pub(crate) use pooling::gpu_pool_and_normalize;
 
 use crate::artifacts;
 use crate::model_io::{ModelArtifact, truncate_with_eos};
+use std::time::Duration;
 use std::{error::Error, fmt};
 
 /// Probe env-var key for the embedding model weights path.
@@ -312,6 +313,30 @@ impl EmbedError {
     }
 }
 
+// ── EmbedOptions ──────────────────────────────────────────────────────────────
+
+/// Best-effort performance hints for batch embedding.
+///
+/// Both fields default to `None`, which preserves the implementation's
+/// built-in behavior. Implementations are free to ignore these hints; the
+/// trait-level default of
+/// [`embed_documents_batch_with_options`](Embed::embed_documents_batch_with_options)
+/// does exactly that.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct EmbedOptions {
+    /// Token budget per forward pass, overriding the built-in
+    /// `TOKEN_BUDGET` used to size sub-batches. Smaller budgets shorten
+    /// each GPU forward, trading throughput for host responsiveness.
+    ///
+    /// Values above the built-in budget are not clamped here and raise
+    /// GPU out-of-memory risk; callers should clamp to the built-in
+    /// budget or below.
+    pub token_budget: Option<usize>,
+    /// Sleep inserted after each completed forward pass, yielding the GPU
+    /// to other processes (e.g. WindowServer) between forwards.
+    pub forward_pause: Option<Duration>,
+}
+
 // ── Embed trait ───────────────────────────────────────────────────────────────
 
 /// Embedding provider.
@@ -355,6 +380,25 @@ pub trait Embed: Send + Sync {
     /// Implementations should return the first operational failure they
     /// encounter and preserve input ordering for successful outputs.
     fn embed_documents_batch(&self, texts: &[&str]) -> Result<Vec<ChunkedEmbedding>, EmbedError>;
+
+    /// Batch-embed documents with best-effort performance hints.
+    ///
+    /// The default implementation ignores `options` and delegates to
+    /// [`embed_documents_batch`](Self::embed_documents_batch), so results are
+    /// identical either way; `options` only shapes *how* the work is
+    /// scheduled (sub-batch sizing, inter-forward pauses) on implementations
+    /// that honor it, such as [`Embedder`].
+    ///
+    /// # Errors
+    ///
+    /// Same contract as [`embed_documents_batch`](Self::embed_documents_batch).
+    fn embed_documents_batch_with_options(
+        &self,
+        texts: &[&str],
+        _options: &EmbedOptions,
+    ) -> Result<Vec<ChunkedEmbedding>, EmbedError> {
+        self.embed_documents_batch(texts)
+    }
 
     /// Embed text using the specified prefix (prepended before tokenization).
     /// The text is truncated if it exceeds [`MAX_SEQ_LEN`] (no chunking).

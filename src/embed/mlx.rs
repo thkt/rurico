@@ -1,3 +1,4 @@
+use std::thread;
 use std::time::Instant;
 
 use mlx_rs::Array;
@@ -5,7 +6,7 @@ use mlx_rs::Array;
 use super::Artifacts;
 use super::metrics::{BatchMetrics, EmbedKind, PhaseMetrics};
 use super::{
-    CHUNK_OVERLAP_TOKENS, ChunkedEmbedding, DOCUMENT_PREFIX, EmbedError, MAX_SEQ_LEN,
+    CHUNK_OVERLAP_TOKENS, ChunkedEmbedding, DOCUMENT_PREFIX, EmbedError, EmbedOptions, MAX_SEQ_LEN,
     ModelInitError, extract_prefix_tokens, gpu_pool_and_normalize, max_content,
     tokenize_with_prefix, truncate_for_query,
 };
@@ -219,7 +220,18 @@ impl EmbedderInner {
         &mut self,
         texts: &[&str],
     ) -> Result<Vec<ChunkedEmbedding>, EmbedError> {
-        self.embed_documents_batch_chunked_with_metrics(texts)
+        self.embed_documents_batch_chunked_with_options(texts, &EmbedOptions::default())
+    }
+
+    /// Same as [`embed_documents_batch_chunked`](Self::embed_documents_batch_chunked)
+    /// but honors [`EmbedOptions`]: `token_budget` overrides the sub-batch
+    /// sizing budget and `forward_pause` sleeps after each forward pass.
+    pub(super) fn embed_documents_batch_chunked_with_options(
+        &mut self,
+        texts: &[&str],
+        options: &EmbedOptions,
+    ) -> Result<Vec<ChunkedEmbedding>, EmbedError> {
+        self.embed_documents_batch_chunked_with_metrics(texts, options)
             .map(|(results, _metrics)| results)
     }
 
@@ -231,6 +243,7 @@ impl EmbedderInner {
     pub(super) fn embed_documents_batch_chunked_with_metrics(
         &mut self,
         texts: &[&str],
+        options: &EmbedOptions,
     ) -> Result<(Vec<ChunkedEmbedding>, BatchMetrics), EmbedError> {
         if texts.is_empty() {
             return Ok((Vec::new(), BatchMetrics::default()));
@@ -267,9 +280,15 @@ impl EmbedderInner {
             // sub_batch_size against the bucket ceiling keeps every possible
             // sub-batch under TOKEN_BUDGET even when every chunk is at the
             // bucket_max boundary, matching the pre-bucketing OOM guarantee.
-            let sub_batch_size = compute_sub_batch_size(BUCKET_BOUNDS[bucket_idx]);
+            let sub_batch_size =
+                compute_sub_batch_size(BUCKET_BOUNDS[bucket_idx], options.token_budget);
             for sub_batch in bucket.chunks(sub_batch_size) {
                 self.forward_sub_batch(sub_batch, bucket_idx, &mut out, &mut metrics)?;
+                // Yield the GPU between forwards so interactive processes
+                // (WindowServer) regain responsiveness during long batches.
+                if let Some(pause) = options.forward_pause {
+                    thread::sleep(pause);
+                }
             }
         }
 
