@@ -493,3 +493,30 @@ fn chunked_embedding_try_new_generates_matching_chunk_ids() {
     let ce = ChunkedEmbedding::try_new(vec![vec![0.0], vec![1.0]]).unwrap();
     assert_eq!(ce.chunk_ids(), ["c0", "c1"]);
 }
+
+// ── EmbedOptions tests ──────────────────────────────────────────────────────
+
+#[test]
+fn embed_options_default_has_no_budget_override_and_no_pause() {
+    let opts = EmbedOptions::default();
+    assert_eq!(opts.token_budget, None);
+    assert_eq!(opts.forward_pause, None);
+}
+
+#[test]
+fn embed_documents_batch_with_options_default_impl_ignores_options() {
+    let embedder = MockEmbedder::default();
+    let texts = ["alpha", "beta"];
+    let opts = EmbedOptions {
+        token_budget: Some(2048),
+        forward_pause: Some(Duration::from_millis(700)),
+    };
+    let with_opts = embedder
+        .embed_documents_batch_with_options(&texts, &opts)
+        .unwrap();
+    let without = embedder.embed_documents_batch(&texts).unwrap();
+    assert_eq!(with_opts.len(), without.len());
+    for (a, b) in with_opts.iter().zip(&without) {
+        assert_eq!(a.chunks(), b.chunks());
+    }
+}
