@@ -41,6 +41,22 @@ jobs:
         with:
           tool: cargo-nextest
 
+      # EXPERIMENTAL — spike #269 (priority:low, benefit cosmetic). Pre-warm the
+      # trybuild nested target dir so visibility::ui is measured warm in the Test
+      # step below. trybuild compiles tests/ui/*.rs at test-execution time in a
+      # separate dir (target/tests/trybuild/), so on a lockfile-change (cache
+      # miss) PR that whole graph — mlx-sys C++ FFI included — cold-builds inside
+      # the nextest run, inflating visibility::ui's per-test number and tripping
+      # the binary(visibility) SLOW override in .config/nextest.toml. Running it
+      # here with plain cargo test (no nextest, so the cold pre-warm emits no
+      # SLOW warning / slow-timeout kill) relocates that cold build out of the
+      # measured step; same features as Test so the warm artifacts are reused,
+      # not rebuilt. Total job wall-clock is ≈unchanged — the cold build is moved,
+      # not removed. Keep-or-revert decision pending a real cold-build measurement
+      # (issue #269 U-002).
+      - name: Pre-warm trybuild target (spike #269)
+        run: cargo test --test visibility --features test-support,test-mlx
+
       - name: Test
         run: cargo nextest run --workspace --features test-support,test-mlx --profile ci
 
