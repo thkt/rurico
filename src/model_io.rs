@@ -158,42 +158,12 @@ fn split_repo_id(repo_id: &str) -> (&str, &str) {
     repo_id.split_once('/').unwrap_or(("", repo_id))
 }
 
-/// Download model files from Hugging Face Hub (cached after first download).
-///
-/// # Errors
-///
-/// Returns [`ModelIoError::Download`] if the Hugging Face client cannot be
-/// initialized or any required artifact download fails.
-///
-/// # Interruption Safety
-///
-/// hf-hub downloads each file to a `.part` temporary file and then atomically
-/// renames it to the final blob path (`std::fs::rename`). A signal (e.g. SIGINT)
-/// received during a download leaves only the `.part` file on disk; the final
-/// blob is never partially written.
-///
-/// On the next invocation, [`artifacts_if_cached`] finds no valid pointer and
-/// returns `None`, so the download retries cleanly — no manual cache cleanup needed.
-pub fn download_artifacts<Id: ModelArtifact>(model: Id) -> Result<ModelPaths, ModelIoError> {
-    download_artifacts_with(model, DOWNLOAD_TIMEOUT, |repo_id, revision| {
-        let client = hf_hub::HFClientSync::new()
-            .map_err(|e| ModelIoError::Download(format!("HF Hub init failed: {e}")))?;
-        let (owner, name) = split_repo_id(repo_id);
-        let repo = client.model(owner, name);
-        let get = |file: &str| {
-            repo.download_file()
-                .filename(file)
-                .revision(revision)
-                .send()
-                .map_err(|e| ModelIoError::Download(format!("{file} download failed: {e}")))
-        };
-        Ok(ModelPaths {
-            model: get("model.safetensors")?,
-            config: get("config.json")?,
-            tokenizer: get("tokenizer.json")?,
-        })
-    })
-}
+/// The real HF Hub network + local-cache glue (`download_artifacts`,
+/// `cached_file`) lives in its own file so the diff-coverage gate can exclude
+/// I/O that unit tests cannot drive; see [`hf_backend`].
+mod hf_backend;
+
+pub use hf_backend::download_artifacts;
 
 /// Generic seam — worker closure decides how to materialize `ModelPaths`.
 ///
@@ -261,31 +231,13 @@ pub(crate) fn artifacts_from_cache<Id: ModelArtifact>(
     let (owner, name) = split_repo_id(model.repo_id());
     let repo = client.model(owner, name);
     let revision = model.revision();
-    // `local_files_only(true)` guarantees no network access; a cache miss surfaces
-    // as `LocalEntryNotFound`, which maps to `Ok(None)` (retry the download). Any
-    // other error is a real local-filesystem/config fault worth propagating.
-    let get = |file: &str| -> Result<Option<PathBuf>, ModelIoError> {
-        match repo
-            .download_file()
-            .filename(file)
-            .revision(revision)
-            .local_files_only(true)
-            .send()
-        {
-            Ok(path) => Ok(Some(path)),
-            Err(hf_hub::HFError::LocalEntryNotFound { .. }) => Ok(None),
-            Err(e) => Err(ModelIoError::Download(format!(
-                "{file} cache lookup failed: {e}"
-            ))),
-        }
-    };
-    let Some(model_weights) = get("model.safetensors")? else {
+    let Some(model_weights) = hf_backend::cached_file(&repo, "model.safetensors", revision)? else {
         return Ok(None);
     };
-    let Some(config) = get("config.json")? else {
+    let Some(config) = hf_backend::cached_file(&repo, "config.json", revision)? else {
         return Ok(None);
     };
-    let Some(tokenizer) = get("tokenizer.json")? else {
+    let Some(tokenizer) = hf_backend::cached_file(&repo, "tokenizer.json", revision)? else {
         return Ok(None);
     };
     Ok(Some(ModelPaths {

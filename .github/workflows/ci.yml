@@ -95,12 +95,16 @@ jobs:
           # Drop files that cannot run in CI from the diff-coverage denominator:
           # test_support mocks (test infra, downstream-only — not run by rurico's
           # own tests), the MLX backend (mlx.rs / embedder.rs run only under
-          # #[ignore] with a cached model), and smoke bins (need a downloaded
-          # model). Pure logic (embed.rs, reranker.rs, lazy.rs) stays measured.
-          # Mirrors yomu's ignore-regex; without it new mock/MLX lines a PR
-          # touches count as uncovered and fail the gate (e.g. PR #205).
+          # #[ignore] with a cached model), smoke bins (need a downloaded model),
+          # and the HF Hub I/O backend (model_io/hf_backend.rs: real network
+          # download + hf-hub cache-error mapping, unreachable without a live
+          # endpoint or hf-hub-internal error injection). Pure logic (embed.rs,
+          # reranker.rs, lazy.rs, and model_io.rs's orchestration/branching)
+          # stays measured. Mirrors yomu's ignore-regex; without it new
+          # mock/MLX/backend lines a PR touches count as uncovered and fail the
+          # gate (e.g. PR #205).
           cargo llvm-cov --workspace --features test-support,test-mlx \
-            --ignore-filename-regex '(test_support\.rs|/bin/|embed/(mlx|embedder)\.rs|reranker/mlx\.rs)' \
+            --ignore-filename-regex '(test_support\.rs|/bin/|embed/(mlx|embedder)\.rs|reranker/mlx\.rs|model_io/hf_backend\.rs)' \
             --lcov --output-path lcov.info
 
       - name: Diff coverage gate (changed lines >= 95%)
