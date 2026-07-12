@@ -9,7 +9,6 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
-use hf_hub::api::sync::Api;
 use serde::de::DeserializeOwned;
 
 use crate::artifacts::ModelKind;
@@ -150,12 +149,13 @@ pub fn load_tokenizer(path: &Path) -> Result<tokenizers::Tokenizer, ModelIoError
     tokenizers::Tokenizer::from_file(path).map_err(|e| ModelIoError::Tokenizer(e.to_string()))
 }
 
-fn make_repo(repo_id: &str, revision: &str) -> hf_hub::Repo {
-    hf_hub::Repo::with_revision(
-        repo_id.to_owned(),
-        hf_hub::RepoType::Model,
-        revision.to_owned(),
-    )
+/// Split a Hugging Face `owner/name` repo id into the two segments that
+/// [`hf_hub::HFClientSync::model`] expects; it rebuilds the
+/// `models--{owner}--{name}` cache folder from them. rurico's repo ids are
+/// compile-time constants that always contain a slash, so `unwrap_or` only
+/// guards a malformed id from panicking.
+fn split_repo_id(repo_id: &str) -> (&str, &str) {
+    repo_id.split_once('/').unwrap_or(("", repo_id))
 }
 
 /// Download model files from Hugging Face Hub (cached after first download).
@@ -176,12 +176,16 @@ fn make_repo(repo_id: &str, revision: &str) -> hf_hub::Repo {
 /// returns `None`, so the download retries cleanly — no manual cache cleanup needed.
 pub fn download_artifacts<Id: ModelArtifact>(model: Id) -> Result<ModelPaths, ModelIoError> {
     download_artifacts_with(model, DOWNLOAD_TIMEOUT, |repo_id, revision| {
-        let api =
-            Api::new().map_err(|e| ModelIoError::Download(format!("HF Hub init failed: {e}")))?;
-        let repo = api.repo(make_repo(repo_id, revision));
-        let get = |name: &str| {
-            repo.get(name)
-                .map_err(|e| ModelIoError::Download(format!("{name} download failed: {e}")))
+        let client = hf_hub::HFClientSync::new()
+            .map_err(|e| ModelIoError::Download(format!("HF Hub init failed: {e}")))?;
+        let (owner, name) = split_repo_id(repo_id);
+        let repo = client.model(owner, name);
+        let get = |file: &str| {
+            repo.download_file()
+                .filename(file)
+                .revision(revision)
+                .send()
+                .map_err(|e| ModelIoError::Download(format!("{file} download failed: {e}")))
         };
         Ok(ModelPaths {
             model: get("model.safetensors")?,
@@ -245,21 +249,43 @@ where
 pub fn artifacts_if_cached<Id: ModelArtifact>(
     model: Id,
 ) -> Result<Option<ModelPaths>, ModelIoError> {
-    artifacts_from_cache(&hf_hub::Cache::from_env(), model)
+    let client = hf_hub::HFClientSync::new()
+        .map_err(|e| ModelIoError::Download(format!("HF Hub init failed: {e}")))?;
+    artifacts_from_cache(&client, model)
 }
 
 pub(crate) fn artifacts_from_cache<Id: ModelArtifact>(
-    cache: &hf_hub::Cache,
+    client: &hf_hub::HFClientSync,
     model: Id,
 ) -> Result<Option<ModelPaths>, ModelIoError> {
-    let repo = cache.repo(make_repo(model.repo_id(), model.revision()));
-    let Some(model_weights) = repo.get("model.safetensors") else {
+    let (owner, name) = split_repo_id(model.repo_id());
+    let repo = client.model(owner, name);
+    let revision = model.revision();
+    // `local_files_only(true)` guarantees no network access; a cache miss surfaces
+    // as `LocalEntryNotFound`, which maps to `Ok(None)` (retry the download). Any
+    // other error is a real local-filesystem/config fault worth propagating.
+    let get = |file: &str| -> Result<Option<PathBuf>, ModelIoError> {
+        match repo
+            .download_file()
+            .filename(file)
+            .revision(revision)
+            .local_files_only(true)
+            .send()
+        {
+            Ok(path) => Ok(Some(path)),
+            Err(hf_hub::HFError::LocalEntryNotFound { .. }) => Ok(None),
+            Err(e) => Err(ModelIoError::Download(format!(
+                "{file} cache lookup failed: {e}"
+            ))),
+        }
+    };
+    let Some(model_weights) = get("model.safetensors")? else {
         return Ok(None);
     };
-    let Some(config) = repo.get("config.json") else {
+    let Some(config) = get("config.json")? else {
         return Ok(None);
     };
-    let Some(tokenizer) = repo.get("tokenizer.json") else {
+    let Some(tokenizer) = get("tokenizer.json")? else {
         return Ok(None);
     };
     Ok(Some(ModelPaths {
