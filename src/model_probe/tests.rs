@@ -305,8 +305,8 @@ fn validate_probe_paths_with_root_returns_ok_when_all_paths_under_cache_root() {
     let (model, config, tokenizer) = write_three_artifacts(cache_dir.path());
 
     // Act
-    let cache = hf_hub::Cache::new(cache_dir.path().to_path_buf());
-    let result = super::validate_probe_paths_with_cache(&cache, &model, &config, &tokenizer);
+    let result =
+        super::validate_probe_paths_with_cache(cache_dir.path(), &model, &config, &tokenizer);
 
     // Assert
     assert_eq!(result, Ok(()), "expected Ok(()) for paths under cache root");
@@ -323,9 +323,12 @@ fn validate_probe_paths_with_root_rejects_path_outside_cache_root() {
     fs::write(&outside_model, b"evil").unwrap();
 
     // Act
-    let cache = hf_hub::Cache::new(cache_dir.path().to_path_buf());
-    let result =
-        super::validate_probe_paths_with_cache(&cache, &outside_model, &config, &tokenizer);
+    let result = super::validate_probe_paths_with_cache(
+        cache_dir.path(),
+        &outside_model,
+        &config,
+        &tokenizer,
+    );
 
     // Assert
     assert_eq!(
@@ -345,9 +348,12 @@ fn validate_probe_paths_with_root_returns_err_4_for_nonexistent_candidate_path()
     // Intentionally do not create the file.
 
     // Act
-    let cache = hf_hub::Cache::new(cache_dir.path().to_path_buf());
-    let result =
-        super::validate_probe_paths_with_cache(&cache, &missing_model, &config, &tokenizer);
+    let result = super::validate_probe_paths_with_cache(
+        cache_dir.path(),
+        &missing_model,
+        &config,
+        &tokenizer,
+    );
 
     // Assert
     assert_eq!(
@@ -366,8 +372,7 @@ fn validate_probe_paths_with_root_returns_err_6_for_nonexistent_cache_root() {
     let bogus_root = PathBuf::from("/nonexistent/rurico-test-cache-root");
 
     // Act
-    let cache = hf_hub::Cache::new(bogus_root.clone());
-    let result = super::validate_probe_paths_with_cache(&cache, &model, &config, &tokenizer);
+    let result = super::validate_probe_paths_with_cache(&bogus_root, &model, &config, &tokenizer);
 
     // Assert
     assert_eq!(
@@ -409,8 +414,8 @@ fn validate_probe_paths_with_root_accepts_symlink_under_cache_root() {
     symlink(&blob_tokenizer, &tokenizer).unwrap();
 
     // Act
-    let cache = hf_hub::Cache::new(cache_dir.path().to_path_buf());
-    let result = super::validate_probe_paths_with_cache(&cache, &model, &config, &tokenizer);
+    let result =
+        super::validate_probe_paths_with_cache(cache_dir.path(), &model, &config, &tokenizer);
 
     // Assert: function accepts the symlink as long as the canonicalized form
     // resolves under cache_root (which it does — blobs/ is under cache_dir).
@@ -437,8 +442,8 @@ fn validate_probe_paths_with_root_rejects_string_prefix_sibling() {
     fs::write(&evil_model, b"evil").unwrap();
 
     // Act
-    let cache = hf_hub::Cache::new(cache_root.clone());
-    let result = super::validate_probe_paths_with_cache(&cache, &evil_model, &config, &tokenizer);
+    let result =
+        super::validate_probe_paths_with_cache(&cache_root, &evil_model, &config, &tokenizer);
 
     // Assert: even though `evil_root` shares a string prefix with `cache_root`,
     // component-wise starts_with rejects it.
@@ -451,15 +456,16 @@ fn validate_probe_paths_with_root_rejects_string_prefix_sibling() {
 
 // T-021: validate_probe_paths (production wrapper) HF_HOME unset fallback (FR-101 + FR-006)
 //
-// The production wrapper resolves cache_root via `hf_hub::Cache::from_env()`.
-// When `HF_HOME` is unset, hf_hub falls back to `dirs::home_dir() /
-// .cache/huggingface/hub`. On Unix, `dirs::home_dir()` reads `$HOME` first
-// (verified against `dirs-sys-0.5.0/src/lib.rs` line 33-71). Setting
-// `HOME=tempdir` redirects the fallback into the test's tempdir.
+// The production wrapper resolves cache_root via `hf_hub::resolve_cache_dir()`.
+// When `HF_HUB_CACHE` and `HF_HOME` are unset, hf-hub falls back to
+// `dirs::home_dir() / .cache/huggingface/hub`. On Unix, `dirs::home_dir()`
+// reads `$HOME` first (verified against `dirs-sys-0.5.0/src/lib.rs` line
+// 33-71). Setting `HOME=tempdir` redirects the fallback into the test's
+// tempdir.
 //
-// NOTE for Phase 1 Green implementer: `validate_probe_paths` MUST call
-// `Cache::from_env()` at call time. A `LazyLock` / `OnceLock` cache root would
-// poison parallel tests (the first caller fixes the value crate-wide).
+// NOTE: `validate_probe_paths` MUST call `resolve_cache_dir()` at call time. A
+// `LazyLock` / `OnceLock` cache root would poison parallel tests (the first
+// caller fixes the value crate-wide).
 #[cfg(unix)]
 #[test]
 fn validate_probe_paths_falls_back_to_home_when_hf_home_unset() {

@@ -82,7 +82,8 @@ pub(crate) fn write_fake_safetensors(path: &Path, tensor_keys: &[&str]) {
 /// Create a fake HuggingFace Hub cache directory structure.
 ///
 /// Builds the `models--{repo_slug}/refs/{revision}` → `snapshots/{hash}/`
-/// layout that `hf_hub::Cache` expects, with the given files populated.
+/// layout that hf-hub's local cache resolution expects, with the given files
+/// populated.
 pub(crate) fn setup_fake_hf_cache(
     hub_dir: &Path,
     repo_id: &str,
@@ -93,7 +94,11 @@ pub(crate) fn setup_fake_hf_cache(
     let repo_dir = hub_dir.join(format!("models--{repo_slug}"));
     let refs_dir = repo_dir.join("refs");
     fs::create_dir_all(&refs_dir).unwrap();
-    let commit_hash = "abc123";
+    // Name the snapshot dir after `revision` itself. hf-hub 1.0 resolves a
+    // 40-hex commit-hash revision directly to `snapshots/{revision}` (skipping
+    // `refs/`), while a non-hash revision is resolved via `refs/{revision}`;
+    // pointing both at `revision` makes the staged cache resolve either way.
+    let commit_hash = revision;
     fs::write(refs_dir.join(revision), commit_hash).unwrap();
 
     let snapshot_dir = repo_dir.join("snapshots").join(commit_hash);
@@ -128,7 +133,11 @@ pub(crate) fn setup_fake_hf_cache_with_symlinks(
     let repo_dir = hub_dir.join(format!("models--{repo_slug}"));
     let refs_dir = repo_dir.join("refs");
     fs::create_dir_all(&refs_dir).unwrap();
-    let commit_hash = "abc123";
+    // Name the snapshot dir after `revision` itself. hf-hub 1.0 resolves a
+    // 40-hex commit-hash revision directly to `snapshots/{revision}` (skipping
+    // `refs/`), while a non-hash revision is resolved via `refs/{revision}`;
+    // pointing both at `revision` makes the staged cache resolve either way.
+    let commit_hash = revision;
     fs::write(refs_dir.join(revision), commit_hash).unwrap();
 
     let blobs_dir = repo_dir.join("blobs");
@@ -146,6 +155,17 @@ pub(crate) fn setup_fake_hf_cache_with_symlinks(
         let snapshot_link = snapshot_dir.join(name);
         symlink(format!("../../blobs/{etag}"), &snapshot_link).unwrap();
     }
+}
+
+/// Build an [`hf_hub::HFClientSync`] whose cache root is `cache_dir`, so cache
+/// lookups resolve against a test-staged fake cache instead of the developer's
+/// real `~/.cache/huggingface/hub`. Centralizes the hf-hub builder call shared
+/// by the cache-resolution tests.
+pub(crate) fn hf_client_for_cache(cache_dir: &Path) -> hf_hub::HFClientSync {
+    hf_hub::HFClient::builder()
+        .cache_dir(cache_dir)
+        .build_sync()
+        .expect("build HFClientSync pointed at test cache dir")
 }
 
 // ── Generic lifecycle test helpers (Phase 2 / FR-009 / FR-010) ─────────────
@@ -172,8 +192,8 @@ pub(crate) fn assert_cache_lookup_returns_some_when_all_files_present<Id: ModelA
             ("tokenizer.json", b"{}"),
         ],
     );
-    let cache = hf_hub::Cache::new(dir.path().to_path_buf());
-    let result = artifacts_from_cache(&cache, model).unwrap();
+    let client = hf_client_for_cache(dir.path());
+    let result = artifacts_from_cache(&client, model).unwrap();
     let paths = result.expect("should return Some when all files cached");
     assert!(
         paths.model.ends_with("model.safetensors"),
@@ -195,8 +215,8 @@ pub(crate) fn assert_cache_lookup_returns_some_when_all_files_present<Id: ModelA
 /// Generic helper for `cache_lookup_returns_none_when_empty`.
 pub(crate) fn assert_cache_lookup_returns_none_when_empty<Id: ModelArtifact>(model: Id) {
     let dir = tempfile::tempdir().unwrap();
-    let cache = hf_hub::Cache::new(dir.path().to_path_buf());
-    let result = artifacts_from_cache(&cache, model).unwrap();
+    let client = hf_client_for_cache(dir.path());
+    let result = artifacts_from_cache(&client, model).unwrap();
     assert!(result.is_none());
 }
 
@@ -253,7 +273,7 @@ pub(crate) fn assert_probe_env_to_paths_preserves_snapshot_symlink_filename<K: M
             ("tokenizer.json", b"{}"),
         ],
     );
-    let snapshot_dir = cache_root.join("models--org--model/snapshots/abc123");
+    let snapshot_dir = cache_root.join("models--org--model/snapshots/dev");
     let m = snapshot_dir.join("model.safetensors");
     let c = snapshot_dir.join("config.json");
     let t = snapshot_dir.join("tokenizer.json");
@@ -336,7 +356,7 @@ mod tests {
             .join("models--cl-nagoya--ruri-v3-310m/refs/some-revision-hash");
         assert!(refs_path.exists());
         let commit = fs::read_to_string(&refs_path).unwrap();
-        assert_eq!(commit, "abc123");
+        assert_eq!(commit, "some-revision-hash");
 
         // snapshot files exist with correct content
         let snapshot_dir = dir.path().join(format!(
@@ -363,7 +383,7 @@ mod tests {
 
         let snapshot_link = dir
             .path()
-            .join("models--org--model/snapshots/abc123/model.safetensors");
+            .join("models--org--model/snapshots/dev/model.safetensors");
         assert!(
             snapshot_link.is_symlink(),
             "snapshot file must be a symlink"
@@ -383,13 +403,18 @@ mod tests {
         let revision = "deadbeef";
         setup_fake_hf_cache(dir.path(), repo_id, revision, &[("weights.bin", b"w")]);
 
-        let cache = hf_hub::Cache::new(dir.path().to_path_buf());
-        let repo = cache.repo(hf_hub::Repo::with_revision(
-            repo_id.to_owned(),
-            hf_hub::RepoType::Model,
-            revision.to_owned(),
-        ));
-        let path = repo.get("weights.bin");
-        assert!(path.is_some(), "hf_hub::Cache should resolve the file");
+        let client = hf_client_for_cache(dir.path());
+        let (owner, name) = repo_id.split_once('/').unwrap();
+        let resolved = client
+            .model(owner, name)
+            .download_file()
+            .filename("weights.bin")
+            .revision(revision)
+            .local_files_only(true)
+            .send();
+        assert!(
+            resolved.is_ok(),
+            "hf-hub local resolution should find the file: {resolved:?}"
+        );
     }
 }

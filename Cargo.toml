@@ -3,7 +3,7 @@ members = [".", "crates/rurico-ffi"]
 
 [workspace.dependencies]
 bytemuck = "1"
-hf-hub = "0.5"
+hf-hub = { version = "1", default-features = false, features = ["blocking", "rustls-tls"] }
 mlx-rs = "0.25"
 mlx-sys = "0.2"
 rusqlite = { version = "0.40", features = ["bundled"] }

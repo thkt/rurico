@@ -141,12 +141,12 @@ impl fmt::Display for SetupReason {
 /// - [`SetupReason::PathOutsideCache`] if any candidate path's canonical form
 ///   is not a component-wise descendant of `cache_root`'s canonical form
 pub(crate) fn validate_probe_paths_with_cache(
-    cache: &hf_hub::Cache,
+    cache_root: &Path,
     model: &Path,
     config: &Path,
     tokenizer: &Path,
 ) -> Result<(), SetupReason> {
-    let canon_root = fs::canonicalize(cache.path()).map_err(|_| SetupReason::CacheRootInvalid)?;
+    let canon_root = fs::canonicalize(cache_root).map_err(|_| SetupReason::CacheRootInvalid)?;
     for p in [model, config, tokenizer] {
         let canon = fs::canonicalize(p).map_err(|_| SetupReason::CanonicalizeFailed)?;
         if !canon.starts_with(&canon_root) {
@@ -157,12 +157,12 @@ pub(crate) fn validate_probe_paths_with_cache(
 }
 
 /// Production wrapper for [`validate_probe_paths_with_cache`] that resolves
-/// the cache via [`hf_hub::Cache::from_env`].
+/// the cache root via [`hf_hub::resolve_cache_dir`].
 ///
-/// `Cache::from_env()` reads `HF_HOME` and falls back to the user's default
-/// `~/.cache/huggingface/hub`. The cache resolution happens at call time so
-/// parallel tests using `temp_env::with_vars` to scope env vars do not poison
-/// each other.
+/// `resolve_cache_dir()` reads `HF_HUB_CACHE`, then `<HF_HOME>/hub`, then falls
+/// back to the user's default `~/.cache/huggingface/hub`. The resolution happens
+/// at call time so parallel tests using `temp_env::with_vars` to scope env vars
+/// do not poison each other.
 ///
 /// # Errors
 ///
@@ -172,7 +172,7 @@ pub(crate) fn validate_probe_paths(
     config: &Path,
     tokenizer: &Path,
 ) -> Result<(), SetupReason> {
-    validate_probe_paths_with_cache(&hf_hub::Cache::from_env(), model, config, tokenizer)
+    validate_probe_paths_with_cache(&hf_hub::resolve_cache_dir(), model, config, tokenizer)
 }
 
 /// Result of a model probe — whether the backend can load the model.
@@ -346,7 +346,7 @@ pub fn probe_via_subprocess(env_pairs: &[(&str, &str)]) -> Result<ProbeStatus, P
 pub(super) const FORWARD: &[&str] = &[
     // exe lookup
     "PATH",
-    // Cache::from_env default fallback root resolution (`<HOME>/.cache/huggingface/hub`)
+    // resolve_cache_dir default fallback root resolution (`<HOME>/.cache/huggingface/hub`)
     "HOME",
     // HF cache root override
     "HF_HOME",

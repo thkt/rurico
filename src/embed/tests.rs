@@ -8,7 +8,8 @@ use crate::test_support::{
     assert_cache_lookup_returns_none_when_empty,
     assert_cache_lookup_returns_some_when_all_files_present,
     assert_from_probe_error_maps_correctly,
-    assert_probe_env_to_paths_returns_paths_when_all_present, setup_fake_hf_cache,
+    assert_probe_env_to_paths_returns_paths_when_all_present, hf_client_for_cache,
+    setup_fake_hf_cache,
 };
 use std::error::Error;
 use std::fs;
@@ -54,14 +55,15 @@ fn cache_lookup_returns_none_when_partial() {
     let dir = tempfile::tempdir().unwrap();
     setup_fake_cache_for(dir.path(), ModelId::DEFAULT);
     let repo_slug = ModelId::DEFAULT.repo_id().replace('/', "--");
-    let snapshot_dir = dir
-        .path()
-        .join(format!("models--{repo_slug}/snapshots/abc123"));
+    let snapshot_dir = dir.path().join(format!(
+        "models--{repo_slug}/snapshots/{}",
+        ModelId::DEFAULT.revision()
+    ));
     fs::remove_file(snapshot_dir.join("config.json")).unwrap();
     fs::remove_file(snapshot_dir.join("tokenizer.json")).unwrap();
 
-    let cache = hf_hub::Cache::new(dir.path().to_path_buf());
-    let result = artifacts_from_cache(&cache, ModelId::DEFAULT).unwrap();
+    let client = hf_client_for_cache(dir.path());
+    let result = artifacts_from_cache(&client, ModelId::DEFAULT).unwrap();
     assert!(result.is_none());
 }
 
@@ -77,11 +79,11 @@ fn cache_lookup_each_model_has_separate_cache_dir() {
     for &target in &all_models {
         let dir = tempfile::tempdir().unwrap();
         setup_fake_cache_for(dir.path(), target);
-        let cache = hf_hub::Cache::new(dir.path().to_path_buf());
+        let client = hf_client_for_cache(dir.path());
 
         // The populated model should be found
         assert!(
-            artifacts_from_cache(&cache, target).unwrap().is_some(),
+            artifacts_from_cache(&client, target).unwrap().is_some(),
             "{:?} should be cached",
             target
         );
@@ -91,7 +93,7 @@ fn cache_lookup_each_model_has_separate_cache_dir() {
                 continue;
             }
             assert!(
-                artifacts_from_cache(&cache, other).unwrap().is_none(),
+                artifacts_from_cache(&client, other).unwrap().is_none(),
                 "{:?} should not be cached when only {:?} is populated",
                 other,
                 target
