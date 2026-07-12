@@ -6,12 +6,18 @@ fail-fast = false
 slow-timeout = { period = "120s", terminate-after = 2 }
 final-status-level = "flaky"
 
-# visibility::ui is a trybuild test: it compiles tests/ui/*.rs as a separate
-# target, cold-building the whole workspace dependency graph (including mlx-sys's
-# C++ FFI), so it takes 120-240s. The fleet-standard 240s ceiling leaves almost
-# no margin and CI load jitter terminates it (main passes at ~133s by a hair).
-# Widen the ceiling for this binary only; the default 240s still guards the
-# model_probe timeout-verification tests against real hangs.
+# visibility::ui is a trybuild test: it compiles tests/ui/*.rs in a separate
+# CARGO_TARGET_DIR (target/tests/trybuild/), cold-building the whole workspace
+# dependency graph (including mlx-sys's C++ FFI) a second time. On a lockfile-
+# change PR that misses rust-cache, that double cold build can exceed 600s and
+# terminate-after would kill it mid-compile — a false red cleared only by a
+# manual rerun. The kill timing is the symptom, not the cost, so drop
+# terminate-after here: visibility only emits a SLOW warning at 300s and is
+# never killed; the job's timeout-minutes: 60 is the real backstop. The default
+# profile.ci timeout (120s, terminate-after 2) still guards the model_probe
+# timeout-verification tests (binary rurico, outside this override) against real
+# hangs. Removing terminate-after is a stopgap; the underlying double cold build
+# is tracked separately.
 [[profile.ci.overrides]]
 filter = 'binary(visibility)'
-slow-timeout = { period = "300s", terminate-after = 2 }
+slow-timeout = { period = "300s" }
