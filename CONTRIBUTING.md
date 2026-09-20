@@ -2,12 +2,31 @@
 
 ## テスト
 
-既存CIと同じcheck・test・doctest・clippy・format検証をまとめて実行する場合は、
-Metal Toolchainとcargo-nextestを用意し、次を実行する。依存関係はCargo.lockに固定する。
+macOS Apple Silicon、Rust 1.96+、XcodeとMetal Toolchain、cargo-nextestを用意する。
+`xcodebuild -version` と `xcrun metal --version` で使用する版を確認する。
+Metal Toolchainがない場合は `xcodebuild -downloadComponent MetalToolchain` で導入する。
+Command Line Toolsの導入だけでMetal Toolchainが揃うとは限らない。
+
+依存関係はCargo.lockに固定する。mlx-rs 0.32 / mlx-sys 0.6の組み合わせを使い、
+固定したmlx-sys 0.6.0の配布ソースはMLX v0.32.2を参照する。
+MLXのビルドではCMakeがそのソースを取得するため、Cargoの依存取得後も初回ビルドにはネットワークが必要になる。
+既存CIと同じcheck・nextest・doctest・clippy・fmtを省略せず実行する入口は次のとおり。
 
 ```sh
+cargo fetch --locked
 bash scripts/check.sh
 ```
+
+`scripts/check.sh` は `test` job相当の検証を行う。`coverage`（変更行95%以上）、
+`security`（`cargo deny check` / `cargo audit`）、`zizmor` は別のCI jobで確認する。
+依存更新時もcoverage閾値・ignore・タイムアウトを通過目的で緩めない。
+Xcode 27 / Metal Toolchain 27A266aでの検証対象と経緯は [Issue #322](https://github.com/thkt/rurico/issues/322) を参照。
+
+compile cacheのFFIテストはモデル不要で、現在のcacheの取得・clear・handle解放と、
+取得／clear／解放の失敗コードの保持を検証する。実FFIの取得時にもMetal初期化が発生し得るため、
+checkはGPUを利用できるsandbox外のホストで実行する。推論の検証は既存のMLXテストを使う。
+実行結果には使用したツールチェーン、実行した検証、モデル未配置などで実行しなかった検証を記す。
+通常のcheck成功だけでignoredテストや全モデルの数値一致・性能改善を確認したとは扱わない。
 
 CI で実行されるテスト一式は以下で再現できる。
 
@@ -48,16 +67,17 @@ cargo run --features smoke --bin mlx_smoke
 
 ### `visibility` integration test (trybuild + Metal Toolchain)
 
-`tests/visibility.rs` は trybuild で `tests/ui/*.rs` を compile_fail として exercise する。各 fixture の build に Metal Toolchain (Xcode Command Line Tools 同梱) を要する。
+`tests/visibility.rs` は trybuild で `tests/ui/*.rs` を compile_fail として exercise する。各 fixture の build にMetal Toolchainを要する。
 
-- CI (macOS-latest runner): Xcode CLT 同梱、通常通り走る
+- CI (macOS-latest runner): runner上のXcodeとMetal Toolchainを使用する
 - ローカル環境で Metal Toolchain 不在: `cannot execute tool 'metal'` で trybuild が build fail する
 
-Toolchain 不在の環境で他テストだけ走らせる場合:
+Metal Toolchainがない場合は導入してからcheckを再実行する。
+調査用にtrybuildの対象を外してもMLX依存のビルドにはMetal Toolchainが必要であり、完全な検証の代替にはならない。
 
 ```sh
-xcode-select --install                          # Metal Toolchain を導入する場合
-cargo nextest run --workspace --lib --bins     # または trybuild test target を含めず走らせる
+xcodebuild -downloadComponent MetalToolchain
+xcrun metal --version
 ```
 
 ## ブランチと commit

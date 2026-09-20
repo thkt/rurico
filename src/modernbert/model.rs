@@ -91,7 +91,7 @@ impl Attention {
             global_mask.clone()
         };
 
-        let output = scaled_dot_product_attention(q, &k, &v, self.scale, &mask)?;
+        let output = scaled_dot_product_attention(q, &k, &v, self.scale, &mask, None)?;
 
         let output = output.transpose_axes(&[0, 2, 1, 3])?;
         let output = output.reshape(&[b, seq_len, -1])?;
@@ -121,7 +121,7 @@ impl Mlp {
 
     fn forward(&mut self, xs: &Array) -> Result<Array, Exception> {
         let xs = self.Wi.forward(xs)?;
-        let chunks = xs.split(2, Some(-1))?;
+        let chunks = xs.split_equal(2, Some(-1))?;
         let gate = nn::gelu(&chunks[0])?;
         let xs = gate.multiply(&chunks[1])?;
         self.Wo.forward(&xs)
