@@ -1,0 +1,9 @@
+{
+  "repository": "thkt/rurico",
+  "remote": "origin",
+  "baseBranch": "main",
+  "setup": [["cargo", "fetch", "--locked"]],
+  "check": ["bash", "scripts/check.sh"],
+  "ciChecks": ["test", "coverage", "security", "zizmor"],
+  "capture": null
+}
