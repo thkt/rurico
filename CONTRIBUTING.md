@@ -2,6 +2,13 @@
 
 ## テスト
 
+既存CIと同じcheck・test・doctest・clippy・format検証をまとめて実行する場合は、
+Metal Toolchainとcargo-nextestを用意し、次を実行する。依存関係はCargo.lockに固定する。
+
+```sh
+bash scripts/check.sh
+```
+
 CI で実行されるテスト一式は以下で再現できる。
 
 ```sh
