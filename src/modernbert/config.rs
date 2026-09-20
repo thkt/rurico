@@ -40,13 +40,14 @@ pub struct Config {
 }
 
 impl Config {
-    /// Validate invariants (size bounds, divisibility, finite positive epsilon).
+    /// Validate size bounds, attention dimensions, epsilon and RoPE bases.
     ///
     /// # Errors
     ///
     /// Returns an opaque validation message if any required size is zero or
     /// too large for the MLX backend's `i32` dimensions, `hidden_size` is not
-    /// divisible by `num_attention_heads`, or `layer_norm_eps` is not finite
+    /// divisible by `num_attention_heads`, the resulting head dimension is odd,
+    /// or `layer_norm_eps`, `global_rope_theta` or `local_rope_theta` is not finite
     /// and positive after conversion to `f32`. The exact message text is not
     /// part of the stable API contract.
     pub fn validate(&self) -> Result<(), String> {
@@ -64,6 +65,15 @@ impl Config {
                 "hidden_size ({}) must be divisible by num_attention_heads ({})",
                 self.hidden_size, self.num_attention_heads
             ));
+        }
+        // Attention::new passes this entire dimension to mlx-rs 0.32.0 RopeBuilder.
+        // MLX v0.32.2 requires positive, even dims; positivity follows from the
+        // nonzero and divisibility checks above. It also bounds dims by the input's
+        // last dimension, which is this same head_dim in Attention::forward.
+        // https://github.com/ml-explore/mlx/blob/v0.32.2/mlx/fast.cpp#L509-L525
+        let head_dim = self.hidden_size / self.num_attention_heads;
+        if !head_dim.is_multiple_of(2) {
+            return Err("head dimension (hidden_size / num_attention_heads) must be even".into());
         }
         if self.num_hidden_layers == 0 {
             return Err("num_hidden_layers must be > 0".into());
@@ -104,6 +114,20 @@ impl Config {
         let eps = self.layer_norm_eps as f32;
         if !eps.is_finite() || eps <= 0.0 {
             return Err("layer_norm_eps must be finite and > 0 after f32 conversion".into());
+        }
+        // rope_theta_f32 in model.rs supplies RopeBuilder's f32 base. MLX uses
+        // log(base) to compute frequencies, so check both bases after that cast.
+        for (field, theta) in [
+            ("global_rope_theta", self.global_rope_theta),
+            ("local_rope_theta", self.local_rope_theta),
+        ] {
+            #[allow(clippy::cast_possible_truncation)]
+            let base = theta as f32;
+            if !base.is_finite() || base <= 0.0 {
+                return Err(format!(
+                    "{field} must be finite and > 0 after f32 conversion"
+                ));
+            }
         }
         Ok(())
     }

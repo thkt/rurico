@@ -33,6 +33,98 @@ fn config_validate_valid() {
 }
 
 #[test]
+fn config_validate_rope_bases_after_f32_conversion() {
+    // Round-to-nearest ties: half the smallest subnormal becomes zero;
+    // halfway from f32::MAX to 2^128 becomes infinity.
+    let underflow = f64::from(f32::from_bits(1)) / 2.0;
+    let overflow = f64::from(f32::MAX) + 2.0_f64.powi(103);
+    let cases = [
+        (0.0, false),
+        (-0.0, false),
+        (-10000.0, false),
+        (f64::NAN, false),
+        (f64::INFINITY, false),
+        (f64::NEG_INFINITY, false),
+        (underflow, false),
+        (overflow, false),
+        (underflow.next_up(), true),
+        (f64::from(f32::from_bits(1)), true),
+        (f64::from(f32::MIN_POSITIVE), true),
+        (0.5, true),
+        (1.0, true),
+        (10000.0, true),
+        (160000.0, true),
+        (f64::from(f32::MAX), true),
+        (overflow.next_down(), true),
+    ];
+    for field in ["global_rope_theta", "local_rope_theta"] {
+        for (theta, accepted) in cases {
+            let mut config = test_config();
+            if field == "global_rope_theta" {
+                config.global_rope_theta = theta;
+            } else {
+                config.local_rope_theta = theta;
+            }
+            let result = config.validate();
+            assert_eq!(result.is_ok(), accepted, "{field}={theta:?}: {result:?}");
+            if let Err(err) = result {
+                assert!(err.contains(field), "{field}={theta:?}: {err}");
+            }
+        }
+    }
+}
+
+#[test]
+fn config_validate_rope_head_dimension() {
+    // Small even dimensions remain valid; neither a multiple of four nor the
+    // official models' dimension of 64 is required by MLX.
+    for (head_dim, accepted) in [(1, false), (3, false), (2, true), (6, true), (64, true)] {
+        let mut config = test_config();
+        config.num_attention_heads = 3;
+        config.hidden_size = head_dim * config.num_attention_heads;
+        let result = config.validate();
+        assert_eq!(result.is_ok(), accepted, "head_dim={head_dim}: {result:?}");
+        if let Err(err) = result {
+            assert!(err.contains("head dimension"), "{err}");
+        }
+    }
+}
+
+#[test]
+fn config_validate_official_model_configs() {
+    // Byte-for-byte config snapshots and pinned source revisions are documented
+    // in tests/fixtures/modernbert_configs/README.md. No model or MLX execution.
+    for (model, json) in [
+        (
+            "ruri-v3-30m",
+            include_str!("../../../tests/fixtures/modernbert_configs/ruri-v3-30m.json"),
+        ),
+        (
+            "ruri-v3-70m",
+            include_str!("../../../tests/fixtures/modernbert_configs/ruri-v3-70m.json"),
+        ),
+        (
+            "ruri-v3-130m",
+            include_str!("../../../tests/fixtures/modernbert_configs/ruri-v3-130m.json"),
+        ),
+        (
+            "ruri-v3-310m",
+            include_str!("../../../tests/fixtures/modernbert_configs/ruri-v3-310m.json"),
+        ),
+        (
+            "ruri-v3-reranker-310m",
+            include_str!("../../../tests/fixtures/modernbert_configs/ruri-v3-reranker-310m.json"),
+        ),
+    ] {
+        let config: Config =
+            serde_json::from_str(json).unwrap_or_else(|err| panic!("{model}: {err}"));
+        config
+            .validate()
+            .unwrap_or_else(|err| panic!("{model}: {err}"));
+    }
+}
+
+#[test]
 fn config_validate_zero_hidden_size() {
     assert_rejects(|c| c.hidden_size = 0, "hidden_size");
 }

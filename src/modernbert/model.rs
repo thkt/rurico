@@ -409,7 +409,7 @@ pub(crate) fn layer_norm_eps_f32(config: &Config) -> f32 {
     config.layer_norm_eps as f32
 }
 
-// Model config constants from config.json; RoPE base values fit in f32.
+// Config::validate guarantees positive, finite RoPE bases after this f32 cast.
 #[allow(clippy::cast_possible_truncation)]
 fn rope_theta_f32(config: &Config, uses_local: bool) -> f32 {
     if uses_local {
