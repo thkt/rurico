@@ -31,6 +31,10 @@ Apple Silicon (MLX) 上で日本語テキストのembedding・reranking・類似
 
 - macOS (Apple Silicon) — MLX backend必須
 - Rust 1.96+ (edition 2024)
+- Xcode と Metal Toolchain（`xcrun metal --version` が成功すること）
+
+依存は `Cargo.lock` で固定する。ビルド準備とCI相当の検証手順は
+[CONTRIBUTING.md](CONTRIBUTING.md#テスト) を参照。
 
 ## 使い方
 
@@ -409,7 +413,7 @@ cargo fmt --all -- --check                                              # format
 ## テスト
 
 ```sh
-cargo nextest run --workspace                                                  # MLX ランタイム不要のテスト
+cargo nextest run --workspace                                                  # モデル不要（FFIテストはMetalを使用）
 cargo nextest run --workspace --features test-mlx --run-ignored=ignored-only   # MLX ランタイムテスト（通常 Terminal 推奨）
 cargo run --bin mlx_smoke --features smoke --release -- verify-fixture         # embed 数値同等性検証（smoke binary）
 ```
