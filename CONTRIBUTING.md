@@ -39,6 +39,23 @@ cargo test --doc --workspace --features test-support,test-mlx
 
 `test-support` / `test-mlx` feature を有効にすることで、CI の clippy step (`cargo clippy --workspace --all-targets --all-features -- -D warnings`) が見ているコードを test 側でも exercise する。CI の test step もこの組み合わせで実行される。
 
+### CIキャッシュの検証
+
+macOSのtest・coverageジョブは、Cargoのビルド成果物とmlx-sysが生成する
+`~/.mlx/lib/<source-key>/mlx.metallib`を、rust-cacheの`cache-directories`で一緒に保存・復元する。
+`key: mlx-metallib-v1`は保存キーと復元用のプレフィックスに含まれ、Metalライブラリを含まない
+旧キャッシュの再利用を避ける。ジョブごとのキー分離はrust-cacheの既定設定で維持する。
+
+キャッシュ設定を変更した場合は、同じcommitのGitHub Actionsで初回実行と再実行を確認する。
+test・coverageの`Cache Cargo`と保存処理のログで`Cache Paths`に`~/.mlx/lib`が含まれること、
+初回にキャッシュが保存され、別runnerでの再実行がそのキーを完全一致で復元することを確認する。
+初回から既存キャッシュに一致した場合は、その実行だけで初回ビルドの証拠とは扱わない。
+復元後も`mlx_cache::tests::current_cache_cleanup_succeeds_without_warnings`を含むtestジョブと、
+coverage・security・zizmorが成功することを確認する。モデル追加ダウンロードは不要。
+commit、run URLと実行回、保存・復元キー、対象パス、テスト結果をIssue・PRの検証記録に残す。
+通常のcheck成功だけでは、別runnerへのMetalライブラリ復元を検証したことにはならない。
+背景と完了条件は[Issue #327](https://github.com/thkt/rurico/issues/327)を参照。
+
 ### `#[ignore]` テストの実行
 
 ネットワークアクセスや実モデルを要するテストは `#[ignore]` で gate されており、デフォルトでは実行されない。再有効化方法は各テストの doc comment に記載してある。例:
