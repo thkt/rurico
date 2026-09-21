@@ -4,6 +4,17 @@
 
 ### Breaking Changes
 
+- **`RerankerError::Inference` / `Tokenizer` / `InitFailed` を原因付きの構造体variantへ変更。**
+  旧 `Inference(message)` の構築は `Inference { message, source: None }`、
+  matchは `Inference { message, .. }` へ移行する。`Tokenizer` / `InitFailed` も同様。
+  variant名・失敗分類・表示接頭辞・`NonFiniteOutput` は維持するが、旧tuple形式との
+  Rustソース互換性はない。`Inference` / `Tokenizer` のsourceは `Option<Box<dyn Error + Send + Sync>>`、
+  `InitFailed` は `Option<Arc<dyn Error + Send + Sync>>`。
+  `LazyReranker::new` の文字列closureはそのまま使える。元の原因chainが必要なら
+  `LazyReranker::with_error` に切り替え、closure内の `to_string()` / `format!` を
+  型付きエラーの伝播に置き換える。複数の原因型は `Box<dyn Error + Send + Sync>` でまとめられる。
+  [Issue #302](https://github.com/thkt/rurico/issues/302) の修正で非有限logitをsigmoid前に拒否する。
+  有限値のscore計算と、飽和による同点を含めた入力順の契約は維持する。
 - **`modernbert::Config` に bias 設定4項目を追加。** Rust の構造体リテラルには
   `attention_bias: false`・`mlp_bias: false`・`norm_bias: false`・`classifier_bias: false`
   を指定する。JSON での省略は `false`、`true` は未対応として拒否する。

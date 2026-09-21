@@ -55,7 +55,7 @@ impl RerankerInner {
             let encoding = self
                 .tokenizer
                 .encode((query, doc), true)
-                .map_err(|e| RerankerError::Tokenizer(e.to_string()))?;
+                .map_err(RerankerError::tokenizer)?;
             let mut ids = encoding.get_ids().to_vec();
             let mut mask = encoding.get_attention_mask().to_vec();
             truncate_pair(&mut ids, &mut mask, MAX_SEQ_LEN, pair_idx);

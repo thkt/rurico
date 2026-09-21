@@ -1,7 +1,10 @@
-use std::assert_matches;
+use std::error::Error;
+use std::ptr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Barrier};
 use std::thread;
+
+use mlx_rs::error::Exception;
 
 use super::super::MockReranker;
 use super::*;
@@ -50,9 +53,10 @@ fn init_failure_returns_init_failed() {
         LazyReranker::new(|| Err(String::from("artifact missing")));
     let err = lazy.score("q", "d").unwrap_err();
     assert!(
-        matches!(&err, RerankerError::InitFailed(m) if m == "artifact missing"),
-        "expected InitFailed(\"artifact missing\"), got: {err:?}"
+        matches!(&err, RerankerError::InitFailed { message, .. } if message == "artifact missing"),
+        "expected InitFailed, got: {err:?}"
     );
+    assert_eq!(err.to_string(), "init failed: artifact missing");
 }
 
 // T-154-005: failure_is_cached_across_methods
@@ -60,16 +64,28 @@ fn init_failure_returns_init_failed() {
 fn failure_is_cached_across_methods() {
     let counter = Arc::new(AtomicUsize::new(0));
     let counter_clone = Arc::clone(&counter);
-    let lazy: LazyReranker<MockReranker> = LazyReranker::new(move || {
+    let lazy: LazyReranker<MockReranker> = LazyReranker::with_error(move || {
         counter_clone.fetch_add(1, Ordering::SeqCst);
-        Err(String::from("boom"))
+        Err(super::super::ModelInitError::backend(Exception::custom(
+            "load failed",
+        )))
     });
-    assert_matches!(lazy.score("q", "d"), Err(RerankerError::InitFailed(_)));
-    assert_matches!(
-        lazy.score_batch(&[("q", "d")]),
-        Err(RerankerError::InitFailed(_))
-    );
-    assert_matches!(lazy.rerank("q", &["d"]), Err(RerankerError::InitFailed(_)));
+    let errors = [
+        lazy.score("q", "d").unwrap_err(),
+        lazy.score_batch(&[("q", "d")]).unwrap_err(),
+        lazy.rerank("q", &["d"]).unwrap_err(),
+    ];
+    // The cached non-Clone cause must outlive the lazy wrapper itself.
+    drop(lazy);
+    for error in &errors {
+        assert!(matches!(error, RerankerError::InitFailed { .. }));
+        let init = error.source().unwrap();
+        assert!(init.is::<super::super::ModelInitError>());
+        let backend = init.source().unwrap();
+        assert!(backend.is::<Exception>());
+        assert!(backend.source().is_none());
+        assert!(ptr::eq(init, errors[0].source().unwrap()));
+    }
     assert_eq!(
         counter.load(Ordering::SeqCst),
         1,

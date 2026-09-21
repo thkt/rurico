@@ -71,6 +71,14 @@ fn sort_results_ties_break_by_original_index() {
     let results = sort_results(&scores);
     let indices: Vec<usize> = results.iter().map(|r| r.index).collect();
     assert_eq!(indices, vec![1, 2, 0, 3]);
+
+    // Distinct finite logits collapse to equal endpoint scores. Keep input order,
+    // not raw-logit order, within each endpoint.
+    let scores =
+        super::processing::scores_from_logits(&[20.0, 30.0, -100.0, -90.0], 4, 128).unwrap();
+    assert_eq!(scores, [1.0, 1.0, 0.0, 0.0]);
+    let indices: Vec<_> = sort_results(&scores).iter().map(|r| r.index).collect();
+    assert_eq!(indices, [0, 1, 2, 3]);
 }
 
 // T-105-012: sort_results_with_empty_scores_returns_empty_vec
@@ -185,28 +193,63 @@ fn from_probe_error_maps_correctly() {
 }
 
 #[test]
-fn score_readback_preserves_order_and_validates_shape_and_nan() {
+fn score_readback_preserves_finite_scores_and_rejects_invalid_logits() {
     use super::processing::scores_from_logits;
     let scores = scores_from_logits(&[20.0, -20.0, 0.0, 1.0], 4, 128).unwrap();
     assert!(scores[0] > 0.999);
     assert!(scores[1] < 0.001);
     assert!((scores[2] - 0.5).abs() < 1e-7);
     assert!((scores[3] - 0.731_058_6).abs() < 1e-7);
-    // Preserve current saturation semantics; pre-sigmoid rejection belongs to #302.
     assert_eq!(
-        scores_from_logits(&[f32::INFINITY, f32::NEG_INFINITY], 2, 128).unwrap(),
+        scores_from_logits(&[f32::MAX, f32::MIN], 2, 128).unwrap(),
         [1.0, 0.0]
     );
     for wrong in [vec![0.0], vec![0.0; 3]] {
         assert!(matches!(
             scores_from_logits(&wrong, 2, 128),
-            Err(RerankerError::Inference(_))
+            Err(RerankerError::Inference { source: None, .. })
         ));
     }
+    for invalid in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+        assert!(matches!(
+            scores_from_logits(&[0.0, invalid], 2, 128),
+            Err(RerankerError::NonFiniteOutput)
+        ));
+    }
+}
+
+#[test]
+fn runtime_errors_preserve_typed_sources_and_display() {
+    use mlx_rs::error::Exception;
+    use std::error::Error;
+    use tokenizers::models::wordlevel::{Error as WordLevelError, WordLevel};
+
+    let cause = Exception::custom("forward failed");
+    let location = cause.location();
+    let display = format!("inference error: {cause}");
+    let error = RerankerError::inference(cause);
+    assert!(matches!(error, RerankerError::Inference { .. }));
+    assert_eq!(error.to_string(), display);
+    let source = error.source().unwrap();
+    assert_eq!(
+        source.downcast_ref::<Exception>().unwrap().location(),
+        location
+    );
+    assert!(source.source().is_none());
+
+    // Real tokenizer failure: missing [UNK] entry in an otherwise valid model.
+    let tokenizer = tokenizers::Tokenizer::new(WordLevel::default());
+    let cause = tokenizer.encode(("query", "document"), true).unwrap_err();
+    let display = format!("tokenizer error: {cause}");
+    let error = RerankerError::tokenizer(cause);
+    assert!(matches!(error, RerankerError::Tokenizer { .. }));
+    assert_eq!(error.to_string(), display);
+    let source = error.source().unwrap();
     assert!(matches!(
-        scores_from_logits(&[0.0, f32::NAN], 2, 128),
-        Err(RerankerError::NonFiniteOutput)
+        source.downcast_ref::<WordLevelError>(),
+        Some(WordLevelError::MissingUnkToken)
     ));
+    assert!(source.source().is_none());
 }
 
 /// MLX runtime tests — run with `cargo test --features test-mlx -- --ignored`
