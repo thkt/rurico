@@ -157,10 +157,10 @@ pub trait Rerank: Send + Sync {
 
 /// Thread-safe cross-encoder reranker backed by MLX.
 ///
-/// Uses ~1.2 GB GPU memory (estimated from ruri-v3-reranker-310m safetensors
-/// ~620 MB x FP16 load). Simultaneously holding both a `Reranker` and an
-/// [`Embedder`](crate::embed::Embedder) uses approximately 1.2 GB of
-/// additional GPU memory.
+/// Loads F32 weights (about 1.2 GB for the fixed 310m checkpoint).
+/// Runtime peak memory also depends on input shape and MLX caches; holding an
+/// [`Embedder`](crate::embed::Embedder) at the same time adds its own weights
+/// and runtime allocations.
 pub struct Reranker {
     inner: Mutex<RerankerInner>,
 }

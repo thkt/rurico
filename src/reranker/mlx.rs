@@ -4,14 +4,13 @@ use crate::model_io::{
     BUCKET_BOUNDS, MAX_SEQ_LEN, assign_bucket, compute_sub_batch_size, pad_sequences,
     truncate_with_eos,
 };
-use crate::modernbert::{Config, ModernBert, layer_norm_eps_f32};
+use crate::modernbert::{
+    Config, ModernBert, biasless_layer_norm, layer_norm_eps_f32,
+    weights::{self, WeightKind},
+};
 
 use mlx_rs::{
-    builder::Builder,
-    error::Exception,
-    macros::ModuleParameters,
-    module::{Module, ModuleParametersExt},
-    nn,
+    builder::Builder, error::Exception, macros::ModuleParameters, module::Module, nn,
     ops::indexing::IndexOp,
 };
 
@@ -159,12 +158,12 @@ struct RerankerModel {
 
 impl RerankerModel {
     fn new(config: &Config) -> Result<Self, Exception> {
-        let h = i32::try_from(config.hidden_size).expect("hidden_size fits in i32");
+        let model = ModernBert::new(config)?;
+        let h = i32::try_from(config.hidden_size).expect("validated hidden_size");
         let eps = layer_norm_eps_f32(config);
 
-        let model = ModernBert::new(config)?;
-        let dense = nn::LinearBuilder::new(h, h).build()?;
-        let norm = nn::LayerNormBuilder::new(h).eps(eps).build()?;
+        let dense = nn::LinearBuilder::new(h, h).bias(false).build()?;
+        let norm = biasless_layer_norm(h, eps)?;
         let classifier = nn::LinearBuilder::new(h, 1).build()?;
 
         Ok(Self {
@@ -175,11 +174,7 @@ impl RerankerModel {
     }
 
     fn load(path: &Path, config: &Config) -> Result<Self, Exception> {
-        let mut model = Self::new(config)?;
-        model
-            .load_safetensors(path)
-            .map_err(|e| Exception::custom(format!("SafeTensors load error: {e}")))?;
-        Ok(model)
+        weights::load(path, config, WeightKind::Reranker, Self::new)
     }
 
     fn forward(
@@ -229,3 +224,6 @@ pub(super) fn truncate_pair(
 pub(super) fn sigmoid(x: f32) -> f32 {
     1.0 / (1.0 + (-x).exp())
 }
+
+#[cfg(test)]
+mod tests;

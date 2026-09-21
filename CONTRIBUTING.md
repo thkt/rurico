@@ -82,6 +82,65 @@ binary 版を直接呼ぶ場合:
 cargo run --features smoke --bin mlx_smoke
 ```
 
+### 重みの読込み検証
+
+[Issue #300](https://github.com/thkt/rurico/issues/300) の CPU 検証は通常の check に含まれる。
+合成 safetensors を両 loader に渡し、各必須キーの欠損、shape 違い、非対応 dtype、未知キーを
+識別する。公式の [config](tests/fixtures/modernbert_configs/README.md) と
+[ヘッダー](tests/fixtures/modernbert_weights/README.md)を使い、正規の parameter 集合を
+誤拒否しないことも検証する。`weight_probe` は既存の probe binary を子プロセスとして起動し、
+同じ欠損が公開 constructor と probe dispatcher の双方で読込み失敗になることを確認する。
+CPU 検証用の合成ファイルの本体はゼロ埋めで、公式の数値出力を検証するものではない。
+通常 check の `weight_load` は小さいモデルを MLX で保存・異なる seed から再ロードし、
+全 parameter の値が復元されることを確認する。このテストはホストの Metal を要する。
+
+対象を絞る場合:
+
+```sh
+cargo test --locked --lib --features test-support,test-mlx modernbert::
+cargo test --locked --lib --features test-support,test-mlx reranker::mlx::tests::load_rejects
+cargo test --locked --test weight_probe --features test-support
+```
+
+実モデルの受入は sandbox 外のホストで、固定 revision のモデル・tokenizer をキャッシュしてから
+次を順番に実行する。通常 check はこれらの ignored 検証を実行しない。
+
+```sh
+cargo test --locked --lib --features test-mlx official_embedding_load_contract -- --ignored --nocapture --test-threads=1
+cargo test --locked --lib --features test-mlx official_reranker_reload_contract -- --ignored --nocapture --test-threads=1
+cargo run --locked --features smoke --bin mlx_smoke -- verify-fixture
+cargo nextest run --locked --features smoke --test mlx_smoke --run-ignored=ignored-only -E 'test(probe_embed_smoke_binary) | test(probe_reranker_smoke_binary)'
+```
+
+embedding は既存 W1/W2/W3 fixture の `cosine_similarity >= 0.99999` と
+`max_abs_diff <= 1e-5` を使い、fixture を再生成しない。
+reranker はテストに記載した公開可能な4ペア、batch=4・seq=128・F32、seed=42/7/42で
+再ロードする。比較前に定めた許容差は logit・score とも
+`abs(a-b) <= 1e-6 + 1e-6 * abs(a)`、順位は完全一致とする。
+head に bias がなく、最終 classifier bias が logit に加算されることも確認する。
+
+出力ログは入力・model/tokenizer revision・seed・実行順・logit・score・順位と差分を含む。
+`legacy-head` は基準 `1a53b0d` の dense bias 有効な head と初期化順を再構成した比較対象で、
+旧 commit 自体の実行でも Hugging Face の公式出力でもない。旧 backbone の未使用 norm と
+ゼロ bias を除いた現行 backbone を使い、再構成したスコアを同じ入力・seedの
+[変更前ホスト実測](docs/benchmarks/issue-300-host-comparison.md)と上記許容差で照合する。
+この条件を旧版全体との厳密一致と混同しない。変更後も同資料の公開API probeを同条件で実行し、
+生logitを記録する内部テストと公開APIでの比較を区別して記録する。
+
+load コストは各モデルで検証あり／なしを交互の順番で3回測る。どちらも同じ現行 parameter
+構成・重み・seedを使い、検証なしはテスト内で mlx-rs 0.32.0 の従来 loader を直接呼ぶ。
+モデルを破棄して allocator cache を clear してから次をロードし、大きなモデルを同時保持しない。
+ログの wall time はモデル構築から重み eval 完了まで、Metal peak はその区間の MLX allocator
+最大使用量であり、CPU ヘッダーやプロセス全体の RSS は含まない。
+
+RSS が必要な比較では先に `cargo test --locked --lib --features test-mlx --no-run` でビルドし、表示された lib test 実行ファイルを
+`/usr/bin/time -l <実行ファイル> official_reranker_reload_contract --ignored --nocapture --test-threads=1`
+のように実行する。これは検証プロセス全体の peak RSS で、各 load 区間の CPU 追加量ではない。
+OS のファイルキャッシュは clear しないため、初回と後続を分け、cold disk の測定と呼ばない。
+各試行と範囲・ばらつき、機種・OS・Rust・Xcode/Metal・Cargo.lock・対象 commit、未実行条件を
+ホストの検証記録へ残し、公開する結果は PR の `docs/benchmarks/` 等へ整理する。
+CPU 検証や定義の用意だけで GPU 数値一致、実測コスト、検索品質の改善を確認済みとしない。
+
 ### `visibility` integration test (trybuild + Metal Toolchain)
 
 `tests/visibility.rs` は trybuild で `tests/ui/*.rs` を compile_fail として exercise する。各 fixture の build にMetal Toolchainを要する。

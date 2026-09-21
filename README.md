@@ -308,6 +308,34 @@ let bytes: &[u8] = bytemuck::cast_slice(&vector);
 stmt.execute(rusqlite::params![bytes])?;
 ```
 
+### 重みの読込み契約
+
+`Embedder::new`・`Reranker::new` と両者の probe は、MLX の parameter 構築前に
+safetensors ヘッダーを共通検証する。config から決まる全必須キーと shape、F32 dtype、
+データ範囲を照合し、欠損・不整合・未知キーを拒否する。F16・BF16・整数型は受理しない。
+ヘッダー検証は重み本体を読み込まず、MLX が一度読み込んだ配列も実際の parameter 集合へ
+過不足なく割り当てる。これにより、未ロードの初期値が推論に残ることを防ぐ。
+
+embedding のキーは `embeddings.`・`layers.`・`final_norm.`、reranker の backbone は
+`model.` 配下で、head と classifier は直下に置く。名前の変換や共有重みの別名による
+欠損補完は行わない。`__metadata__` は tensor として扱わない。先頭層の attention norm は
+Identity 相当で重みを持たず、RoPE の非永続 buffer や masked-LM の共有 decoder は
+対象モデルの必須重みに含まれない。これらの tensor キーがファイルにあれば未知キーとして拒否する。
+
+`attention_bias`・`mlp_bias`・`norm_bias`・`classifier_bias` は、対応する公式モデルに合わせて
+`false` のみ対応し、config JSON での省略時も `false` とする。`true` は config エラーになる。
+reranker の `head.dense.bias`・`head.norm.bias` は parameter として作らず、
+最終出力の `classifier.bias` は別の必須重みとして維持する。
+[Issue #300 の合意](https://github.com/thkt/rurico/issues/300)により、不要なランダム bias の
+除去に伴う reranker の logit・score・順位の変化は許容する。embedding の既存数値基準は維持する。
+検索品質の改善を示す変更ではなく、公式実装全体との比較・品質評価は
+[#307](https://github.com/thkt/rurico/issues/307)で扱う。
+
+`VerifiedArtifacts` はファイル・config・tokenizer・モデル種別の確認結果であり、全重みの
+検証完了を意味しない。重み検証は load 時に毎回行う。ファイルの暗号学的真正性、tensor 値の
+全要素の有限性、外部プロセスによる同時書換えに対する一貫したスナップショットは保証しない。
+検証方法と測定条件は [CONTRIBUTING](CONTRIBUTING.md#重みの読込み検証) を参照。
+
 ### エラー型
 
 エラー型はフェーズごとに分離されている。公開 error enum は
@@ -319,7 +347,7 @@ stmt.execute(rusqlite::params![bytes])?;
 | variant            | 発生条件                                               |
 | ------------------ | ------------------------------------------------------ |
 | `MissingFile`      | 重みファイル / config / tokenizer が存在しない         |
-| `InvalidConfig`    | config.json の読み込み/パース失敗                      |
+| `InvalidConfig`    | config.json の読み込み・パース・設定検証失敗            |
 | `InvalidTokenizer` | tokenizer.json のロード失敗                            |
 | `WrongModelKind`   | safetensors のテンソルキーが期待するモデル種別と不一致 |
 | `DownloadFailed`   | HF Hub からのダウンロード失敗                          |
@@ -329,9 +357,12 @@ stmt.execute(rusqlite::params![bytes])?;
 | variant        | 発生条件                                                   |
 | -------------- | ---------------------------------------------------------- |
 | `Backend`      | MLX バックエンド初期化・重みロード・probe サブプロセス失敗 |
-| `ModelCorrupt` | 重みは読めたがモデルが破損/非互換                          |
+| `ModelCorrupt` | probe 子プロセスがモデル読込み失敗を報告した               |
 
 `Backend` は `message: String` と `source: Option<Box<dyn Error + Send + Sync>>` を持ち、`std::error::Error::source()` で原因チェーンを辿れる。
+重み契約の違反は、直接の `new` では `Backend`、probe では `ModelCorrupt` として返る。
+診断には `weights: missing key`・`shape`・`dtype`・`unknown key`・`header`・`offsets` と
+該当キーや理由を含む。メッセージ全文は安定 API ではない。
 
 **`EmbedError`** — `Embed` トレイトメソッド（推論）フェーズ
 

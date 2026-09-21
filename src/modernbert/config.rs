@@ -12,6 +12,19 @@ fn validate_i32_bound(field: &str, value: usize, scale: i32) -> Result<(), Strin
 /// ModernBERT config (config.json).
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
+    /// Whether attention projections use bias. Only `false` is supported.
+    #[serde(default)]
+    pub attention_bias: bool,
+    /// Whether MLP projections use bias. Only `false` is supported.
+    #[serde(default)]
+    pub mlp_bias: bool,
+    /// Whether LayerNorm uses bias. Only `false` is supported.
+    #[serde(default)]
+    pub norm_bias: bool,
+    /// Prediction-head dense bias (not the final classifier bias).
+    /// Only `false` is supported; the final reranker classifier always has bias.
+    #[serde(default)]
+    pub classifier_bias: bool,
     /// Vocabulary size (number of token embeddings).
     pub vocab_size: usize,
     /// Hidden dimension of each transformer layer.
@@ -44,13 +57,24 @@ impl Config {
     ///
     /// # Errors
     ///
-    /// Returns an opaque validation message if any required size is zero or
+    /// Returns an opaque validation message if any bias flag is enabled,
+    /// any required size is zero or
     /// too large for the MLX backend's `i32` dimensions, `hidden_size` is not
     /// divisible by `num_attention_heads`, the resulting head dimension is odd,
     /// or `layer_norm_eps`, `global_rope_theta` or `local_rope_theta` is not finite
     /// and positive after conversion to `f32`. The exact message text is not
     /// part of the stable API contract.
     pub fn validate(&self) -> Result<(), String> {
+        for (field, enabled) in [
+            ("attention_bias", self.attention_bias),
+            ("mlp_bias", self.mlp_bias),
+            ("norm_bias", self.norm_bias),
+            ("classifier_bias", self.classifier_bias),
+        ] {
+            if enabled {
+                return Err(format!("{field}=true is unsupported"));
+            }
+        }
         // `hidden_size * 3` is computed during Wqkv construction.
         validate_i32_bound("hidden_size", self.hidden_size, 3)?;
         if self.hidden_size == 0 {
