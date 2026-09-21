@@ -9,6 +9,7 @@ pub mod linreg;
 mod metrics;
 mod mlx;
 mod probe;
+mod processing;
 
 mod pooling;
 

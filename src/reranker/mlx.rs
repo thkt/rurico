@@ -1,8 +1,8 @@
+use super::processing::{scores_from_logits, truncate_pair};
 use super::{Artifacts, ModelInitError, RerankerError};
 use crate::mlx_cache::{Component, release_inference_output};
 use crate::model_io::{
     BUCKET_BOUNDS, MAX_SEQ_LEN, assign_bucket, compute_sub_batch_size, pad_sequences,
-    truncate_with_eos,
 };
 use crate::modernbert::{
     Config, ModernBert, biasless_layer_norm, layer_norm_eps_f32,
@@ -109,29 +109,7 @@ impl RerankerInner {
         let result = (|| -> Result<Vec<f32>, RerankerError> {
             output.eval().map_err(RerankerError::inference)?;
             let flat: &[f32] = output.as_slice();
-            let flat_len = flat.len();
-            if flat_len != batch_size {
-                tracing::warn!(
-                    expected = batch_size,
-                    actual = flat_len,
-                    batch_size,
-                    bucket_len,
-                    "score_batch: output shape mismatch"
-                );
-                return Err(RerankerError::inference(format!(
-                    "score_batch: expected {batch_size} scores, got {flat_len}"
-                )));
-            }
-            let scores: Vec<f32> = flat.iter().map(|&logit| sigmoid(logit)).collect();
-            if scores.iter().any(|v| !v.is_finite()) {
-                tracing::warn!(
-                    batch_size,
-                    bucket_len,
-                    "score_batch: non-finite output detected (NaN or Inf in reranker scores)"
-                );
-                return Err(RerankerError::NonFiniteOutput);
-            }
-            Ok(scores)
+            scores_from_logits(flat, batch_size, bucket_len)
         })();
         release_inference_output(output, Component::Reranker);
         result
@@ -197,32 +175,6 @@ impl RerankerModel {
 
         self.classifier.forward(&x)
     }
-}
-
-/// Truncate pair tokens to `max_len`, setting the last token to EOS.
-///
-/// # Precondition
-///
-/// `max_len` must be ≥ 1. A zero `max_len` is a no-op (returns immediately).
-pub(super) fn truncate_pair(
-    ids: &mut Vec<u32>,
-    mask: &mut Vec<u32>,
-    max_len: usize,
-    pair_idx: usize,
-) {
-    let orig_len = ids.len();
-    if truncate_with_eos(ids, mask, max_len) {
-        tracing::warn!(
-            pair_idx,
-            orig_len,
-            max_len,
-            "pair exceeds max_seq_len, truncating"
-        );
-    }
-}
-
-pub(super) fn sigmoid(x: f32) -> f32 {
-    1.0 / (1.0 + (-x).exp())
 }
 
 #[cfg(test)]

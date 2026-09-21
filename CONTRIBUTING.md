@@ -65,7 +65,15 @@ commit、run URLと実行回、保存・復元キー、対象パス、テスト�
 cargo nextest run --run-ignored=ignored-only g_001_real_tokenizer_extract_prefix_tokens
 ```
 
-`src/embed/tests.rs` の 3 件と、`src/reranker/tests.rs` 内 `mlx_runtime_tests` モジュールの test がこのカテゴリに該当する。
+`src/embed/tests.rs` の実tokenizerを使う2件と、`src/reranker/tests.rs` 内
+`mlx_runtime_tests` モジュールのテストがこのカテゴリに該当する。
+
+長文plannerは `src/embed/processing/tests.rs` で製品の関数を直接呼び、通常checkで検証する。
+合成WordLevel tokenizerの異なるtoken IDを使い、prefix・overlap・末尾・文書順と、
+上限を超える候補の縮小後もoverlapが保たれることを確認する。モデル取得は不要だが、
+ビルドは引き続きMLX依存である。この検査は実tokenizer固有のprefix境界mergeや
+実モデルの数値一致を保証しない。それぞれ上記のignoredテストと
+[実モデルの受入手順](#重みの読込み検証)で別に確認する。
 
 ### `mlx_smoke` smoke テスト
 
