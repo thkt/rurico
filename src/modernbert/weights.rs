@@ -9,6 +9,7 @@ use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 
+#[cfg(feature = "mlx")]
 use mlx_rs::{
     Array, Dtype,
     error::Exception,
@@ -73,6 +74,7 @@ pub(crate) fn validate(path: &Path, config: &Config, kind: WeightKind) -> Result
 /// Preflight on CPU, then load the payload once and require exact assignment.
 /// Checking the actual MLX map also catches naming drift in our module tree,
 /// and a checkpoint replaced between preflight and the backend's open.
+#[cfg(feature = "mlx")]
 pub(crate) fn load<M: ModuleParameters>(
     path: &Path,
     config: &Config,

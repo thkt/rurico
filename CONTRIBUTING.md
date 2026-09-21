@@ -2,7 +2,7 @@
 
 ## テスト
 
-macOS Apple Silicon、Rust 1.96+、XcodeとMetal Toolchain、cargo-nextestを用意する。
+既定のMLX検証にはmacOS Apple Silicon、Rust 1.96+、XcodeとMetal Toolchain、cargo-nextestを用意する。
 `xcodebuild -version` と `xcrun metal --version` で使用する版を確認する。
 Metal Toolchainがない場合は `xcodebuild -downloadComponent MetalToolchain` で導入する。
 Command Line Toolsの導入だけでMetal Toolchainが揃うとは限らない。
@@ -17,7 +17,8 @@ cargo fetch --locked
 bash scripts/check.sh
 ```
 
-`scripts/check.sh` は `test` job相当の検証を行う。`coverage`（変更行95%以上）、
+`scripts/check.sh` はCPU検証と既定のMLX検証を行う。CIはLinuxの `cpu` jobと
+macOSの `test` jobに分け、必須check名 `test` で両構成の成功を要求する。`coverage`（変更行95%以上）、
 `security`（`cargo deny check` / `cargo audit`）、`zizmor` は別のCI jobで確認する。
 依存更新時もcoverage閾値・ignore・タイムアウトを通過目的で緩めない。
 Xcode 27 / Metal Toolchain 27A266aでの検証対象と経緯は [Issue #322](https://github.com/thkt/rurico/issues/322) を参照。
@@ -28,7 +29,7 @@ checkはGPUを利用できるsandbox外のホストで実行する。推論の�
 実行結果には使用したツールチェーン、実行した検証、モデル未配置などで実行しなかった検証を記す。
 通常のcheck成功だけでignoredテストや全モデルの数値一致・性能改善を確認したとは扱わない。
 
-CI で実行されるテスト一式は以下で再現できる。
+CIのMLX構成のテストは以下で再現できる。CPU構成は後述の専用入口で確認する。
 
 ```sh
 cargo nextest run --workspace --features test-support,test-mlx
@@ -65,11 +66,11 @@ commit、run URLと実行回、保存・復元キー、対象パス、テスト�
 cargo nextest run --run-ignored=ignored-only g_001_real_tokenizer_extract_prefix_tokens
 ```
 
-`src/embed/tests.rs` の 3 件と、`src/reranker/tests.rs` 内 `mlx_runtime_tests` モジュールの test がこのカテゴリに該当する。
+`src/embed/tests.rs` の 2 件と、`src/reranker/tests.rs` 内 `mlx_runtime_tests` モジュールの test がこのカテゴリに該当する。
 
 ### `mlx_smoke` smoke テスト
 
-`mlx_smoke` 統合テスト (`tests/mlx_smoke.rs`) と同名 binary (`src/bin/mlx_smoke.rs`) は `smoke` feature の背後にあり、実 ruri-v3 モデル + Apple Silicon の MLX runtime を要する。CI では走らせない（モデルダウンロードと推論で macos-latest runner の 15 分 timeout を圧迫するため）。ローカルで実行する場合は事前に対象モデルをキャッシュしてから:
+`mlx_smoke` 統合テスト (`tests/mlx_smoke.rs`) と同名 binary (`src/bin/mlx_smoke.rs`) は `smoke` feature の背後にあり、実 ruri-v3 モデル + Apple Silicon の MLX runtime を要する。モデルダウンロードと実推論を要するため、通常CIでは走らせない。ローカルで実行する場合は事前に対象モデルをキャッシュしてから:
 
 ```sh
 # ruri-v3 系モデルがローカル HF cache にあることを前提に走らせる
@@ -141,20 +142,48 @@ OS のファイルキャッシュは clear しないため、初回と後続を�
 ホストの検証記録へ残し、公開する結果は PR の `docs/benchmarks/` 等へ整理する。
 CPU 検証や定義の用意だけで GPU 数値一致、実測コスト、検索品質の改善を確認済みとしない。
 
-### `visibility` integration test (trybuild + Metal Toolchain)
+### CPU構成と公開契約の検証
 
-`tests/visibility.rs` は trybuild で `tests/ui/*.rs` を compile_fail として exercise する。各 fixture の build にMetal Toolchainを要する。
-
-- CI (macOS-latest runner): runner上のXcodeとMetal Toolchainを使用する
-- ローカル環境で Metal Toolchain 不在: `cannot execute tool 'metal'` で trybuild が build fail する
-
-Metal Toolchainがない場合は導入してからcheckを再実行する。
-調査用にtrybuildの対象を外してもMLX依存のビルドにはMetal Toolchainが必要であり、完全な検証の代替にはならない。
+CPUだけを検証する入口は次のとおり。Rust 1.96+、cargo-nextestとC/C++ビルド環境を用意する。
+CIではLinux上でこの構成を検証する。Metal Toolchainやモデルのダウンロードは不要。
 
 ```sh
-xcodebuild -downloadComponent MetalToolchain
-xcrun metal --version
+cargo fetch --locked
+bash scripts/check-cpu.sh
 ```
+
+root単独・ffi単独・workspaceの `--no-default-features` と、workspaceの
+`test-support` 付き構成について `cargo tree` の有効なnormal/build/dev依存を調べ、
+`mlx-rs` / `mlx-sys` が含まれれば失敗する。`mlx` / `smoke` / `test-mlx` が既定featureを
+無効化した状態でも両依存を有効にすることも確認する。Cargo.lockには既定構成用のMLX依存が残る。
+ffi単独でSQLite登録テストを実行し、workspaceでは既存のunit・integration・docテストを
+実行する。外部consumerとしての `public_contract` はmock生成・options・error型の利用から
+SQLite vec0登録・検索、retrieval、rerankまでを通す。
+
+`visibility` はCPU構成でも既存の3つのcompile-fail fixtureをtrybuildで実行し、
+artifactの非公開constructorと `ChunkedEmbedding` の不変条件を迂回できないことを確認する。
+CPU構成のtrybuildにMLXのnative buildは入らない。既定MLX構成でも同じfixtureを維持するため、
+そちらのtrybuildには引き続きMetal Toolchainが必要になる。timeoutは変更しない。
+
+長文計画・bucket分配・出力検証は `embed::processing`、pair切詰め・score検証は
+`reranker::processing` の実コードをMLXとCPUテストで共有する。既存の境界・順序・形状・
+非有限値テストを再利用し、長文計画のコピーを実行していたignoredテストは、合成tokenizerで
+本体のprefix・重複・末尾・文書順を検証する通常テストへ置き換える。
+これは実tokenizer特有のprefix mergeやGPU出力の検証を代替しない。既存のignored
+real-tokenizerテストとMLX smokeを実行する場合は、それぞれの条件を満たすこと。
+標準ライブラリのMutexをpoisonするだけのテストは削除し、実際のcache cleanupと失敗ログの
+検証はMLX構成で維持する。
+
+重みのconfig・ヘッダー検証もCPU unitテストに含むが、公開loader・probe・parameterの
+再ロードは `mlx` を要する。`probe_embed_smoke` / `probe_reranker_smoke` binaryと
+`weight_load` / `weight_probe` integration testは `required-features = ["mlx"]` とする。
+`smoke` / `test-mlx` は `--no-default-features` と組み合わせても `mlx` を有効にする。
+CPU成功だけで実推論の数値一致を確認したとは扱わない。
+
+Issue #305に記載された2026-09-20のCI時間は変更前の単発測定であり、分離後の高速化を
+示す結果ではない。比較する場合は同一runner・toolchain・lockfile・cache条件で、
+対象構成、ビルドとテストの時間、実行・skip件数を分けて記録する。ファイル移動や行数の減少を
+改善量に数えず、MLX検証を省略した時間を同じ検証の高速化と扱わない。
 
 ## ブランチと commit
 

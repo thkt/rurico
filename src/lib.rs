@@ -4,10 +4,12 @@
 /// Typed artifact verification: [`CandidateArtifacts`](embed::CandidateArtifacts) → [`VerifiedArtifacts`](artifacts::VerifiedArtifacts).
 pub mod artifacts;
 /// Top-level probe dispatch wiring embed and reranker domains.
+#[cfg(feature = "mlx")]
 pub mod dispatch;
 /// Embedding models and the [`Embed`](embed::Embed) trait.
 pub mod embed;
 /// Process-global MLX cache lock shared by embed and reranker.
+#[cfg(feature = "mlx")]
 pub(crate) mod mlx_cache;
 /// Unified [`ModelInitError`](model_init::ModelInitError) for embed and reranker constructors.
 pub mod model_init;
@@ -17,7 +19,7 @@ pub(crate) mod model_io;
 pub mod model_lifecycle;
 /// Shared subprocess probe infrastructure for model loading verification.
 pub mod model_probe;
-/// ModernBERT transformer implementation on MLX.
+/// ModernBERT config and, with `mlx`, the transformer implementation.
 pub mod modernbert;
 /// Cross-encoder reranker for query-document relevance scoring.
 pub mod reranker;
@@ -36,4 +38,5 @@ pub(crate) mod test_support;
 /// Text chunking utilities.
 pub mod text;
 
+#[cfg(feature = "mlx")]
 pub use dispatch::{handle_probe_if_needed, handle_probe_if_needed_with};

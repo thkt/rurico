@@ -1,7 +1,7 @@
 //! Shared subprocess probe infrastructure for model loading verification.
 //!
-//! Host binaries call [`handle_probe_if_needed`](crate::handle_probe_if_needed)
-//! once at the start of `main()` — that lives in [`crate::dispatch`] because it
+//! Host binaries call `rurico::handle_probe_if_needed` (requires `mlx`)
+//! once at the start of `main()` — that lives in `crate::dispatch` (requires `mlx`) because it
 //! needs to know about both embed and reranker domains. Individual modules
 //! (embed, reranker) call
 //! [`probe_via_subprocess`](crate::model_probe::probe_via_subprocess) to re-exec
@@ -28,10 +28,17 @@
 use std::collections::HashMap;
 use std::env;
 use std::fmt;
+#[cfg(any(feature = "mlx", test))]
 use std::fs;
-use std::io::{self, Read, Write};
-use std::path::{Path, PathBuf};
-use std::process::{self, Child, Command, Output, Stdio};
+use std::io::Read;
+#[cfg(any(feature = "mlx", test))]
+use std::io::{self, Write};
+#[cfg(any(feature = "mlx", test))]
+use std::path::Path;
+use std::path::PathBuf;
+#[cfg(feature = "mlx")]
+use std::process;
+use std::process::{Child, Command, Output, Stdio};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -39,6 +46,7 @@ use std::time::{Duration, Instant};
 #[cfg(test)]
 use std::process::ExitStatus;
 
+#[cfg(feature = "mlx")]
 use crate::model_io::ModelPaths;
 
 /// Handshake token written to stdout by probe subprocesses.
@@ -140,6 +148,7 @@ impl fmt::Display for SetupReason {
 /// - [`SetupReason::CanonicalizeFailed`] if any candidate path cannot be canonicalized
 /// - [`SetupReason::PathOutsideCache`] if any candidate path's canonical form
 ///   is not a component-wise descendant of `cache_root`'s canonical form
+#[cfg(any(feature = "mlx", test))]
 pub(crate) fn validate_probe_paths_with_cache(
     cache_root: &Path,
     model: &Path,
@@ -167,6 +176,7 @@ pub(crate) fn validate_probe_paths_with_cache(
 /// # Errors
 ///
 /// Same as [`validate_probe_paths_with_cache`].
+#[cfg(any(feature = "mlx", test))]
 pub(crate) fn validate_probe_paths(
     model: &Path,
     config: &Path,
@@ -217,6 +227,7 @@ pub enum ProbeError {
 /// Returns `None` if the primary model env var is absent (not a probe invocation).
 /// Returns `Some(Err(SetupReason::EnvIncomplete))` if model is set but config or
 /// tokenizer is missing.
+#[cfg(any(feature = "mlx", test))]
 pub(crate) fn resolve_probe_env(
     model: Option<String>,
     config: Option<String>,
@@ -239,6 +250,7 @@ const DEFAULT_WAIT_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 /// Exit action computed by [`compute_probe_exit`].
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+#[cfg(any(feature = "mlx", test))]
 pub(crate) struct ProbeExitAction {
     pub(crate) code: i32,
     pub(crate) message: Option<String>,
@@ -249,6 +261,7 @@ pub(crate) struct ProbeExitAction {
 /// - `Err(reason)`: setup rejected → exit with `reason.code()`
 /// - `Ok(Ok(()))`: model loaded successfully → exit 0
 /// - `Ok(Err(load_err))`: model load failed → exit 1 with the load error message
+#[cfg(any(feature = "mlx", test))]
 pub(crate) fn compute_probe_exit(
     result: Result<Result<(), String>, SetupReason>,
 ) -> ProbeExitAction {
@@ -277,6 +290,7 @@ pub(crate) fn compute_probe_exit(
 /// [`PROBE_EXIT_ACK_FAILED`] / [`PROBE_EXIT_STDERR_FAILED`] so the parent
 /// can distinguish them from `HandlerNotInstalled` (caller forgot the probe
 /// handler) or `ModelLoadFailed` (load itself failed with a reason).
+#[cfg(feature = "mlx")]
 pub(crate) fn dispatch_probe<P, E: fmt::Display>(
     result: Result<P, SetupReason>,
     load: impl FnOnce(P) -> Result<(), E>,
@@ -297,6 +311,7 @@ pub(crate) fn dispatch_probe<P, E: fmt::Display>(
     process::exit(action.code);
 }
 
+#[cfg(feature = "mlx")]
 fn emit_ack() -> io::Result<()> {
     emit_ack_to(&mut io::stdout())
 }
@@ -305,6 +320,7 @@ fn emit_ack() -> io::Result<()> {
 /// to `io::stdout()`; tests inject a `Vec<u8>` or a failing writer via this
 /// entry point to cover the success and IO-failure paths without spawning a
 /// subprocess.
+#[cfg(any(feature = "mlx", test))]
 fn emit_ack_to<W: Write>(stdout: &mut W) -> io::Result<()> {
     writeln!(stdout, "{PROBE_ACK}")?;
     stdout.flush()
@@ -316,6 +332,7 @@ fn emit_ack_to<W: Write>(stdout: &mut W) -> io::Result<()> {
 /// the child must complete `flush` before [`std::process::exit`] so the
 /// parent's `collect_pipe` observes the full message regardless of stderr's
 /// buffering policy.
+#[cfg(any(feature = "mlx", test))]
 fn emit_failure_to<W: Write>(stderr: &mut W, msg: &str) -> io::Result<()> {
     write!(stderr, "{msg}")?;
     stderr.flush()
@@ -414,7 +431,7 @@ pub(super) fn child_env_for_spawn(env_pairs: &[(&str, &str)]) -> HashMap<String,
 /// # IPC Contract
 ///
 /// **Child** (`dispatch_probe`): every byte written to stdout (handshake
-/// ACK) or stderr (failure reason) MUST be flushed before [`process::exit`].
+/// ACK) or stderr (failure reason) MUST be flushed before [`std::process::exit`].
 /// `emit_ack_to` and `emit_failure_to` are the only sanctioned write paths
 /// and both call `flush` before returning. A missed flush would not drop
 /// bytes today (`io::stdout()` is line-buffered, `io::stderr()` is
@@ -516,6 +533,7 @@ fn collect_pipe(handle: Option<DrainHandle>, label: &str) -> Vec<u8> {
 ///
 /// Thin wrapper that converts [`crate::model_io::ModelPaths`] fields to string
 /// env-var pairs and delegates to [`probe_via_subprocess`].
+#[cfg(feature = "mlx")]
 pub(crate) fn probe_paths_via_subprocess(
     paths: &ModelPaths,
     model_key: &str,

@@ -1,3 +1,4 @@
+#[cfg(feature = "mlx")]
 mod embedder;
 /// Ordinary least squares linear regression. Internal support for the Phase 2
 /// smoke harness (`mlx_smoke measure-baseline`'s R² assertion). Compiled only
@@ -7,9 +8,14 @@ mod embedder;
 #[doc(hidden)]
 pub mod linreg;
 mod metrics;
+#[cfg(feature = "mlx")]
 mod mlx;
+#[cfg(feature = "mlx")]
 mod probe;
+#[cfg(any(feature = "mlx", test))]
+mod processing;
 
+#[cfg(feature = "mlx")]
 mod pooling;
 
 pub mod fixtures;
@@ -29,20 +35,29 @@ pub use test_support::{
 pub use crate::artifacts::{ArtifactError, EmbedKind, VerifiedArtifacts};
 pub use crate::model_init::ModelInitError;
 pub use crate::model_lifecycle::{cached_artifacts, download_model};
+#[cfg(feature = "mlx")]
 pub use embedder::Embedder;
 pub use metrics::BatchMetrics;
+#[cfg(feature = "mlx")]
 pub(crate) use pooling::gpu_pool_and_normalize;
 
 use crate::artifacts;
-use crate::model_io::{ModelArtifact, truncate_with_eos};
+use crate::model_io::ModelArtifact;
+#[cfg(any(feature = "mlx", test))]
+use crate::model_io::truncate_with_eos;
+use std::error::Error;
+#[cfg(any(feature = "mlx", test, feature = "test-support"))]
+use std::fmt;
 use std::time::Duration;
-use std::{error::Error, fmt};
 
 /// Probe env-var key for the embedding model weights path.
+#[cfg(feature = "mlx")]
 pub(crate) const PROBE_ENV_MODEL: &str = "__RURICO_PROBE_MODEL";
 /// Probe env-var key for the embedding model config path.
+#[cfg(feature = "mlx")]
 pub(crate) const PROBE_ENV_CONFIG: &str = "__RURICO_PROBE_CONFIG";
 /// Probe env-var key for the embedding model tokenizer path.
+#[cfg(feature = "mlx")]
 pub(crate) const PROBE_ENV_TOKENIZER: &str = "__RURICO_PROBE_TOKENIZER";
 
 // ── Domain alias ─────────────────────────────────────────────────────────────
@@ -68,7 +83,7 @@ pub type CandidateArtifacts = artifacts::CandidateArtifacts<EmbedKind>;
 
 /// Output vector dimensionality for the default model (`cl-nagoya/ruri-v3-310m`).
 ///
-/// Other model variants have different dimensions; use [`Embedder::embedding_dims`]
+/// Other model variants have different dimensions; use `Embedder::embedding_dims` (requires `mlx`)
 /// to query the actual dimension of a loaded model at runtime.
 pub const EMBEDDING_DIMS: usize = 768;
 
@@ -86,10 +101,12 @@ pub const DOCUMENT_PREFIX: &str = "検索文書: ";
 
 pub use crate::model_io::MAX_SEQ_LEN;
 /// Number of overlapping tokens between adjacent chunks.
+#[cfg(any(feature = "mlx", test))]
 pub(crate) const CHUNK_OVERLAP_TOKENS: usize = 2048;
 
 /// Maximum text content tokens for a given prefix length.
 /// Computed as `MAX_SEQ_LEN - 2 (BOS + EOS) - prefix_len`.
+#[cfg(any(feature = "mlx", test))]
 pub(crate) const fn max_content(prefix_len: usize) -> usize {
     MAX_SEQ_LEN - 2 - prefix_len
 }
@@ -160,6 +177,7 @@ impl ChunkedEmbedding {
 // ── Token helpers ─────────────────────────────────────────────────────────────
 
 /// Extract prefix tokens by encoding the prefix string without special tokens.
+#[cfg(any(feature = "mlx", test))]
 pub(crate) fn extract_prefix_tokens(
     tokenizer: &tokenizers::Tokenizer,
     prefix: &str,
@@ -179,6 +197,7 @@ pub(crate) fn extract_prefix_tokens(
 /// # Precondition
 ///
 /// `max_len` must be ≥ 1. A zero `max_len` returns the inputs unchanged.
+#[cfg(any(feature = "mlx", test))]
 pub(crate) fn truncate_for_query(
     mut input_ids: Vec<u32>,
     mut attention_mask: Vec<u32>,
@@ -198,7 +217,7 @@ pub(crate) fn truncate_for_query(
 ///
 /// All variants share the same tokenizer, prefix scheme, and max sequence length (8192).
 /// The embedding dimension varies per model and is read from `config.json.hidden_size`
-/// at load time — use [`Embedder::embedding_dims`] to query the actual dimension.
+/// at load time — use `Embedder::embedding_dims` (requires `mlx`) to query the actual dimension.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModelId {
     /// `cl-nagoya/ruri-v3-30m` — 256-dimensional.
@@ -245,7 +264,7 @@ impl ModelArtifact for ModelId {
 /// Errors from embedding operations at runtime.
 ///
 /// These errors occur during calls to [`Embed`] trait methods after the
-/// [`Embedder`] has been successfully initialised.
+/// `Embedder` (requires `mlx`) has been successfully initialised.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum EmbedError {
@@ -287,6 +306,7 @@ pub enum EmbedError {
 }
 
 impl EmbedError {
+    #[cfg(any(feature = "mlx", test))]
     pub(crate) fn inference(e: impl Into<Box<dyn Error + Send + Sync>>) -> Self {
         let source = e.into();
         let message = source.to_string();
@@ -296,6 +316,7 @@ impl EmbedError {
         }
     }
 
+    #[cfg(any(feature = "mlx", test, feature = "test-support"))]
     pub(crate) fn inference_message(message: impl fmt::Display) -> Self {
         Self::Inference {
             message: message.to_string(),
@@ -387,7 +408,7 @@ pub trait Embed: Send + Sync {
     /// [`embed_documents_batch`](Self::embed_documents_batch), so results are
     /// identical either way; `options` only shapes *how* the work is
     /// scheduled (sub-batch sizing, inter-forward pauses) on implementations
-    /// that honor it, such as [`Embedder`].
+    /// that honor it, such as `Embedder` (requires `mlx`).
     ///
     /// # Errors
     ///

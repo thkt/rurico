@@ -23,6 +23,7 @@ use crate::artifacts::ModelKind;
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// EOS (end of sequence) token ID for ruri-v3 models.
+#[cfg(any(feature = "mlx", test))]
 pub(crate) const EOS_TOKEN_ID: u32 = 2;
 
 /// Maximum sequence length for ruri-v3 models (max_position_embeddings).
@@ -32,11 +33,11 @@ pub const MAX_SEQ_LEN: usize = 8192;
 ///
 /// All `model.forward(..., seq_len)` callers (chunk encoder, query encoder,
 /// reranker pair scorer) round their actual `seq_len` up to one of these four
-/// values. This keeps the per-`seq_len` mask cache inside [`ModernBert`] bounded
+/// values. This keeps the per-`seq_len` mask cache inside `ModernBert` bounded
 /// to four entries and turns the global MLX compile cache into a fixed working
 /// set of four kernels per model rather than one per observed length.
 ///
-/// [`ModernBert`]: crate::modernbert::ModernBert
+#[cfg(any(feature = "mlx", test))]
 pub(crate) const BUCKET_BOUNDS: [usize; 4] = [128, 512, 2048, MAX_SEQ_LEN];
 
 /// Assign `len` to the smallest bucket index `i` with `BUCKET_BOUNDS[i] >= len`.
@@ -45,6 +46,7 @@ pub(crate) const BUCKET_BOUNDS: [usize; 4] = [128, 512, 2048, MAX_SEQ_LEN];
 ///
 /// Panics if `len > MAX_SEQ_LEN`. Callers must truncate or shrink the sequence
 /// before bucket assignment.
+#[cfg(any(feature = "mlx", test))]
 pub(crate) fn assign_bucket(len: usize) -> usize {
     BUCKET_BOUNDS
         .iter()
@@ -55,6 +57,7 @@ pub(crate) fn assign_bucket(len: usize) -> usize {
 /// Truncate `ids` and `mask` to `max_len` in place, replacing the last token with EOS.
 ///
 /// Returns `true` if truncation was performed. A `max_len` of 0 is a no-op.
+#[cfg(any(feature = "mlx", test))]
 pub(crate) fn truncate_with_eos(ids: &mut Vec<u32>, mask: &mut Vec<u32>, max_len: usize) -> bool {
     if max_len == 0 || ids.len() <= max_len {
         return false;
@@ -261,6 +264,7 @@ pub(crate) fn artifacts_from_cache<Id: ModelArtifact>(
 /// so memory consumption is bounded by the same ceiling regardless of which
 /// path drives a given call. See `docs/decisions/0009-adopt-bucketbounds-as-cross-module-forward-pass-invariant.md`
 /// for the cross-module forward-pass invariant.
+#[cfg(any(feature = "mlx", test))]
 pub(crate) const TOKEN_BUDGET: usize = 256_000;
 
 /// Sub-batch size that keeps each forward pass under [`TOKEN_BUDGET`] (or
@@ -272,6 +276,7 @@ pub(crate) const TOKEN_BUDGET: usize = 256_000;
 /// `budget_override`: `Some(n)` uses `n` in place of [`TOKEN_BUDGET`]; `None`
 /// falls through to the const. Reranker callers pass `None` to preserve the
 /// ADR-0009 cross-module forward-pass invariant.
+#[cfg(any(feature = "mlx", test))]
 pub(crate) fn compute_sub_batch_size(bucket_len: usize, budget_override: Option<usize>) -> usize {
     let budget = budget_override.unwrap_or(TOKEN_BUDGET);
     (budget / bucket_len).max(1)
@@ -290,6 +295,7 @@ pub(crate) fn compute_sub_batch_size(bucket_len: usize, budget_override: Option<
 /// # Panics
 ///
 /// Panics if `masks` is `Some` and its length differs from `ids`.
+#[cfg(any(feature = "mlx", test))]
 pub(crate) fn pad_sequences(
     ids: &[Vec<u32>],
     masks: Option<&[Vec<u32>]>,

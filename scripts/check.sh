@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+bash scripts/check-cpu.sh
+
 cargo check --locked --workspace --features test-support,test-mlx
 cargo nextest run --locked --workspace --features test-support,test-mlx --profile ci
 cargo test --locked --doc --workspace --features test-support,test-mlx

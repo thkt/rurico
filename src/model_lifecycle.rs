@@ -13,8 +13,11 @@
 //! kind marker so wrong-kind combinations (e.g. an embed identifier returning
 //! reranker artifacts) cannot be expressed at the call site.
 
-use crate::artifacts::{ArtifactError, CandidateArtifacts, ModelKind, VerifiedArtifacts};
+#[cfg(any(feature = "mlx", test))]
+use crate::artifacts::CandidateArtifacts;
+use crate::artifacts::{ArtifactError, ModelKind, VerifiedArtifacts};
 use crate::model_io::{ModelArtifact, artifacts_if_cached, download_artifacts};
+#[cfg(any(feature = "mlx", test))]
 use crate::model_probe::{SetupReason, resolve_probe_env, validate_probe_paths};
 
 /// Download model files from Hugging Face Hub and verify them as `Id::Kind` artifacts.
@@ -69,6 +72,7 @@ pub fn cached_artifacts<Id: ModelArtifact>(
 /// Returns `Some(Err(_))` if the model var is set but config or tokenizer is
 /// missing or the paths fail validation ([`SetupReason`] from
 /// [`validate_probe_paths`]).
+#[cfg(any(feature = "mlx", test))]
 pub(crate) fn probe_env_to_paths<K: ModelKind>(
     model: Option<String>,
     config: Option<String>,

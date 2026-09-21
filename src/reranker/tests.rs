@@ -1,4 +1,4 @@
-use super::mlx::truncate_pair;
+use super::processing::truncate_pair;
 use super::*;
 use crate::artifacts::RerankerKind;
 #[cfg(unix)]
@@ -184,7 +184,7 @@ fn from_probe_error_maps_correctly() {
     assert_from_probe_error_maps_correctly();
 }
 
-use super::mlx::sigmoid;
+use super::processing::sigmoid;
 
 #[test]
 fn sigmoid_zero_returns_half() {
@@ -400,4 +400,20 @@ mod mlx_runtime_tests {
             "short pairs must land in bucket 0 (len=128)",
         );
     }
+}
+
+#[test]
+fn score_readback_validates_shape_and_nan_before_returning_scores() {
+    use super::processing::scores_from_logits;
+    assert_eq!(scores_from_logits(&[0.0, 0.0], 2, 128).unwrap(), [0.5, 0.5]);
+    for wrong in [vec![0.0], vec![0.0; 3]] {
+        assert!(matches!(
+            scores_from_logits(&wrong, 2, 128),
+            Err(RerankerError::Inference(_))
+        ));
+    }
+    assert!(matches!(
+        scores_from_logits(&[0.0, f32::NAN], 2, 128),
+        Err(RerankerError::NonFiniteOutput)
+    ));
 }

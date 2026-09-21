@@ -59,16 +59,34 @@ publish = false
 exclude = [".claude/", ".yomu/", "workspace/"]
 
 [features]
-test-mlx = []
+default = ["mlx"]
+mlx = ["dep:mlx-rs", "rurico-ffi/mlx"]
+test-mlx = ["mlx"]
 test-support = []
 # Gate the `mlx_smoke` binary and its integration test behind a feature so
 # `tracing-subscriber` does not enter downstream library users' dependency
 # graph. Enable with `cargo build/run/test --features smoke`.
-smoke = ["dep:tracing-subscriber"]
+smoke = ["mlx", "dep:tracing-subscriber"]
 
 [[bin]]
 name = "mlx_smoke"
 required-features = ["smoke"]
+
+[[bin]]
+name = "probe_embed_smoke"
+required-features = ["mlx"]
+
+[[bin]]
+name = "probe_reranker_smoke"
+required-features = ["mlx"]
+
+[[test]]
+name = "weight_load"
+required-features = ["mlx"]
+
+[[test]]
+name = "weight_probe"
+required-features = ["mlx"]
 
 [[test]]
 name = "mlx_smoke"
@@ -77,9 +95,9 @@ required-features = ["smoke"]
 [dependencies]
 bytemuck = { workspace = true }
 hf-hub = { workspace = true }
-mlx-rs = { workspace = true }
+mlx-rs = { workspace = true, optional = true }
 rusqlite = { workspace = true }
-rurico-ffi = { path = "crates/rurico-ffi" }
+rurico-ffi = { path = "crates/rurico-ffi", default-features = false }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

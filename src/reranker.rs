@@ -1,5 +1,8 @@
 mod lazy;
+#[cfg(feature = "mlx")]
 mod mlx;
+#[cfg(any(feature = "mlx", test))]
+mod processing;
 
 #[cfg(any(test, feature = "test-support"))]
 mod test_support;
@@ -8,11 +11,17 @@ mod test_support;
 mod tests;
 
 pub use self::lazy::LazyReranker;
+#[cfg(feature = "mlx")]
 use self::mlx::RerankerInner;
 use crate::artifacts;
 use crate::model_io::ModelArtifact;
+#[cfg(feature = "mlx")]
 use crate::model_probe::{ProbeStatus, probe_paths_via_subprocess};
-use std::fmt::{self, Debug, Display, Formatter};
+#[cfg(any(feature = "mlx", test))]
+use std::fmt::Display;
+#[cfg(feature = "mlx")]
+use std::fmt::{self, Debug, Formatter};
+#[cfg(feature = "mlx")]
 use std::sync::{Mutex, MutexGuard};
 
 pub use crate::artifacts::{ArtifactError, RerankerKind, VerifiedArtifacts};
@@ -22,10 +31,13 @@ pub use crate::model_lifecycle::{cached_artifacts, download_model};
 pub use test_support::MockReranker;
 
 /// Probe env-var key for the reranker model weights path.
+#[cfg(feature = "mlx")]
 pub(crate) const PROBE_ENV_MODEL: &str = "__RURICO_RERANKER_PROBE_MODEL";
 /// Probe env-var key for the reranker model config path.
+#[cfg(feature = "mlx")]
 pub(crate) const PROBE_ENV_CONFIG: &str = "__RURICO_RERANKER_PROBE_CONFIG";
 /// Probe env-var key for the reranker model tokenizer path.
+#[cfg(feature = "mlx")]
 pub(crate) const PROBE_ENV_TOKENIZER: &str = "__RURICO_RERANKER_PROBE_TOKENIZER";
 
 // ── Domain alias ─────────────────────────────────────────────────────────────
@@ -111,6 +123,7 @@ pub enum RerankerError {
     InitFailed(String),
 }
 
+#[cfg(any(feature = "mlx", test))]
 impl RerankerError {
     pub(crate) fn inference(e: impl Display) -> Self {
         Self::Inference(e.to_string())
@@ -161,16 +174,19 @@ pub trait Rerank: Send + Sync {
 /// Runtime peak memory also depends on input shape and MLX caches; holding an
 /// [`Embedder`](crate::embed::Embedder) at the same time adds its own weights
 /// and runtime allocations.
+#[cfg(feature = "mlx")]
 pub struct Reranker {
     inner: Mutex<RerankerInner>,
 }
 
+#[cfg(feature = "mlx")]
 impl Debug for Reranker {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Reranker").finish_non_exhaustive()
     }
 }
 
+#[cfg(feature = "mlx")]
 impl Reranker {
     /// Load reranker weights, config, and tokenizer from verified `artifacts`.
     ///
@@ -251,6 +267,7 @@ impl Reranker {
     }
 }
 
+#[cfg(feature = "mlx")]
 impl Rerank for Reranker {
     fn score(&self, query: &str, document: &str) -> Result<f32, RerankerError> {
         Reranker::score(self, query, document)
@@ -265,6 +282,7 @@ impl Rerank for Reranker {
     }
 }
 
+#[cfg(any(feature = "mlx", test, feature = "test-support"))]
 fn sort_results(scores: &[f32]) -> Vec<RankedResult> {
     let mut results: Vec<RankedResult> = scores
         .iter()
@@ -281,6 +299,7 @@ fn sort_results(scores: &[f32]) -> Vec<RankedResult> {
 
 // ── Probe infrastructure ──────────────────────────────────────────────────────
 
+#[cfg(feature = "mlx")]
 fn probe_via_subprocess(artifacts: &Artifacts) -> Result<ProbeStatus, ModelInitError> {
     probe_paths_via_subprocess(
         &artifacts.paths,

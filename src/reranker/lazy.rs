@@ -22,7 +22,7 @@ type InitFn<R> = dyn Fn() -> Result<R, String> + Send + Sync;
 ///
 /// # Examples
 ///
-/// ```no_run
+/// ```
 /// # use rurico::reranker::{RankedResult, Rerank, RerankerError};
 /// # struct Stub;
 /// # impl Rerank for Stub {

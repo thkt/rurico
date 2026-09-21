@@ -7,8 +7,12 @@ description = "Safe FFI wrappers for rurico (mlx-sys, sqlite-vec)"
 license = "MIT"
 publish = false
 
+[features]
+default = ["mlx"]
+mlx = ["dep:mlx-sys"]
+
 [dependencies]
-mlx-sys = { workspace = true }
+mlx-sys = { workspace = true, optional = true }
 rusqlite = { workspace = true }
 sqlite-vec = { workspace = true }
 

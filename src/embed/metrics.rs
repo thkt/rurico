@@ -6,20 +6,23 @@
 //! [`PhaseMetrics`] is the internal accumulator, `pub(super)` so only the
 //! `embed` module tree mutates it. [`BatchMetrics`] is the public
 //! downstream-facing snapshot returned by
-//! [`Embedder::embed_documents_batch_with_metrics`](super::Embedder::embed_documents_batch_with_metrics)
+//! `Embedder::embed_documents_batch_with_metrics` (requires `mlx`)
 //! — it carries the same numbers in millisecond integers so consumers avoid
 //! coupling to `std::time::Duration` and the internal `kind` tag.
 
+#[cfg(any(feature = "mlx", test))]
 use std::time::Duration;
 
 /// Identifies which embed entry point a phase record or warn emit came from.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[cfg(any(feature = "mlx", test))]
 pub(super) enum EmbedKind {
     #[default]
     Query,
     Batch,
 }
 
+#[cfg(any(feature = "mlx", test))]
 impl EmbedKind {
     pub(super) fn as_str(self) -> &'static str {
         match self {
@@ -31,7 +34,7 @@ impl EmbedKind {
 
 /// Public batch-level metrics snapshot mirroring the `"batch"` `PhaseMetrics`
 /// record. Returned alongside embeddings by
-/// [`Embedder::embed_documents_batch_with_metrics`](super::Embedder::embed_documents_batch_with_metrics)
+/// `Embedder::embed_documents_batch_with_metrics` (requires `mlx`)
 /// so callers (smoke harness, downstream indexers) can observe padding,
 /// linearity, and bucket distribution without parsing a debug-log line.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -58,6 +61,7 @@ pub struct BatchMetrics {
     pub batch_size: usize,
 }
 
+#[cfg(any(feature = "mlx", test))]
 impl From<&PhaseMetrics> for BatchMetrics {
     fn from(m: &PhaseMetrics) -> Self {
         Self {
@@ -77,6 +81,7 @@ impl From<&PhaseMetrics> for BatchMetrics {
 
 /// Phase timings and batch counters for one `embed_*` call.
 #[derive(Debug, Clone, Copy, Default)]
+#[cfg(any(feature = "mlx", test))]
 pub(super) struct PhaseMetrics {
     /// Identifies which entry point produced this record.
     pub kind: EmbedKind,
@@ -100,6 +105,7 @@ pub(super) struct PhaseMetrics {
     pub bucket_hist: [usize; 4],
 }
 
+#[cfg(any(feature = "mlx", test))]
 impl PhaseMetrics {
     pub(super) fn new(kind: EmbedKind) -> Self {
         Self {
@@ -146,6 +152,7 @@ impl PhaseMetrics {
 /// (production batches at MAX_SEQ_LEN × TOKEN_BUDGET approach this range);
 /// the f64→f32 narrowing is safe because the ratio is bounded near 1.0–10.0.
 #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
+#[cfg(any(feature = "mlx", test))]
 pub(super) fn padding_ratio(real: usize, padded: usize) -> f32 {
     if real == 0 {
         return 0.0;

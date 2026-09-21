@@ -57,7 +57,9 @@ pub struct RerankerKind(());
 /// this type does not certify all weight tensors or prevent file modification.
 pub struct VerifiedArtifacts<K> {
     pub(crate) paths: ModelPaths,
+    #[cfg_attr(not(feature = "mlx"), allow(dead_code))] // Retain the verified snapshot.
     pub(crate) config: Config,
+    #[cfg_attr(not(feature = "mlx"), allow(dead_code))] // Retain the verified snapshot.
     pub(crate) tokenizer: tokenizers::Tokenizer,
     _kind: PhantomData<K>,
 }
@@ -217,6 +219,7 @@ impl<K> fmt::Debug for CandidateArtifacts<K> {
 
 impl<K: ModelKind> CandidateArtifacts<K> {
     /// Construct from explicit file paths without verification.
+    #[cfg_attr(not(any(feature = "mlx", test)), allow(dead_code))] // Keep the visibility contract in CPU builds.
     pub(crate) fn from_paths(model: PathBuf, config: PathBuf, tokenizer: PathBuf) -> Self {
         Self {
             paths: ModelPaths {

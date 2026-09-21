@@ -29,9 +29,15 @@ Apple Silicon (MLX) 上で日本語テキストのembedding・reranking・類似
 
 ## 要件
 
+既定の実推論構成（`mlx` feature）:
+
 - macOS (Apple Silicon) — MLX backend必須
 - Rust 1.96+ (edition 2024)
 - Xcode と Metal Toolchain（`xcrun metal --version` が成功すること）
+
+CPU処理・公開契約の検証は `default-features = false` で利用できる。
+この構成はRust 1.96+とC/C++ビルド環境（bundled SQLite・tokenizers用）を要するが、
+Metal Toolchainとモデル重みは不要。対応はlittle-endian環境に限る。
 
 依存は `Cargo.lock` で固定する。ビルド準備とCI相当の検証手順は
 [CONTRIBUTING.md](CONTRIBUTING.md#テスト) を参照。
@@ -81,6 +87,35 @@ for chunk_vec in doc.chunks() {
     // chunk_vec: &Vec<f32> (次元数はモデルにより異なる)
 }
 ```
+
+### CPU構成とfeature
+
+```toml
+[dependencies]
+rurico = { path = "../rurico", default-features = false }
+
+[dev-dependencies]
+rurico = { path = "../rurico", default-features = false, features = ["test-support"] }
+```
+
+上記は今回のcheckoutを隣接ディレクトリから参照する例。Git依存ではCPU構成を含む採用commitを `rev` に指定する。
+`Embed` / `Rerank`、`EmbedOptions`、error型、`ChunkedEmbedding`、`LazyReranker`、
+`storage`、`retrieval`、tokenization、artifact検証はCPU構成でも使える。
+`test-support` は既存のmockを公開する。CPU構成の有効依存には `mlx-rs` / `mlx-sys` を含まない。
+
+| feature | 有効になるもの |
+| --- | --- |
+| `mlx`（既定） | `embed::Embedder`、`reranker::Reranker`、`modernbert::ModernBert`、`dispatch`とcrate rootのprobe dispatcher、MLX FFI |
+| `test-support` | mockとテスト用artifact構築。MLXは有効化しない |
+| `test-mlx` | `mlx`と既存のMLX runtimeテスト定義。ignoredテストの実行には明示指定が必要 |
+| `smoke` | `mlx`とsmoke binary・integration test、`tracing-subscriber` |
+
+実推論backendは引き続きMLXのみ。CPU構成は別の推論backendを提供せず、
+既定構成の公開pathと動作を維持する。`rurico-ffi`単独でも既定は `mlx` で、
+`--no-default-features` ならSQLite登録だけを利用できる。
+Cargoのfeatureは依存全体で加算されるため、同じビルド内の別の依存が `mlx` や既定featureを
+有効にするとMLXもビルドされる。downstream全体（recallを含む）のCPUビルド対応は保証しない。
+方式の比較は [ADR-0014](docs/decisions/0014-adopt-mlx-only-embedding-backend-and-retire-the-candle-fallback.md)を参照。
 
 ### 定数
 
@@ -459,7 +494,8 @@ cargo fmt --all -- --check                                              # format
 ## テスト
 
 ```sh
-cargo nextest run --workspace                                                  # モデル不要（FFIテストはMetalを使用）
+bash scripts/check-cpu.sh                                                    # CPU: Metal・モデル不要
+cargo nextest run --workspace                                                  # MLX既定: モデル不要（FFIテストはMetalを使用）
 cargo nextest run --workspace --features test-mlx --run-ignored=ignored-only   # MLX ランタイムテスト（通常 Terminal 推奨）
 cargo run --bin mlx_smoke --features smoke --release -- verify-fixture         # embed 数値同等性検証（smoke binary）
 ```

@@ -1,4 +1,6 @@
 use super::*;
+#[cfg(feature = "test-mlx")]
+use crate::reranker::processing::sigmoid;
 
 #[test]
 fn load_rejects_incomplete_weights_before_mlx_allocation() {

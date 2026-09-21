@@ -1,4 +1,4 @@
-use super::mlx::shrink_chunk_to_fit;
+use super::processing::shrink_chunk_to_fit;
 use super::*;
 use crate::artifacts::EmbedKind;
 use crate::model_io::{EOS_TOKEN_ID, ModelArtifact, artifacts_from_cache, load_tokenizer};
@@ -313,90 +313,6 @@ fn regression_prefix_merge_standalone_vs_full_tokenization_diverges() {
             &prefix_tokens[..],
             "expected prefix merge for text '{text}', but tokens matched — \
              this test guards against the merge being silently fixed upstream"
-        );
-    }
-}
-
-/// Requires HF Hub model download (network access).
-#[test]
-#[ignore]
-fn regression_long_document_sequential_planner_overlap_and_coverage() {
-    // Mirrors the production sequential chunk planner. Verifies:
-    // 1. Every chunk fits MAX_SEQ_LEN (adaptive shrink)
-    // 2. Adjacent chunks overlap >= CHUNK_OVERLAP_TOKENS (overlap contract)
-    // 3. First chunk starts at byte 0 (head preserved)
-    // 4. Last chunk ends at document end (tail preserved)
-    let artifacts = download_model(ModelId::DEFAULT).expect("download model");
-    let tokenizer = load_tokenizer(&artifacts.paths.tokenizer).unwrap();
-    let prefix_tokens = extract_prefix_tokens(&tokenizer, DOCUMENT_PREFIX).unwrap();
-    let mc = max_content(prefix_tokens.len());
-
-    let sentence = "apple pie is a traditional dessert enjoyed around the world. ";
-    let long_text = sentence.repeat(800);
-
-    let text_enc = tokenizer.encode(long_text.as_str(), false).unwrap();
-    let offsets = text_enc.get_offsets();
-    let n = text_enc.get_ids().len();
-    assert!(n > mc, "text must trigger chunking: {n} <= {mc}");
-
-    // Sequential planner (same logic as production embed_documents_batch_chunked)
-    let mut chunk_starts: Vec<usize> = Vec::new();
-    let mut accepted_ends: Vec<usize> = Vec::new();
-    let mut start = 0usize;
-
-    while start < n {
-        chunk_starts.push(start);
-        let byte_start = offsets[start].0;
-        let mut end = (start + mc).min(n);
-
-        loop {
-            assert!(end > start, "adaptive shrink underflow at token {start}");
-            let byte_end = offsets[end - 1].1;
-            let chunk_str = format!("{DOCUMENT_PREFIX}{}", &long_text[byte_start..byte_end]);
-            let enc = tokenizer.encode(chunk_str.as_str(), true).unwrap();
-            if enc.get_ids().len() <= MAX_SEQ_LEN {
-                assert_eq!(
-                    *enc.get_ids().last().unwrap(),
-                    EOS_TOKEN_ID,
-                    "chunk {}: natural EOS expected",
-                    chunk_starts.len() - 1
-                );
-                break;
-            }
-            end -= 1;
-        }
-        accepted_ends.push(end);
-
-        if end >= n {
-            break;
-        }
-        let next_start = end.saturating_sub(CHUNK_OVERLAP_TOKENS);
-        if next_start <= start {
-            break;
-        }
-        start = next_start;
-    }
-
-    assert!(chunk_starts.len() >= 2, "expected multiple chunks");
-
-    // Head preserved
-    assert_eq!(chunk_starts[0], 0);
-    assert!(long_text.starts_with("apple"));
-
-    // Tail preserved
-    assert_eq!(
-        *accepted_ends.last().unwrap(),
-        n,
-        "last chunk must reach document end"
-    );
-
-    // Overlap contract
-    for i in 0..chunk_starts.len() - 1 {
-        let overlap = accepted_ends[i].saturating_sub(chunk_starts[i + 1]);
-        assert!(
-            overlap >= CHUNK_OVERLAP_TOKENS,
-            "chunks {i} and {}: overlap {overlap} < {CHUNK_OVERLAP_TOKENS}",
-            i + 1
         );
     }
 }

@@ -1,5 +1,6 @@
 use std::io::Write;
 
+#[cfg(feature = "mlx")]
 use mlx_rs::error::Exception;
 use serde_json::json;
 use tempfile::NamedTempFile;
@@ -118,6 +119,7 @@ fn accepts_complete_synthetic_and_fixed_official_headers() {
 
 /// Called through each production loader, without MLX allocation. Each case
 /// changes one condition of a complete file, so another failure cannot mask it.
+#[cfg(feature = "mlx")]
 pub(crate) fn assert_loader_rejects(
     kind: WeightKind,
     load: impl Fn(&Path, &Config) -> Result<(), Exception>,
