@@ -195,6 +195,8 @@ fn from_probe_error_maps_correctly() {
 #[test]
 fn score_readback_preserves_finite_scores_and_rejects_invalid_logits() {
     use super::processing::scores_from_logits;
+    use std::error::Error;
+
     let scores = scores_from_logits(&[20.0, -20.0, 0.0, 1.0], 4, 128).unwrap();
     assert!(scores[0] > 0.999);
     assert!(scores[1] < 0.001);
@@ -211,10 +213,13 @@ fn score_readback_preserves_finite_scores_and_rejects_invalid_logits() {
         ));
     }
     for invalid in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
-        assert!(matches!(
-            scores_from_logits(&[0.0, invalid], 2, 128),
-            Err(RerankerError::NonFiniteOutput)
-        ));
+        let error = scores_from_logits(&[0.0, invalid], 2, 128).unwrap_err();
+        assert!(matches!(error, RerankerError::NonFiniteOutput));
+        assert_eq!(
+            error.to_string(),
+            "non-finite values in reranker output (NaN or inf)"
+        );
+        assert!(error.source().is_none());
     }
 }
 
