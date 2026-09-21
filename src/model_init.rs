@@ -31,7 +31,8 @@ pub enum ModelInitError {
         #[source]
         source: Option<Box<dyn Error + Send + Sync>>,
     },
-    /// Model weights loaded but are corrupt or incompatible with the expected architecture.
+    /// The probe subprocess reported a model load failure, including corrupt
+    /// or incompatible weights rejected before MLX allocation.
     #[error("model load failed: {reason}")]
     ModelCorrupt {
         /// Failure detail from the backend.

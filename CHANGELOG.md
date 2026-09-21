@@ -4,6 +4,13 @@
 
 ### Breaking Changes
 
+- **`modernbert::Config` に bias 設定4項目を追加。** Rust の構造体リテラルには
+  `attention_bias: false`・`mlp_bias: false`・`norm_bias: false`・`classifier_bias: false`
+  を指定する。JSON での省略は `false`、`true` は未対応として拒否する。
+  loader は F32 の全必須重み・shape を検証し、未知キーを拒否する。
+  reranker の公式 checkpoint にないランダムな `head.dense.bias` を除去したため、
+  logit・score・順位は旧版から変わり得る。最終 `classifier.bias` は必須として維持する。
+  [重みの読込み契約](README.md#重みの読込み契約) と [Issue #300](https://github.com/thkt/rurico/issues/300) を参照。
 - **`storage::rrf_merge` and `RRF_K` constant removed.** The free function and
   its hardcoded `RRF_K = 60.0` are deleted; `retrieval::WeightedRrf` is now
   the canonical RRF primitive (configurable `rrf_k` via `HybridSearchConfig`,

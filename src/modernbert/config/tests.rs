@@ -2,6 +2,10 @@ use super::*;
 
 pub fn test_config() -> Config {
     Config {
+        attention_bias: false,
+        mlp_bias: false,
+        norm_bias: false,
+        classifier_bias: false,
         vocab_size: 1000,
         hidden_size: 768,
         num_hidden_layers: 2,
@@ -255,4 +259,19 @@ fn config_validate_rejects_local_attention_above_bound() {
         |c| c.local_attention = (i32::MAX as usize) * 2 + 2,
         "local_attention",
     );
+}
+
+#[test]
+fn unsupported_bias_configuration_is_not_silently_ignored() {
+    let original =
+        include_str!("../../../tests/fixtures/modernbert_configs/ruri-v3-reranker-310m.json");
+    for field in ["attention_bias", "mlp_bias", "norm_bias", "classifier_bias"] {
+        let mut value: serde_json::Value = serde_json::from_str(original).unwrap();
+        value[field] = serde_json::json!(true);
+        let config: Config = serde_json::from_value(value).unwrap();
+        assert_eq!(
+            config.validate().unwrap_err(),
+            format!("{field}=true is unsupported")
+        );
+    }
 }

@@ -134,10 +134,60 @@ fn config_dim_to_i32_accepts_value_at_i32_max() {
 /// Run with `cargo test --features test-mlx -- --ignored` outside Codex seatbelt.
 #[cfg(feature = "test-mlx")]
 mod mlx_runtime_tests {
+    use mlx_rs::{memory, module::ModuleParametersExt, random};
     use serial_test::serial;
+    use std::time::Instant;
 
     use super::*;
     use crate::sandbox::require_unsandboxed_mlx_runtime;
+
+    /// Load cost comparison only; numerical embedding compatibility is checked
+    /// by the existing `mlx_smoke verify-fixture` W1/W2/W3 oracle.
+    #[test]
+    #[ignore = "requires cached official embed model and unsandboxed MLX"]
+    #[serial]
+    fn official_embedding_load_contract() {
+        use crate::embed::{ModelId, cached_artifacts};
+        use crate::model_io::ModelArtifact;
+
+        require_unsandboxed_mlx_runtime();
+        let id = ModelId::DEFAULT;
+        assert_eq!(id.revision(), "18b60fb8c2b9df296fb4212bb7d23ef94e579cd3");
+        let artifacts = cached_artifacts(id)
+            .unwrap()
+            .expect("cache fixed embed revision");
+        eprintln!(
+            "embed contract: model={} model/tokenizer_revision={} dtype=F32",
+            id.repo_id(),
+            id.revision()
+        );
+        for trial in 0..3 {
+            let order = if trial == 1 {
+                [true, false]
+            } else {
+                [false, true]
+            };
+            for checked in order {
+                memory::clear_cache().unwrap();
+                random::seed(0).unwrap();
+                memory::reset_peak_memory().unwrap();
+                let start = Instant::now();
+                let model = if checked {
+                    ModernBert::load(&artifacts.paths.model, &artifacts.config).unwrap()
+                } else {
+                    let mut model = ModernBert::new(&artifacts.config).unwrap();
+                    model.load_safetensors(&artifacts.paths.model).unwrap();
+                    model
+                };
+                let load_ms = start.elapsed().as_secs_f64() * 1000.0;
+                eprintln!(
+                    "trial={trial} checked={checked} seed=0 load_ms={load_ms:.3} metal_load_peak_bytes={}",
+                    memory::peak_memory().unwrap()
+                );
+                drop(model);
+            }
+        }
+    }
 
     #[test]
     #[ignore = "requires unsandboxed MLX runtime"]
@@ -351,4 +401,11 @@ mod mlx_runtime_tests {
         let result = model.forward(&[1, 2, 3], &[1, 1, 1], -1, 3);
         assert!(result.is_err(), "negative batch_size should return Err");
     }
+}
+
+#[test]
+fn load_rejects_incomplete_weights_before_mlx_allocation() {
+    weights::tests::assert_loader_rejects(WeightKind::Embed, |path, config| {
+        ModernBert::load(path, config).map(|_| ())
+    });
 }
