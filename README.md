@@ -149,7 +149,7 @@ let conn = Connection::open("my.db")?;
 
 ### FTS クエリパイプライン
 
-ユーザー入力をFTS5 `MATCH` に安全に渡すには `prepare_match_query` を使う。内部で normalize → sanitize → expand の3段階を経て、全トークンを引用符で囲んだ `MatchFtsQuery` を返す。
+ユーザー入力をFTS5 `MATCH` に安全に渡すには `prepare_match_query` を使う。内部で normalize → sanitize → expand の3段階を経て、最終出力時に各literalを一度だけ引用した `MatchFtsQuery` を返す。sanitizeの中間表現にはFTS構文の引用符を追加しない。
 
 ```rust
 use rurico::storage::{prepare_match_query, QueryNormalizationConfig, SanitizeError};
@@ -182,7 +182,9 @@ match prepare_match_query(&conn, user_input, "fts_chunks_vocab", &normalization)
 
 第4引数の `normalization` は Phase 5 (#69) で追加。runtime default は NFKC + ASCII lowercase + 連続空白の collapse がすべて ON で、indexing 側 (`docs_fts.body`) と querying 側で folding が一致するよう設計されている。明示的に旧挙動が必要な呼び出しは `pre_phase_5_disabled()` を渡す（pre-#69 のスナップショットも `BaselineSnapshot.normalization` の serde-default としてこの値を参照する）。
 
-`NEAR()` グループ、`^`/`+`/`-` プレフィックス、コロン、不均衡な引用符は内部で無害化される。`AND`/`OR`/`NOT` のようなoperator-like keywordは、前後に非operatorの語がある場合のみliteral termとして引用符で囲まれる。前後が欠けたdangling operator（例: 先頭の `NOT`、NEAR除去後に孤立した `OR`）は除去される。短い語（1-2文字）は指定した vocab テーブルがあればprefix展開される。vocab テーブルが存在しない場合だけはそのまま引用に劣化し、それ以外の SQLite 障害は `SanitizeError::VocabLookupFailed` を返す。
+`NEAR()` グループ、`^`/`+`/`-` プレフィックス、各語の端の括弧は除去される。コロン・語中のハイフン・入力の引用符はliteralの文字として保持し、最終出力で `"` を `""` にエスケープする。不均衡な引用符を補完したり、入力の引用符からphrase境界を解釈したりはせず、語の区切りは空白のままとする。`AND`/`OR`/`NOT` のようなoperator-like keywordは、前後に非operatorの語がある場合のみliteral termとして引用符で囲まれ、Boolean演算子にはならない。前後が欠けたdangling operator（例: 先頭の `NOT`、NEAR除去後に孤立した `OR`）は除去される。短い語（1-2文字）は指定した vocab テーブルがあればprefix展開されるが、operator-like keywordは展開しない。vocab テーブルが存在しない場合だけはそのまま引用に劣化し、それ以外の SQLite 障害は `SanitizeError::VocabLookupFailed` を返す。展開なしの短語がhitするかはtokenizerに依存し、trigramでは3文字未満のliteralはhitしない。
+
+amiciの `parse_fts_segments` が読むwire-formatは、固定語の `"..."`（内部引用符は `""`）、展開語群の `("..." OR "...")`、語・語群間の明示的な ` AND ` を維持する。[#297](https://github.com/thkt/rurico/issues/297)では、入力 `rate-limit` の出力を `"""rate-limit"""` から `"rate-limit"` へ修正した。構文形状や公開APIは変えないが、literalの内容と検索結果は修正される。amici側の互換性は依存rev更新時に既存のround-trip testで確認する（[契約の参照元 #249](https://github.com/thkt/rurico/issues/249)）。
 
 ### query normalization 単体利用
 
