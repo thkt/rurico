@@ -50,16 +50,10 @@ fn drop_dangling_operators(tokens: &[String]) -> Vec<&str> {
         .collect()
 }
 
-/// A pre-processed FTS5 query string — intermediate representation between
-/// raw user input and [`MatchFtsQuery`].
+/// Sanitized literal tokens, with no FTS syntax added. Input quote characters
+/// remain data; only the final MATCH serializer introduces syntax quoting.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct SanitizedFtsQuery(String);
-
-impl SanitizedFtsQuery {
-    pub(crate) fn as_str(&self) -> &str {
-        &self.0
-    }
-}
+pub(crate) struct SanitizedFtsQuery(Vec<String>);
 
 /// A fully expanded and quoted FTS5 query string, safe to pass to `MATCH`.
 ///
@@ -74,6 +68,10 @@ impl SanitizedFtsQuery {
 /// compiler or unit tests can enforce this; amici's round-trip test
 /// (`src/storage/fts/tests.rs`, `parse_fts_segments_recovers_rurico_or_group_wire_format`)
 /// detects drift at rurico rev-bump time. Tracking issue: thkt/amici#159.
+/// Input quote characters are escaped as `""` inside a literal. Sanitization
+/// adds no syntax quotes: `rate-limit` serializes as `"rate-limit"`, not
+/// `"""rate-limit"""` (#297). The wire grammar is unchanged; corrected literal
+/// contents still need amici's round-trip check when updating its rurico rev.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MatchFtsQuery(String);
 
@@ -109,8 +107,10 @@ pub enum SanitizeError {
 
 /// Neutralize FTS5 special syntax in user queries: `NEAR()` grouping,
 /// start-of-column `^`, required `+` / excluded `-` prefixes, column-filter
-/// colons, and unbalanced quotes. Operator-like keywords (`AND`, `OR`, `NOT`)
-/// sandwiched between non-operator terms are preserved (unquoted); dangling
+/// colons, and quotes. Colons and input quotes remain literal characters to be
+/// escaped at final serialization; no quote balancing or phrase parsing occurs.
+/// Operator-like keywords (`AND`, `OR`, `NOT`)
+/// sandwiched between non-operator terms are preserved as literals; dangling
 /// operators (e.g. leading `NOT`, trailing `OR` after NEAR removal) are dropped.
 pub(crate) fn sanitize_fts_query(query: &str) -> Result<SanitizedFtsQuery, SanitizeError> {
     if query.trim().is_empty() {
@@ -120,26 +120,18 @@ pub(crate) fn sanitize_fts_query(query: &str) -> Result<SanitizedFtsQuery, Sanit
         .into_iter()
         .map(|w| {
             let stripped = w.trim_start_matches(['^', '+', '-']);
-            let cleaned = stripped.trim_matches(['(', ')']);
-            if (cleaned.contains(':') || cleaned.contains('-')) && !cleaned.starts_with('"') {
-                let unquoted = cleaned.replace('"', "");
-                format!("\"{unquoted}\"")
-            } else {
-                cleaned.to_owned()
-            }
+            stripped.trim_matches(['(', ')']).to_owned()
         })
         .filter(|w| !w.is_empty())
         .collect();
-    let result = drop_dangling_operators(&tokens).join(" ");
+    let result: Vec<String> = drop_dangling_operators(&tokens)
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
     if result.is_empty() {
         return Err(SanitizeError::NoSearchableTerms);
     }
-    let quote_count = result.chars().filter(|&c| c == '"').count();
-    if quote_count % 2 != 0 {
-        Ok(SanitizedFtsQuery(format!("{result}\"")))
-    } else {
-        Ok(SanitizedFtsQuery(result))
-    }
+    Ok(SanitizedFtsQuery(result))
 }
 
 /// Wrap `s` in double quotes for FTS5 MATCH syntax, escaping internal `"` as `""`.
@@ -265,7 +257,7 @@ pub(crate) fn fts_expand_short_terms(
     };
 
     let mut parts = Vec::new();
-    for token in query.as_str().split_whitespace() {
+    for token in &query.0 {
         // Length check covers AND/NOT (3 chars); operator guard adds OR (2 chars).
         if token.chars().count() >= 3 || is_fts5_operator(token) {
             parts.push(fts_quote(token));
