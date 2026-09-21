@@ -259,8 +259,10 @@ fn probe_via_subprocess_with_reports_spawn_failure_for_missing_exe() {
 
 #[test]
 fn wait_with_timeout_with_kills_long_running_child_on_short_timeout() {
-    let mut child = Command::new("sh")
-        .args(["-c", "sleep 30"])
+    // Keep the sleeper as the direct child: a shell may leave a descendant
+    // holding the pipes open after it is killed. That case is tested separately.
+    let mut child = Command::new("sleep")
+        .arg("30")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -280,8 +282,8 @@ fn wait_with_timeout_with_kills_long_running_child_on_short_timeout() {
         "1ms poll interval should detect the 50ms deadline promptly; elapsed {elapsed:?}"
     );
     assert!(
-        output.status.code().is_none() || output.status.code() == Some(0),
-        "child should be killed (no exit code) or have exited; got {:?}",
+        output.status.code().is_none(),
+        "direct child should be killed and reaped (no exit code); got {:?}",
         output.status.code()
     );
 }
