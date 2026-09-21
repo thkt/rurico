@@ -2,6 +2,51 @@
 
 2026-09-21に実施。[Issue #303](https://github.com/thkt/rurico/issues/303)の実モデル観測に対応する。93回の推論がすべて期待した成功または注入エラーとなり、各失敗の後も成功出力へ復帰した。6サイクルの範囲では、失敗を繰り返すほど増え続ける傾向を確認しなかった。これは有限回・固定shapeの観測であり、長時間・全shapeのGPUメモリ保証ではない。
 
+本記録の実測と通常checkの件数は、公開版 `53c7442a41e1de193cde7e6e68dfa235f96f19bb`
+に収録された測定対象manifestの版に限る。以下のcoverage修正後の再実行結果ではない。
+
+## coverage修正との対応と再検証
+
+[PR #329のcoverage失敗](https://github.com/thkt/rurico/actions/runs/35561524033/job/106215159012)
+は上記公開版で変更行159行中101行未カバー、36%だった。通常CIで実行しない
+cachedモデル観測が `src/mlx_cache/testing.rs` に混在し、注入制御も通常テストから実行されていなかった。
+今回の修正では観測部分を `src/mlx_cache/testing/runtime.rs` に移し、このファイルだけを
+coverageの分母から除外する。観測の入力・93試行・検査・ログ形式は維持する。
+順序回帰と実際の注入制御は分母に残し、指定段階だけの失敗、解除、繰返し、
+別スレッドへの設定・計数の漏出を通常テストで検査する。
+`modernbert/model.rs` の部分Array生成後のForward注入地点も分母に残す。
+95%基準、製品の推論・cleanup・cache policy、依存版は変更しない。
+
+失敗ログの未カバー101行は、観測部分95行、注入制御5行、Forward注入地点1行に分かれる。
+追加した通常テストは注入制御の成功・失敗分岐を実行する。
+旧計測の行対応で観測部分を除き、この5行をカバーすれば63/64行（98.4%）となる。
+これは修正方針の根拠であり、追加テストの行や新しいcoverage mappingを含む実測値ではない。
+修正後の順序・注入制御テスト2件、対象crateのlib/testsのclippy、fmt、差分の空白検査は成功した。
+実モデルの観測部分は同じrustfmtを適用した移動前後で一致することも確認した。
+
+既存manifestと今回のソースを照合すると、記載済みファイルの変更は
+`src/mlx_cache/testing.rs` のみで、分離先が新しく加わる。
+元ログ・manifest・出力・ツールチェーン記録は過去の証拠として保持する。
+ファイル移動を保守費用や速度の改善とは扱わず、同条件の実行時間比較は未実施。
+
+ホストでは通常の `bash scripts/check.sh` に加えて、次の狭いcoverage実行で
+順序・注入制御・cache/FFIの検査を計測し、同じ95% gateを確認する。
+使用するbaseは `origin/main`。公開時にはCIのworkspace全体のcoverageも確認する。
+下記の結果は本記録にはまだ含まれていない。
+
+```sh
+cargo llvm-cov --locked --lib --features test-support,test-mlx \
+  --ignore-filename-regex '(test_support\.rs|/bin/|embed/(mlx|embedder)\.rs|reranker/mlx\.rs|model_io/hf_backend\.rs|/mlx_cache/testing/runtime\.rs$)' \
+  --lcov --output-path /tmp/rurico-303-revision-lcov.info -- mlx_cache::
+diff-cover /tmp/rurico-303-revision-lcov.info --compare-branch=origin/main --fail-under=95
+```
+
+さらに後述の同じ実モデルコマンドを新しい版で再実行し、3経路93試行の結果・全メモリサンプル・
+RSSを新規ログへ保存する。モデルrevision・shape・環境・ソースハッシュを記録し、
+移動後も注入と復帰を確認する。成功出力は末尾の保存済み比較プログラムを新しい版へ向けて実行し、
+同じseed=42で保存済みの全出力と比較する。元資料を上書きせず、新版の結果として対応付ける。
+通常check・狭いcoverage・実モデル再測定・独立評価・同じheadの必須CIはホストで確認する。
+
 ## 対象と条件
 
 - 開始版: `1a53b0dc1859b0a432b637faf79b3287304b8875`。変更後のRustソースとCargo設定・lockのSHA-256は[測定対象manifest](issue-303-cleanup-code.json)に保存した。

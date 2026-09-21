@@ -88,7 +88,15 @@ cargo run --features smoke --bin mlx_smoke
 `inference_drops_resources_before_one_cleanup_and_preserves_result` で確認する。
 forward・pool・eval・readbackを個別に失敗させ、一時リソースの解放後にcleanupが1回走り、
 元のエラーまたは成功出力を保持することを検証する。GPUメモリは測定しない。
+`injection_controls_select_only_the_requested_stage_and_thread` は、実際の注入制御が
+指定段階だけを失敗させ、解除後は成功し、別スレッドに注入設定・cleanup計数を漏らさないことを確認する。
 cache handle取得・clear・解放と失敗通知は既存のFFI/cacheテストで引き続き確認する。
+
+`src/mlx_cache/testing.rs` の順序検査と注入制御は通常CIのcoverage対象に含める。
+cachedモデル必須の観測コードだけを `src/mlx_cache/testing/runtime.rs` に分け、
+このファイルに限ってcoverageの分母から除外する。観測テストは引き続きビルドされ、
+以下のホスト実行で検証する。`modernbert/model.rs` のForward注入地点は除外しない。
+coverageは通常CIで実行した行を示す指標であり、実モデル観測の代わりにはしない。
 
 実モデルの反復観測は、GPUが使えるsandbox外のホストで、embed 310mとreranker 310mの
 固定revisionをHF cacheに配置してから次のテストだけを実行する。モデル未配置は失敗となる。
