@@ -52,14 +52,6 @@ fn expand_short_term_no_matches() {
 }
 
 #[test]
-fn expand_mixed_short_and_long() {
-    let conn = setup_fts_db();
-    let result = fts_expand_short_terms(&conn, &sanitized("au login"), "fts_chunks_vocab").unwrap();
-    assert!(result.as_str().contains("\"login\""), "{}", result.as_str());
-    assert!(result.as_str().contains(" OR "), "{}", result.as_str());
-}
-
-#[test]
 fn expand_operator_like_terms_are_quoted_not_expanded() {
     let conn = setup_fts_db();
     // NOT (3 chars) and OR (2 chars) must both be quoted as-is,
@@ -80,25 +72,7 @@ fn expand_operator_like_terms_are_quoted_not_expanded() {
 fn expand_special_chars_escaped() {
     let conn = setup_fts_db();
     let result = fts_expand_short_terms(&conn, &sanitized("a%"), "fts_chunks_vocab").unwrap();
-    assert!(
-        result.as_str().contains("\"audit\"") || result.as_str() == "\"a%\"",
-        "{}",
-        result.as_str()
-    );
-}
-
-#[test]
-fn expand_without_vocab_table_degrades() {
-    let conn = Connection::open_in_memory().unwrap();
-    let result = fts_expand_short_terms(&conn, &sanitized("au login"), "fts_chunks_vocab").unwrap();
-    assert_eq!(result.as_str(), "\"au\" AND \"login\"");
-}
-
-#[test]
-fn expand_single_char_term() {
-    let conn = setup_fts_db();
-    let result = fts_expand_short_terms(&conn, &sanitized("a"), "fts_chunks_vocab").unwrap();
-    assert!(result.as_str().contains("\"audit\"") || result.as_str() == "\"a\"");
+    assert_eq!(result.as_str(), "\"a%\"");
 }
 
 /// Tests below pin the sanitize / expand contract — pass `disabled()` so
@@ -108,12 +82,110 @@ fn no_norm() -> QueryNormalizationConfig {
     QueryNormalizationConfig::disabled()
 }
 
+// #297: synthetic input, serialized MATCH, and exact hits are kept together.
+// unicode61 discards punctuation; trigram exposes accidental extra quotes.
+// Each pair includes a distractor so dropping punctuation is also detectable.
 #[test]
-fn prepare_match_query_end_to_end() {
-    let conn = setup_fts_db();
-    let result = prepare_match_query(&conn, "au login", "fts_chunks_vocab", &no_norm()).unwrap();
-    assert!(result.as_str().contains("\"login\""), "{}", result.as_str());
-    assert!(result.as_str().contains(" OR "), "{}", result.as_str());
+fn prepare_match_query_literals_execute_with_both_tokenizers() {
+    let cases = [
+        (
+            "rate-limit",
+            r#""rate-limit""#,
+            ["rate-limit", "rate limit"],
+        ),
+        ("std::io", r#""std::io""#, ["std::io", "std io"]),
+        ("say\"hi", r#""say""hi""#, ["say\"hi", "say hi"]),
+        ("a\"b-c", r#""a""b-c""#, ["a\"b-c", "a b c"]),
+        (
+            "unbalanced\"",
+            r#""unbalanced""""#,
+            ["unbalanced\"", "unbalanced"],
+        ),
+        (
+            "\"rate-limit\"",
+            r#""""rate-limit""""#,
+            ["\"rate-limit\"", "rate-limit"],
+        ),
+        (
+            "(rate-limit)",
+            r#""rate-limit""#,
+            ["rate-limit", "rate limit"],
+        ),
+        ("abc(def)", r#""abc(def""#, ["abc(def)", "abc def"]),
+        ("abc*def%_", r#""abc*def%_""#, ["abc*def%_", "abc def"]),
+        (
+            " \trate-limit\nlogin　",
+            r#""rate-limit" AND "login""#,
+            ["rate-limit login", "rate limit login"],
+        ),
+    ];
+    for tokenizer in ["unicode61", "trigram"] {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(&format!(
+            "CREATE VIRTUAL TABLE docs USING fts5(body, tokenize='{tokenizer}');
+             CREATE VIRTUAL TABLE vocab USING fts5vocab(docs, row);"
+        ))
+        .unwrap();
+        for (input, expected_match, bodies) in cases {
+            conn.execute("DELETE FROM docs", []).unwrap();
+            for (id, body) in [1, 2].into_iter().zip(bodies) {
+                conn.execute("INSERT INTO docs(rowid, body) VALUES (?1, ?2)", (id, body))
+                    .unwrap();
+            }
+            let query = prepare_match_query(&conn, input, "vocab", &no_norm()).unwrap();
+            assert_eq!(query.as_str(), expected_match, "{tokenizer}: {input:?}");
+            let expected_hits: &[i64] = if tokenizer == "unicode61" {
+                &[1, 2]
+            } else {
+                &[1]
+            };
+            assert_eq!(
+                match_ids(&conn, &query),
+                expected_hits,
+                "{tokenizer}: {input:?}"
+            );
+        }
+    }
+}
+
+fn match_ids(conn: &Connection, query: &MatchFtsQuery) -> Vec<i64> {
+    conn.prepare("SELECT rowid FROM docs WHERE docs MATCH ?1 ORDER BY rowid")
+        .unwrap()
+        .query_map([query.as_str()], |row| row.get(0))
+        .unwrap_or_else(|e| panic!("MATCH rejected {:?}: {e}", query.as_str()))
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap()
+}
+
+#[test]
+fn prepare_match_query_japanese_expansion_executes_with_both_tokenizers() {
+    for tokenizer in ["unicode61", "trigram"] {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(&format!(
+            "CREATE VIRTUAL TABLE docs USING fts5(body, tokenize='{tokenizer}');
+             INSERT INTO docs VALUES ('日本語 rate-limit'), ('日本海 other'), ('日本語');
+             CREATE VIRTUAL TABLE vocab USING fts5vocab(docs, row);"
+        ))
+        .unwrap();
+        // Distinct frequencies make the existing cnt-descending order deterministic.
+        for input in ["日 rate-limit", "日本 rate-limit"] {
+            let query = prepare_match_query(&conn, input, "vocab", &no_norm()).unwrap();
+            assert_eq!(query.as_str(), r#"("日本語" OR "日本海") AND "rate-limit""#);
+            assert_eq!(match_ids(&conn, &query), [1], "{tokenizer}: {input}");
+        }
+        let query = prepare_match_query(&conn, "日本 日", "vocab", &no_norm()).unwrap();
+        assert_eq!(
+            query.as_str(),
+            r#"("日本語" OR "日本海") AND ("日本語" OR "日本海")"#
+        );
+        assert_eq!(match_ids(&conn, &query), [1, 2, 3], "{tokenizer}");
+
+        let query =
+            prepare_match_query(&conn, "日本 rate-limit", "missing_vocab", &no_norm()).unwrap();
+        assert_eq!(query.as_str(), r#""日本" AND "rate-limit""#);
+        // No full unicode61 term / fewer than three trigram characters: no expansion, no hit.
+        assert!(match_ids(&conn, &query).is_empty(), "{tokenizer}");
+    }
 }
 
 // #224: a vocab-expanded group adjacent to another token must form a valid
@@ -142,26 +214,52 @@ fn prepare_match_query_expanded_group_is_executable() {
 #[test]
 fn prepare_match_query_empty_input() {
     let conn = setup_fts_db();
-    assert_eq!(
-        prepare_match_query(&conn, "", "fts_chunks_vocab", &no_norm()),
-        Err(SanitizeError::EmptyInput)
-    );
+    for input in ["", " \t\n　"] {
+        assert_eq!(
+            prepare_match_query(&conn, input, "fts_chunks_vocab", &no_norm()),
+            Err(SanitizeError::EmptyInput)
+        );
+    }
+    for input in ["NEAR(a b)", "^", "AND OR NOT"] {
+        assert_eq!(
+            prepare_match_query(&conn, input, "fts_chunks_vocab", &no_norm()),
+            Err(SanitizeError::NoSearchableTerms)
+        );
+    }
 }
 
 #[test]
 fn prepare_match_query_operators_are_quoted() {
-    let conn = setup_fts_db();
-    let result = prepare_match_query(&conn, "foo OR bar", "fts_chunks_vocab", &no_norm()).unwrap();
-    assert_eq!(result.as_str(), "\"foo\" AND \"OR\" AND \"bar\"");
+    for tokenizer in ["unicode61", "trigram"] {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(&format!(
+            "CREATE VIRTUAL TABLE docs USING fts5(body, tokenize='{tokenizer}');
+             INSERT INTO docs VALUES ('foo OR bar'), ('foo bar'), ('foo order bar'),
+                                     ('foo'), ('bar'), ('foo NOT bar');
+             CREATE VIRTUAL TABLE vocab USING fts5vocab(docs, row);"
+        ))
+        .unwrap();
+        let query = prepare_match_query(&conn, "foo OR bar", "vocab", &no_norm()).unwrap();
+        assert_eq!(query.as_str(), r#""foo" AND "OR" AND "bar""#);
+        // OR stays literal and unexpanded (not "order"). Trigram cannot match two chars.
+        let expected: &[i64] = if tokenizer == "unicode61" { &[1] } else { &[] };
+        assert_eq!(match_ids(&conn, &query), expected, "{tokenizer}");
+
+        let query = prepare_match_query(&conn, "foo NOT bar", "vocab", &no_norm()).unwrap();
+        assert_eq!(query.as_str(), r#""foo" AND "NOT" AND "bar""#);
+        assert_eq!(match_ids(&conn, &query), [6], "{tokenizer}");
+    }
 }
 
 #[test]
 fn prepare_match_query_rejects_invalid_vocab_table_name() {
     let conn = setup_fts_db();
-    assert_eq!(
-        prepare_match_query(&conn, "au", "1vocab", &no_norm()),
-        Err(SanitizeError::InvalidVocabTable("1vocab".into()))
-    );
+    for vocab in ["", "1vocab"] {
+        assert_eq!(
+            prepare_match_query(&conn, "au", vocab, &no_norm()),
+            Err(SanitizeError::InvalidVocabTable(vocab.into()))
+        );
+    }
 }
 
 #[test]
@@ -178,37 +276,6 @@ fn prepare_match_query_surfaces_non_missing_vocab_errors() {
 }
 
 #[test]
-fn expand_rejects_leading_digit_vocab_name() {
-    let conn = setup_fts_db();
-    assert_eq!(
-        fts_expand_short_terms(&conn, &sanitized("au"), "1vocab"),
-        Err(SanitizeError::InvalidVocabTable("1vocab".into()))
-    );
-}
-
-#[test]
-fn expand_rejects_empty_vocab_name() {
-    let conn = setup_fts_db();
-    assert_eq!(
-        fts_expand_short_terms(&conn, &sanitized("au"), ""),
-        Err(SanitizeError::InvalidVocabTable("".into()))
-    );
-}
-
-#[test]
-fn expand_surfaces_non_missing_vocab_errors() {
-    let conn = Connection::open_in_memory().unwrap();
-    conn.execute("CREATE TABLE bad_vocab(term TEXT)", [])
-        .unwrap();
-
-    let result = fts_expand_short_terms(&conn, &sanitized("au"), "bad_vocab");
-    assert!(
-        matches!(result, Err(SanitizeError::VocabLookupFailed(_))),
-        "expected vocab lookup failure, got {result:?}"
-    );
-}
-
-#[test]
 fn prepare_match_query_with_missing_vocab_degrades() {
     let conn = Connection::open_in_memory().unwrap();
     let result = prepare_match_query(&conn, "au login", "fts_chunks_vocab", &no_norm()).unwrap();
@@ -217,18 +284,23 @@ fn prepare_match_query_with_missing_vocab_degrades() {
 
 #[test]
 fn prepare_match_query_default_normalizes_fullwidth_input() {
-    let conn = setup_fts_db();
-    // Phase 5 default: NFKC folds `ＬＯＧＩＮ` → `LOGIN` then ASCII
-    // lowercase folds to `login`. Without normalization the trigram
-    // index would never match the half-width form.
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch(
+        "CREATE VIRTUAL TABLE docs USING fts5(body, tokenize='trigram');
+         INSERT INTO docs VALUES ('rate-limit');",
+    )
+    .unwrap();
+    // Phase 5 defaults must fold full-width letters/punctuation and lowercase
+    // before sanitization, without adding literal quotes around the hyphen.
     let result = prepare_match_query(
         &conn,
-        "ＬＯＧＩＮ",
+        "ＲＡＴＥ－ＬＩＭＩＴ",
         "fts_chunks_vocab",
         &QueryNormalizationConfig::default(),
     )
     .unwrap();
-    assert_eq!(result.as_str(), "\"login\"");
+    assert_eq!(result.as_str(), "\"rate-limit\"");
+    assert_eq!(match_ids(&conn, &result), [1]);
 }
 
 fn prepare_err(conn: &Connection, sql: &str) -> rusqlite::Error {
@@ -261,11 +333,11 @@ fn is_missing_table_error_rejects_missing_column() {
 }
 
 fn sanitized(s: &str) -> SanitizedFtsQuery {
-    SanitizedFtsQuery(s.to_owned())
+    SanitizedFtsQuery(s.split_whitespace().map(str::to_owned).collect())
 }
 
 fn ok(s: &str) -> Result<SanitizedFtsQuery, SanitizeError> {
-    Ok(SanitizedFtsQuery(s.to_owned()))
+    Ok(sanitized(s))
 }
 
 // T-001: near_removal
@@ -289,40 +361,10 @@ fn near_unclosed_paren() {
     );
 }
 
-// T-002: auto_quote_hyphen
-#[test]
-fn auto_quote_hyphen() {
-    assert_eq!(sanitize_fts_query("rate-limit"), ok("\"rate-limit\""));
-}
-
-// T-003: auto_quote_colon
-#[test]
-fn auto_quote_colon() {
-    assert_eq!(sanitize_fts_query("std::io"), ok("\"std::io\""));
-}
-
 // T-004: prefix_strip
 #[test]
 fn prefix_strip() {
     assert_eq!(sanitize_fts_query("^+hello"), ok("hello"));
-}
-
-// T-005b: quote_balancing_exact_output
-#[test]
-fn quote_balancing_exact_output() {
-    assert_eq!(sanitize_fts_query("unbalanced\""), ok("unbalanced\"\""));
-}
-
-// T-006: empty_input
-#[test]
-fn empty_input() {
-    assert_eq!(sanitize_fts_query(""), Err(SanitizeError::EmptyInput));
-}
-
-// T-006b: whitespace_only
-#[test]
-fn whitespace_only() {
-    assert_eq!(sanitize_fts_query("   "), Err(SanitizeError::EmptyInput));
 }
 
 // T-011: sandwiched_operator_preserved
@@ -373,15 +415,6 @@ fn near_then_dangling_operator() {
 fn case_insensitive_operators() {
     assert_eq!(sanitize_fts_query("foo or bar"), ok("foo or bar"));
     assert_eq!(sanitize_fts_query("Not secret"), ok("secret"));
-}
-
-// T-016: prefix_only_returns_error
-#[test]
-fn prefix_only_returns_error() {
-    assert_eq!(
-        sanitize_fts_query("^"),
-        Err(SanitizeError::NoSearchableTerms)
-    );
 }
 
 // T-105-013: drop_dangling_operators_drops_operator_at_position_zero
