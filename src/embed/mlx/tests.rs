@@ -1,14 +1,11 @@
 use std::panic::catch_unwind;
 use std::sync::{Mutex, PoisonError};
 
-use mlx_rs::Array;
 use tracing_test::traced_test;
 
 use super::super::EmbedError;
 use super::super::metrics::EmbedKind;
-use super::{
-    IndexedChunk, build_indexed_chunks, distribute_into_buckets, pool_output, split_pooled,
-};
+use super::{IndexedChunk, build_indexed_chunks, distribute_into_buckets, split_pooled};
 use crate::model_io::{BUCKET_BOUNDS, assign_bucket};
 
 #[test]
@@ -19,7 +16,7 @@ fn poison_recovery_pattern_works() {
         panic!("intentional panic to poison lock");
     });
     assert!(lock.is_poisoned());
-    // Same pattern as mlx_cache::release_inference_output — unwrap_or_else recovers the guard
+    // Same pattern as mlx_cache::clear_inference_cache — unwrap_or_else recovers the guard
     let guard = lock.lock().unwrap_or_else(PoisonError::into_inner);
     drop(guard);
 }
@@ -364,25 +361,6 @@ fn split_pooled_single_batch_for_embed_query_path() {
         vec![0.1, 0.2, 0.3, 0.4, 0.5],
         "[T-012e] inner row must equal the full flat buffer"
     );
-}
-
-// T-014 / FR-002b / AC-1
-//
-// [T-014] Compile-time signature lock for `pool_output`. Mirrors T-004
-// in pooling.rs which guards `gpu_pool_and_normalize` against a future
-// refactor that relaxes `output: Array` to `&Array` (which would
-// defeat the drop-before-clear contract carried by
-// `release_inference_output`). `pool_output` is the layer above and
-// must not relax the same contract — relaxing it here would re-expose
-// the same regression vector at the higher abstraction.
-//
-// The coercion also pins the **return** type as owned `Array` (not
-// `&Array`); a refactor returning `Result<&Array, _>` would similarly
-// defeat `release_inference_output(pooled)` and is caught by the same
-// line below.
-#[test]
-fn pool_output_signature_consumes_output_by_value() {
-    let _coerce: fn(Array, &[u32], i32, i32) -> Result<Array, EmbedError> = pool_output;
 }
 
 // T-015a / FR-002c / AC-1 (sub-case of spec T-015)

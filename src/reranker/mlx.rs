@@ -1,5 +1,8 @@
+#[cfg(test)]
+use crate::mlx_cache::testing::{Stage, checkpoint};
+
 use super::{Artifacts, ModelInitError, RerankerError};
-use crate::mlx_cache::{Component, release_inference_output};
+use crate::mlx_cache::{Component, clear_inference_cache, run_inference};
 use crate::model_io::{
     BUCKET_BOUNDS, MAX_SEQ_LEN, assign_bucket, compute_sub_batch_size, pad_sequences,
     truncate_with_eos,
@@ -102,40 +105,45 @@ impl RerankerInner {
 
         let batch_size_i32 = i32::try_from(batch_size).expect("batch_size fits in i32");
         let max_len_i32 = i32::try_from(max_len).expect("max_len fits in i32");
-        let output = self
-            .model
-            .forward(&flat_ids, &flat_mask, batch_size_i32, max_len_i32)
-            .map_err(RerankerError::inference)?;
-
-        let result = (|| -> Result<Vec<f32>, RerankerError> {
-            output.eval().map_err(RerankerError::inference)?;
-            let flat: &[f32] = output.as_slice();
-            let flat_len = flat.len();
-            if flat_len != batch_size {
-                tracing::warn!(
-                    expected = batch_size,
-                    actual = flat_len,
-                    batch_size,
-                    bucket_len,
-                    "score_batch: output shape mismatch"
-                );
-                return Err(RerankerError::inference(format!(
-                    "score_batch: expected {batch_size} scores, got {flat_len}"
-                )));
-            }
-            let scores: Vec<f32> = flat.iter().map(|&logit| sigmoid(logit)).collect();
-            if scores.iter().any(|v| !v.is_finite()) {
-                tracing::warn!(
-                    batch_size,
-                    bucket_len,
-                    "score_batch: non-finite output detected (NaN or Inf in reranker scores)"
-                );
-                return Err(RerankerError::NonFiniteOutput);
-            }
-            Ok(scores)
-        })();
-        release_inference_output(output, Component::Reranker);
-        result
+        run_inference(
+            || {
+                self.model
+                    .forward(&flat_ids, &flat_mask, batch_size_i32, max_len_i32)
+                    .map_err(RerankerError::inference)
+            },
+            |output| {
+                output.eval().map_err(RerankerError::inference)?;
+                #[cfg(test)]
+                checkpoint(Stage::Eval).map_err(RerankerError::inference)?;
+                let flat: &[f32] = output.as_slice();
+                #[cfg(test)]
+                checkpoint(Stage::Readback).map_err(RerankerError::inference)?;
+                let flat_len = flat.len();
+                if flat_len != batch_size {
+                    tracing::warn!(
+                        expected = batch_size,
+                        actual = flat_len,
+                        batch_size,
+                        bucket_len,
+                        "score_batch: output shape mismatch"
+                    );
+                    return Err(RerankerError::inference(format!(
+                        "score_batch: expected {batch_size} scores, got {flat_len}"
+                    )));
+                }
+                let scores: Vec<f32> = flat.iter().map(|&logit| sigmoid(logit)).collect();
+                if scores.iter().any(|v| !v.is_finite()) {
+                    tracing::warn!(
+                        batch_size,
+                        bucket_len,
+                        "score_batch: non-finite output detected (NaN or Inf in reranker scores)"
+                    );
+                    return Err(RerankerError::NonFiniteOutput);
+                }
+                Ok(scores)
+            },
+            || clear_inference_cache(Component::Reranker),
+        )
     }
 }
 
@@ -196,6 +204,8 @@ impl RerankerModel {
         // CLS pooling: [batch, seq, hidden] -> [seq, batch, hidden] -> index(0) -> [batch, hidden]
         let cls = hidden.transpose_axes(&[1, 0, 2])?.index(0);
 
+        #[cfg(test)]
+        checkpoint(Stage::Pool)?;
         let x = self.head.dense.forward(&cls)?;
         let x = nn::gelu(&x)?;
         let x = self.head.norm.forward(&x)?;

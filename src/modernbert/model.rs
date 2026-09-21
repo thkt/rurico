@@ -1,3 +1,6 @@
+#[cfg(test)]
+use crate::mlx_cache::testing::{Stage, checkpoint};
+
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -381,6 +384,8 @@ impl ModernBert {
 
         for layer in &mut self.layers {
             xs = layer.forward(&xs, &global_mask, Some(&local_mask))?;
+            #[cfg(test)]
+            checkpoint(Stage::Forward)?;
         }
 
         self.final_norm.forward(&xs)

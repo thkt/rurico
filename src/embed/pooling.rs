@@ -3,7 +3,7 @@ use mlx_rs::{Array, Dtype, error::Exception, ops::maximum};
 /// GPU-side mask-weighted mean pool + L2 unit-norm. Mask is cast to
 /// `Float32` internally (FR-006). `hidden` is consumed by value to preserve
 /// the drop-before-clear ordering in
-/// `src/mlx_cache.rs::release_inference_output`.
+/// `src/mlx_cache.rs::run_inference`.
 ///
 /// No post-check on the pooled output: production callers go through
 /// `ModernBert::forward::validate_attention_mask`, which rejects all-zero

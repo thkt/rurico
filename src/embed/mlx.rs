@@ -1,3 +1,6 @@
+#[cfg(test)]
+use crate::mlx_cache::testing::{Stage, checkpoint};
+
 use std::thread;
 use std::time::Instant;
 
@@ -10,7 +13,7 @@ use super::{
     ModelInitError, extract_prefix_tokens, gpu_pool_and_normalize, max_content,
     tokenize_with_prefix, truncate_for_query,
 };
-use crate::mlx_cache::{Component, clear_inference_cache, release_inference_output};
+use crate::mlx_cache::{Component, clear_inference_cache, run_inference};
 use crate::model_io::{BUCKET_BOUNDS, assign_bucket, compute_sub_batch_size, pad_sequences};
 use crate::modernbert::ModernBert;
 
@@ -130,11 +133,8 @@ impl EmbedderInner {
     /// `pooled.as_slice()` reads only `hidden_size` f32s (NFR-002), then
     /// `split_pooled` validates that shape and rejects non-finite values
     /// before yielding the single row.
-    /// `release_inference_output` consumes the **pooled** Array; the
-    /// original `output` was consumed by `pool_output` (NFR-005
-    /// drop-before-clear). Error path: when post-forward ops fail,
-    /// `clear_inference_cache` keeps the MLX compile cache bounded
-    /// (Codex CX-001 regression guard).
+    /// `run_inference` drops every temporary Array before cleanup, including
+    /// partial forward, pool, eval and readback failures.
     pub(super) fn embed_query_truncated(
         &mut self,
         text: &str,
@@ -156,38 +156,33 @@ impl EmbedderInner {
         let hidden_size = self.embedding_dims;
 
         let t_forward = Instant::now();
-        let output = self
-            .model
-            .forward(&input_ids, &attention_mask, 1, bucket_len_i32)
-            .map_err(EmbedError::inference)?;
+        let result = run_inference(
+            || {
+                self.model
+                    .forward(&input_ids, &attention_mask, 1, bucket_len_i32)
+                    .map_err(EmbedError::inference)
+            },
+            |output| {
+                let pooled = pool_output(output, &attention_mask, 1, bucket_len_i32)?;
+                metrics.forward_eval = t_forward.elapsed();
 
-        let outcome: Result<(mlx_rs::Array, Vec<f32>), EmbedError> = (|| {
-            let pooled = pool_output(output, &attention_mask, 1, bucket_len_i32)?;
-            metrics.forward_eval = t_forward.elapsed();
-
-            let t_readback = Instant::now();
-            let flat: &[f32] = pooled.as_slice();
-            let pooled_vec = split_pooled(flat, 1, hidden_size, EmbedKind::Query)?
-                .into_iter()
-                .next()
-                .expect("split_pooled(_, 1, _) yields one row");
-            metrics.readback_pool = t_readback.elapsed();
-            Ok((pooled, pooled_vec))
-        })();
-
-        let t_clear = Instant::now();
-        let result = match outcome {
-            Ok((pooled, pooled_vec)) => {
-                release_inference_output(pooled, Component::Embed);
-                metrics.cache_clear = t_clear.elapsed();
+                let t_readback = Instant::now();
+                let flat: &[f32] = pooled.as_slice();
+                #[cfg(test)]
+                checkpoint(Stage::Readback).map_err(EmbedError::inference)?;
+                let pooled_vec = split_pooled(flat, 1, hidden_size, EmbedKind::Query)?
+                    .into_iter()
+                    .next()
+                    .expect("split_pooled(_, 1, _) yields one row");
+                metrics.readback_pool = t_readback.elapsed();
                 Ok(pooled_vec)
-            }
-            Err(e) => {
+            },
+            || {
+                let t_clear = Instant::now();
                 clear_inference_cache(Component::Embed);
                 metrics.cache_clear = t_clear.elapsed();
-                Err(e)
-            }
-        };
+            },
+        );
 
         // Query has `seq_len` real tokens followed by `bucket_len - seq_len`
         // zero-padding tokens added for bucket alignment.
@@ -329,15 +324,8 @@ impl EmbedderInner {
     /// (NFR-002, ADR 0002 primary lever) instead of `batch * seq * hidden`.
     /// `split_pooled` validates the readback shape per sub-batch (FR-002a)
     /// and rejects non-finite values before splitting into per-chunk
-    /// vectors. The `release_inference_output` argument is the **pooled**
-    /// Array; the original `output` was consumed by `pool_output`
-    /// (NFR-005 drop-before-clear).
-    ///
-    /// Error path: when `pool_output` / `split_pooled` errors after the
-    /// model forward succeeded, `output` was consumed and there is no
-    /// Array to release. `clear_inference_cache` runs unconditionally so
-    /// the global MLX compile cache does not accumulate kernel entries
-    /// across failed forwards (Codex CX-001 regression guard).
+    /// vectors. `run_inference` drops all temporary Arrays before cleanup on
+    /// success and on forward, pool, eval or readback failure.
     fn forward_sub_batch(
         &mut self,
         sub_batch: &[IndexedChunk],
@@ -358,39 +346,30 @@ impl EmbedderInner {
         let hidden_size = self.embedding_dims;
 
         let t_forward = Instant::now();
-        let output = self
-            .model
-            .forward(&input_ids, &attention_mask, batch_size_i32, max_len_i32)
-            .map_err(EmbedError::inference)?;
+        let unpacked = run_inference(
+            || {
+                self.model
+                    .forward(&input_ids, &attention_mask, batch_size_i32, max_len_i32)
+                    .map_err(EmbedError::inference)
+            },
+            |output| {
+                let pooled = pool_output(output, &attention_mask, batch_size_i32, max_len_i32)?;
+                metrics.forward_eval += t_forward.elapsed();
 
-        // Closure carries the pooled Array out on success so the caller
-        // releases it (drop-before-clear); on Err the closure has already
-        // dropped any partial Array via `?` and the caller falls through
-        // to `clear_inference_cache`.
-        let outcome: Result<(mlx_rs::Array, Vec<Vec<f32>>), EmbedError> = (|| {
-            let pooled = pool_output(output, &attention_mask, batch_size_i32, max_len_i32)?;
-            metrics.forward_eval += t_forward.elapsed();
-
-            let t_readback = Instant::now();
-            let flat: &[f32] = pooled.as_slice();
-            let unpacked = split_pooled(flat, batch_size, hidden_size, EmbedKind::Batch)?;
-            metrics.readback_pool += t_readback.elapsed();
-            Ok((pooled, unpacked))
-        })();
-
-        let t_clear = Instant::now();
-        let unpacked = match outcome {
-            Ok((pooled, unpacked)) => {
-                release_inference_output(pooled, Component::Embed);
-                metrics.cache_clear += t_clear.elapsed();
-                unpacked
-            }
-            Err(e) => {
+                let t_readback = Instant::now();
+                let flat: &[f32] = pooled.as_slice();
+                #[cfg(test)]
+                checkpoint(Stage::Readback).map_err(EmbedError::inference)?;
+                let unpacked = split_pooled(flat, batch_size, hidden_size, EmbedKind::Batch)?;
+                metrics.readback_pool += t_readback.elapsed();
+                Ok(unpacked)
+            },
+            || {
+                let t_clear = Instant::now();
                 clear_inference_cache(Component::Embed);
                 metrics.cache_clear += t_clear.elapsed();
-                return Err(e);
-            }
-        };
+            },
+        )?;
 
         for (chunk, emb) in sub_batch.iter().zip(unpacked) {
             out[chunk.global_idx] = Some(emb);
@@ -514,8 +493,8 @@ pub(super) fn shrink_chunk_to_fit(
 /// the GPU before the caller reads it back.
 ///
 /// The `output: Array` consume-by-value signature carries the
-/// drop-before-clear contract of [`release_inference_output`] from this
-/// layer up to the caller (compile-time guard via T-014). The returned
+/// drop-before-clear contract of [`run_inference`] from this
+/// layer up to the caller. The returned
 /// pooled `Array` is the **only** Array the caller now owns from this
 /// forward pass — `output` was consumed by `gpu_pool_and_normalize`.
 ///
@@ -535,8 +514,12 @@ pub(super) fn pool_output(
     seq_len: i32,
 ) -> Result<Array, EmbedError> {
     let mask = Array::from_slice(attention_mask, &[batch_size, seq_len]);
+    #[cfg(test)]
+    checkpoint(Stage::Pool).map_err(EmbedError::inference)?;
     let pooled = gpu_pool_and_normalize(output, &mask).map_err(EmbedError::inference)?;
     pooled.eval().map_err(EmbedError::inference)?;
+    #[cfg(test)]
+    checkpoint(Stage::Eval).map_err(EmbedError::inference)?;
     Ok(pooled)
 }
 
