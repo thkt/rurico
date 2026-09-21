@@ -21,7 +21,7 @@ mod runtime {
 
     use super::*;
     use crate::model_io::ModelArtifact;
-    use crate::reranker::{RerankerModelId, cached_artifacts};
+    use crate::reranker::{RerankerModelId, cached_artifacts, processing::sigmoid};
     use crate::sandbox::require_unsandboxed_mlx_runtime;
 
     // Chosen before GPU comparison. Both logits and sigmoid scores must satisfy

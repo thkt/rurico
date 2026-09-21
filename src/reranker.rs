@@ -1,5 +1,6 @@
 mod lazy;
 mod mlx;
+mod processing;
 
 #[cfg(any(test, feature = "test-support"))]
 mod test_support;
