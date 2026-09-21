@@ -24,8 +24,8 @@ use serde::{Deserialize, Serialize};
 ///
 /// May return NaN for non-finite inputs (NaN `half_life_days`, or `age_days`
 /// and `half_life_days` both `+inf`). The sole production caller
-/// ([`WeightedRrf::merge_with_recency`]) clamps the resulting boost with
-/// `is_finite()`; new callers must clamp likewise or move the clamp here.
+/// ([`WeightedRrf::merge_with_recency`]) skips non-finite boosts and boosted
+/// scores; new callers must guard their results likewise.
 pub(crate) fn recency_decay(age_days: f64, half_life_days: f64) -> f64 {
     if half_life_days <= 0.0 {
         return 0.0;
@@ -234,6 +234,14 @@ pub struct RecencyConfig {
 /// fused score, where `weight` comes from
 /// [`HybridSearchConfig::source_weights`]. With default config the formula
 /// reduces to `1 / (60 + rank)`.
+///
+/// # Process Behavior
+///
+/// Invalid weights/denominators and non-finite quotients are skipped per
+/// candidate. If accumulating finite contributions overflows either the fused
+/// score or a source subtotal, the entire `(doc_id, chunk_id)` hit is omitted.
+/// Scores are never clamped or returned as NaN/inf. Negative finite weights
+/// remain supported. The failure contract is omission, not a `Result` error.
 #[derive(Debug, Default, Clone)]
 pub struct WeightedRrf {
     /// Active hybrid scoring configuration.
@@ -252,10 +260,11 @@ impl WeightedRrf {
     /// recency_decay(age, recency.half_life_days)` onto each hit whose
     /// `age_days_for` lookup returns `Some(age)`. Hits with `None` age are
     /// left at their RRF score, as is any hit whose boost would come out
-    /// non-finite (see [`RecencyConfig`]). Output is re-sorted after the
-    /// boost; the re-sort compares `score` then `doc_id` only, but stable
-    /// sorting plus the per-doc (not per-chunk) boost preserves the 3-key
-    /// order guaranteed by [`MergeStrategy::merge`].
+    /// non-finite (see [`RecencyConfig`]). A finite boost whose addition would
+    /// overflow is also skipped, retaining the unboosted RRF score and source
+    /// contributions. Output is re-sorted after the boost using the 3-key
+    /// order guaranteed by [`MergeStrategy::merge`], including ties created
+    /// by rounding or by skipping an overflowing boost.
     ///
     /// `source_scores` continues to record only per-source RRF
     /// contributions — the recency component lives in `score` only, since
@@ -282,8 +291,9 @@ impl WeightedRrf {
                 // A non-finite boost (NaN half_life, or half_life and age both
                 // +inf) would poison the fused score: skip it and keep the RRF
                 // score.
-                if boost.is_finite() {
-                    hit.score += boost;
+                let boosted_score = hit.score + boost;
+                if boosted_score.is_finite() {
+                    hit.score = boosted_score;
                 }
             }
         }
@@ -291,6 +301,7 @@ impl WeightedRrf {
             b.score
                 .total_cmp(&a.score)
                 .then_with(|| a.doc_id.cmp(&b.doc_id))
+                .then_with(|| a.chunk_id.cmp(&b.chunk_id))
         });
         hits
     }
@@ -355,6 +366,9 @@ impl MergeStrategy for WeightedRrf {
                 continue;
             }
             let contribution = weight / denom;
+            if !contribution.is_finite() {
+                continue;
+            }
             let key = (cand.doc_id.as_str(), cand.chunk_id.as_deref());
             let entry = acc.entry(key).or_default();
             entry.score += contribution;
@@ -362,6 +376,11 @@ impl MergeStrategy for WeightedRrf {
         }
         let mut hits: Vec<MergedHit> = acc
             .into_iter()
+            // Each source has one fixed weight sign and positive denominators.
+            // With two sources, overflow cannot recover to a representable
+            // fused score AND representable source subtotals. Omit the whole
+            // hit rather than returning a partial, input-order-dependent sum.
+            .filter(|(_, a)| a.score.is_finite() && a.source_scores.values().all(|v| v.is_finite()))
             .map(|((doc_id, chunk_id), a)| MergedHit {
                 doc_id: doc_id.to_owned(),
                 chunk_id: chunk_id.map(str::to_owned),
@@ -483,6 +502,15 @@ impl Aggregator for DedupeAggregator {
 
 /// Top-k average aggregator — for each `doc_id`, averages its highest `k`
 /// scores. Output is sorted by aggregate score descending.
+///
+/// Finite inputs retain finite averages even when the direct sum overflows,
+/// including negative scores and source contributions. Missing sources count
+/// as zero in the selected hits; an absent source remains absent in the output.
+///
+/// # Process Behavior
+///
+/// A parent whose selected hits contain a non-finite score or source contribution
+/// is omitted. No score is clamped. `k = 0` and empty inputs return no hits.
 #[derive(Debug, Clone, Copy)]
 pub struct TopKAverageAggregator {
     /// Number of top-scoring hits per `doc_id` to include in the average. A
@@ -498,6 +526,54 @@ impl TopKAverageAggregator {
     }
 }
 
+/// Preserve ordinary sum/divide rounding, rescaling only on sum overflow.
+/// `count` includes implicit zeros for sources missing from selected hits.
+fn finite_mean(values: impl Iterator<Item = f64> + Clone, count: usize) -> Option<f64> {
+    #[allow(clippy::cast_precision_loss)]
+    let len = count as f64;
+    let sum = values.clone().sum::<f64>();
+    if sum.is_finite() {
+        return Some(sum / len);
+    }
+    let mut positive = Vec::new();
+    let mut negative = Vec::new();
+    for value in values {
+        if !value.is_finite() {
+            return None;
+        }
+        if value > 0.0 {
+            positive.push(value);
+        } else if value < 0.0 {
+            negative.push(value);
+        }
+    }
+    // Cancel large opposite signs before rescaling, so a small residual is
+    // not lost by dividing it by MAX (e.g. MAX + MAX + tiny - MAX - MAX).
+    // Adding opposite signs cannot overflow. Only same-sign terms remain.
+    positive.sort_by(f64::total_cmp);
+    negative.sort_by(|a, b| b.total_cmp(a));
+    let mut residual = 0.0;
+    loop {
+        let next = if residual <= 0.0 {
+            positive.pop()
+        } else {
+            negative.pop()
+        };
+        let Some(value) = next else { break };
+        residual += value;
+    }
+    let remaining = positive.into_iter().chain(negative).chain([residual]);
+    let sum = remaining.clone().sum::<f64>();
+    if sum.is_finite() {
+        return Some(sum / len);
+    }
+    let scale = remaining.clone().map(f64::abs).fold(0.0, f64::max);
+    // Normalized terms are bounded by 1; their mean is also bounded by 1.
+    // Rescale after division, even for repeated MAX or implicit source zeros.
+    let mean = (remaining.map(|value| value / scale).sum::<f64>() / len) * scale;
+    Some(mean)
+}
+
 impl Aggregator for TopKAverageAggregator {
     fn aggregate(&self, hits: &[MergedHit]) -> Vec<MergedHit> {
         if self.k == 0 {
@@ -505,23 +581,29 @@ impl Aggregator for TopKAverageAggregator {
         }
         let mut output: Vec<MergedHit> = group_by_parent(hits)
             .into_iter()
-            .map(|(id, mut bucket)| {
+            .filter_map(|(id, mut bucket)| {
                 bucket.sort_by(|a, b| b.score.total_cmp(&a.score));
                 bucket.truncate(self.k);
-                #[allow(clippy::cast_precision_loss)]
-                let len = bucket.len() as f64;
-                let mean = bucket.iter().map(|h| h.score).sum::<f64>() / len;
+                let mean = finite_mean(bucket.iter().map(|h| h.score), bucket.len())?;
                 let mut source_scores: HashMap<CandidateSource, f64> = HashMap::new();
                 for hit in &bucket {
-                    for (src, val) in &hit.source_scores {
-                        *source_scores.entry(*src).or_default() += val;
+                    for src in hit.source_scores.keys() {
+                        source_scores.entry(*src).or_default();
                     }
                 }
-                #[allow(clippy::cast_precision_loss)]
-                for value in source_scores.values_mut() {
-                    *value /= len;
+                for (src, value) in &mut source_scores {
+                    *value = finite_mean(
+                        bucket
+                            .iter()
+                            .filter_map(|hit| hit.source_scores.get(src).copied()),
+                        bucket.len(),
+                    )?;
                 }
-                MergedHit::parent_granular(id.to_owned(), mean, source_scores)
+                Some(MergedHit::parent_granular(
+                    id.to_owned(),
+                    mean,
+                    source_scores,
+                ))
             })
             .collect();
         output.sort_by(|a, b| {

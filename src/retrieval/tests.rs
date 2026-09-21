@@ -880,3 +880,166 @@ fn weighted_rrf_fts_heavy_weight_reorders() {
     let weighted_d2_score = 5.0 / 65.0 + 1.0 / 60.0;
     assert!((output[0].score - weighted_d2_score).abs() < f64::EPSILON);
 }
+
+// Finite inputs can overflow division before any accumulator is created.
+#[test]
+fn weighted_rrf_skips_overflowing_quotients_without_losing_valid_sources() {
+    for weight in [1.0, -1.0] {
+        let strategy = WeightedRrf::new(HybridSearchConfig {
+            rrf_k: 1e-320,
+            source_weights: HashMap::from([
+                (CandidateSource::Fts, weight),
+                (CandidateSource::Vector, 1e-320),
+            ]),
+        });
+        let output = strategy.merge(&[
+            candidate(CandidateSource::Fts, "overflow_only", 0),
+            candidate(CandidateSource::Fts, "mixed", 0),
+            candidate(CandidateSource::Vector, "mixed", 0),
+            candidate(CandidateSource::Fts, "valid_rank", 1),
+        ]);
+        let mut expected = vec![
+            hit_with_sources("mixed", 1.0, &[(CandidateSource::Vector, 1.0)]),
+            hit_with_sources("valid_rank", weight, &[(CandidateSource::Fts, weight)]),
+        ];
+        expected.sort_by(|a, b| b.score.total_cmp(&a.score));
+        assert_eq!(output, expected);
+    }
+}
+
+// Both fused overflow and a source overflow hidden by cancellation must be
+// rejected, without dropping another chunk belonging to the same parent.
+#[test]
+fn weighted_rrf_omits_hits_with_overflowing_totals() {
+    for sign in [1.0, -1.0] {
+        for vector_sign in [1.0, -1.0] {
+            let strategy = WeightedRrf::new(HybridSearchConfig {
+                rrf_k: 1.0,
+                source_weights: HashMap::from([
+                    (CandidateSource::Fts, sign * f64::MAX),
+                    (CandidateSource::Vector, sign * vector_sign * f64::MAX),
+                ]),
+            });
+            let mut valid = candidate(CandidateSource::Fts, "parent", 1);
+            valid.chunk_id = Some("valid".into());
+            let mut input = vec![
+                candidate(CandidateSource::Fts, "parent", 0),
+                candidate(CandidateSource::Vector, "parent", 0),
+                valid,
+            ];
+            if vector_sign < 0.0 {
+                input.push(candidate(CandidateSource::Fts, "parent", 0));
+            }
+            let mut expected = hit_with_sources(
+                "parent",
+                sign * f64::MAX / 2.0,
+                &[(CandidateSource::Fts, sign * f64::MAX / 2.0)],
+            );
+            expected.chunk_id = Some("valid".into());
+            assert_eq!(strategy.merge(&input), vec![expected.clone()]);
+            input.reverse();
+            assert_eq!(strategy.merge(&input), vec![expected]);
+        }
+    }
+}
+
+#[test]
+fn recency_overflow_keeps_rrf_and_orders_new_chunk_ties() {
+    for sign in [1.0, -1.0] {
+        let strategy = WeightedRrf::new(HybridSearchConfig {
+            rrf_k: 1.0,
+            source_weights: HashMap::from([(CandidateSource::Fts, sign * f64::MAX)]),
+        });
+        let mut high = candidate(CandidateSource::Fts, "parent", 0);
+        high.chunk_id = Some("z".into());
+        let mut low = candidate(CandidateSource::Fts, "parent", 1);
+        low.chunk_id = Some("a".into());
+        let candidates = [high, low];
+        let recency = RecencyConfig {
+            weight: sign * f64::MAX / 2.0,
+            half_life_days: 30.0,
+        };
+        let output = strategy.merge_with_recency(&candidates, &recency, |_| Some(0.0));
+        assert_eq!(output.len(), 2);
+        assert_eq!(output[0].chunk_id.as_deref(), Some("a"));
+        assert_eq!(output[1].chunk_id.as_deref(), Some("z"));
+        assert!(output.iter().all(|hit| hit.score == sign * f64::MAX));
+        assert_eq!(
+            output[0].source_scores[&CandidateSource::Fts],
+            sign * f64::MAX / 2.0
+        );
+        assert_eq!(
+            output[1].source_scores[&CandidateSource::Fts],
+            sign * f64::MAX
+        );
+        // A large opposite-sign boost is valid, including exact cancellation.
+        let recency = RecencyConfig {
+            weight: -sign * f64::MAX,
+            ..recency
+        };
+        let output = strategy.merge_with_recency(&candidates[..1], &recency, |_| Some(0.0));
+        assert_eq!(output[0].score, 0.0);
+    }
+}
+
+#[test]
+fn topk_average_preserves_representable_extreme_means() {
+    let max = f64::MAX;
+    for (scores, expected) in [
+        (vec![max, max], max),
+        (vec![max, max, max], max),
+        (vec![-max, -max], -max),
+        (vec![max, max, -max], max / 3.0),
+        (vec![max, -max, -max], -max / 3.0),
+        (vec![max, max, -max, -max], 0.0),
+        (vec![max, max, 1.0, -max, -max], 0.2),
+        (vec![max, max, 1e-320, -max, -max], 1e-320 / 5.0),
+    ] {
+        let hits: Vec<_> = scores
+            .iter()
+            .map(|&score| hit_with_sources("parent", score, &[(CandidateSource::Fts, score)]))
+            .collect();
+        let output = TopKAverageAggregator::new(hits.len()).aggregate(&hits);
+        assert_eq!(
+            output,
+            vec![hit_with_sources(
+                "parent",
+                expected,
+                &[(CandidateSource::Fts, expected)]
+            )]
+        );
+    }
+    // Source averages overflow independently of the score; missing sources
+    // still count as zero, and the unselected hit must not enter either mean.
+    let output = TopKAverageAggregator::new(3).aggregate(&[
+        hit_with_sources("parent", 3.0, &[(CandidateSource::Vector, max)]),
+        hit_with_sources("parent", 2.0, &[(CandidateSource::Vector, max)]),
+        hit("parent", 1.0),
+        hit_with_sources("parent", -1.0, &[(CandidateSource::Vector, -max)]),
+    ]);
+    assert_eq!(
+        output,
+        vec![hit_with_sources(
+            "parent",
+            2.0,
+            &[(CandidateSource::Vector, (2.0 / 3.0) * max)]
+        )]
+    );
+}
+
+#[test]
+fn topk_average_omits_non_finite_selected_parents() {
+    for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        let output = TopKAverageAggregator::new(2).aggregate(&[
+            hit("bad_score", bad),
+            hit_with_sources("bad_source", 1.0, &[(CandidateSource::Fts, bad)]),
+            hit("valid", -2.0),
+        ]);
+        assert_eq!(output, vec![hit("valid", -2.0)]);
+    }
+}
+
+#[test]
+fn topk_average_empty_input_returns_empty() {
+    assert!(TopKAverageAggregator::new(2).aggregate(&[]).is_empty());
+}

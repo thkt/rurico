@@ -285,6 +285,19 @@ let aggregated = aggregator.aggregate(&merged);
 
 独自の `Aggregator` を実装する場合は `group_by_parent(&merged) -> HashMap<&str, Vec<&MergedHit>>` で parent 単位にバケットできる。
 
+#### スコア計算の有限性と失敗時の扱い
+
+`WeightedRrf` は重みがゼロ・非有限、分母が非正・非有限、または除算結果が非有限となる候補の寄与をスキップする。
+有限の寄与を足した結果、合計スコアか source ごとの総和が overflow する場合は、その `(doc_id, chunk_id)` の hit 全体を除外する。
+一部の総和だけを返したり、上限値に丸めたりはしない。負の有限重みも利用でき、分母が正であれば負の `rrf_k` も利用できる。
+`merge_with_recency` は boost 自体または加算後のスコアが非有限になる場合、その boost をスキップして元の RRF スコアを保つ。
+source contribution は recency を含まない。並び順はスコア降順、`doc_id` 昇順、`chunk_id` 昇順を維持する。
+
+`TopKAverageAggregator` は通常の総和が overflow する場合に計算を組み替え、`f64::MAX` 2 件の平均も有限の `f64::MAX` として返す。
+負値を含むスコアと source contribution を同様に平均し、選択した hit にない source はゼロとして件数に含める。
+上位 `k` 件に非有限のスコアまたは source contribution が含まれる parent は除外する。`k = 0` と空入力は空の結果を返す。
+これらの失敗は `Result` エラーではなく、寄与・hit の除外または boost のスキップとして扱う。
+
 ### ベクトルのバイト変換
 
 `sqlite-vec` にベクトルをバインドする際は `bytemuck::cast_slice` で zero-copy に `&[f32] → &[u8]` を行う。rurico は little-endian ターゲットでのみビルドされるため、変換結果は sqlite-vec が期待する byte layout と一致する。
