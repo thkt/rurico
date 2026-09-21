@@ -1,0 +1,18 @@
+Input diff: git diff 6c0967b1f5f2337a03bb5eac6829f8a8c80c8362 --
+Command: diff-cover <host-validation/lcov.info> --diff-file <working-tree-vs-main.diff> --fail-under=95
+Exit code: 0
+The Diff label below is diff-cover 10.3.0 default display; --diff-file supplied the actual diff above.
+
+-------------
+Diff Coverage
+Diff: origin/main...HEAD, staged and unstaged changes
+-------------
+src/mlx_cache.rs (100%)
+src/mlx_cache/testing.rs (100%)
+src/modernbert/model.rs (0.0%): Missing lines 386
+-------------
+Total:   107 lines
+Missing: 1 line
+Coverage: 99%
+-------------
+

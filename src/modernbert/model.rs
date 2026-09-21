@@ -5,17 +5,14 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use mlx_rs::{
-    Array,
-    builder::Builder,
-    error::Exception,
-    fast::scaled_dot_product_attention,
-    macros::ModuleParameters,
-    module::{Module, ModuleParametersExt},
-    nn,
-    ops::indexing::IndexOp,
+    Array, builder::Builder, error::Exception, fast::scaled_dot_product_attention,
+    macros::ModuleParameters, module::Module, nn, ops::indexing::IndexOp,
 };
 
-use super::Config;
+use super::{
+    Config,
+    weights::{self, WeightKind},
+};
 
 #[derive(Debug, Clone, ModuleParameters)]
 #[allow(non_snake_case)]
@@ -134,14 +131,13 @@ impl Mlp {
 #[derive(Debug, Clone, ModuleParameters)]
 struct TransformerLayer {
     #[param]
-    attn_norm: nn::LayerNorm,
+    attn_norm: Option<nn::LayerNorm>,
     #[param]
     attn: Attention,
     #[param]
     mlp_norm: nn::LayerNorm,
     #[param]
     mlp: Mlp,
-    uses_attn_norm: bool,
 }
 
 impl TransformerLayer {
@@ -151,9 +147,13 @@ impl TransformerLayer {
         let h = config_dim_to_i32("hidden_size", config.hidden_size)?;
         let eps = layer_norm_eps_f32(config);
 
-        let attn_norm = nn::LayerNormBuilder::new(h).eps(eps).build()?;
+        let attn_norm = if layer_id == 0 {
+            None
+        } else {
+            Some(biasless_layer_norm(h, eps)?)
+        };
         let attn = Attention::new(config, rope_theta, uses_local)?;
-        let mlp_norm = nn::LayerNormBuilder::new(h).eps(eps).build()?;
+        let mlp_norm = biasless_layer_norm(h, eps)?;
         let mlp = Mlp::new(config)?;
 
         Ok(Self {
@@ -161,7 +161,6 @@ impl TransformerLayer {
             attn,
             mlp_norm,
             mlp,
-            uses_attn_norm: layer_id != 0,
         })
     }
 
@@ -173,8 +172,8 @@ impl TransformerLayer {
     ) -> Result<Array, Exception> {
         let residual = xs.clone();
 
-        let normed = if self.uses_attn_norm {
-            self.attn_norm.forward(xs)?
+        let normed = if let Some(norm) = &mut self.attn_norm {
+            norm.forward(xs)?
         } else {
             xs.clone()
         };
@@ -234,13 +233,13 @@ impl ModernBert {
         let vocab_size = config_dim_to_i32("vocab_size", config.vocab_size)?;
 
         let tok_embeddings = nn::Embedding::new(vocab_size, h)?;
-        let emb_norm = nn::LayerNormBuilder::new(h).eps(eps).build()?;
+        let emb_norm = biasless_layer_norm(h, eps)?;
 
         let layers = (0..config.num_hidden_layers)
             .map(|i| TransformerLayer::new(config, i))
             .collect::<Result<Vec<_>, _>>()?;
 
-        let final_norm = nn::LayerNormBuilder::new(h).eps(eps).build()?;
+        let final_norm = biasless_layer_norm(h, eps)?;
 
         Ok(Self {
             embeddings: Embeddings {
@@ -260,8 +259,11 @@ impl ModernBert {
     /// # Errors
     ///
     /// Returns an MLX [`Exception`] if the model file does not exist, `config`
-    /// is invalid, or SafeTensors loading fails. Exception messages are
-    /// backend-generated and should be treated as opaque.
+    /// is invalid, or weights have missing/unknown keys, incorrect shapes,
+    /// unsupported dtypes, invalid metadata/data ranges, or fail backend loading.
+    /// Only F32 checkpoints with the exact embedding parameter names are accepted.
+    /// Diagnostic messages identify the offending key/condition but are not a
+    /// stable API. Validation reads only the header before MLX allocation.
     pub fn load(path: impl AsRef<Path>, config: &Config) -> Result<Self, Exception> {
         let path = path.as_ref();
         if !path.exists() {
@@ -270,11 +272,7 @@ impl ModernBert {
                 path.display()
             )));
         }
-        let mut model = Self::new(config)?;
-        model
-            .load_safetensors(path)
-            .map_err(|e| Exception::custom(format!("SafeTensors load error: {e}")))?;
-        Ok(model)
+        weights::load(path, config, WeightKind::Embed, Self::new)
     }
 
     /// Run a forward pass, returning final hidden states `[batch_size, seq_len, hidden_size]`.
@@ -490,3 +488,11 @@ fn get_local_attention_mask(seq_len: i32, half_window: i32) -> Result<Array, Exc
 
 #[cfg(test)]
 mod tests;
+
+/// mlx-rs 0.32's builder couples affine weight and bias. Keep the weight,
+/// but remove the zero-initialized bias that these checkpoints do not store.
+pub(crate) fn biasless_layer_norm(h: i32, eps: f32) -> Result<nn::LayerNorm, Exception> {
+    let mut norm = nn::LayerNormBuilder::new(h).eps(eps).build()?;
+    *norm.bias = None;
+    Ok(norm)
+}

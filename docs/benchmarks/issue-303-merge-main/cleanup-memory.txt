@@ -1,0 +1,132 @@
+   Compiling rurico v0.2.0 (<checkout>)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 21.85s
+────────────
+ Nextest run ID 01c8a26c-4ddc-4db3-9ee0-546a4b6c17f7 with nextest profile: default
+    Starting 1 test across 1 binary (399 tests skipped)
+        SLOW [> 60.000s] (───) rurico mlx_cache::testing::runtime::real_model_cleanup_memory
+        PASS [  75.351s] (1/1) rurico mlx_cache::testing::runtime::real_model_cleanup_memory
+  stdout ───
+
+    running 1 test
+    test mlx_cache::testing::runtime::real_model_cleanup_memory has been running for over 60 seconds
+    test mlx_cache::testing::runtime::real_model_cleanup_memory ... ok
+
+    test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 399 filtered out; finished in 75.26s
+
+  stderr ───
+    cleanup_memory model=cl-nagoya/ruri-v3-310m revision=18b60fb8c2b9df296fb4212bb7d23ef94e579cd3
+    cleanup_memory path=query cycle=0 failure=None batch=1 bucket=128 elapsed_ms=614 active_bytes=1269534680 cache_bytes=0 peak_bytes=1514368404
+    cleanup_memory path=query cycle=0 failure=Some(Forward) batch=1 bucket=128 elapsed_ms=6 active_bytes=1269534680 cache_bytes=0 peak_bytes=1269535752
+    cleanup_memory path=query cycle=0 failure=Some(Pool) batch=1 bucket=128 elapsed_ms=13 active_bytes=1269534680 cache_bytes=0 peak_bytes=1269537228
+    cleanup_memory path=query cycle=0 failure=Some(Eval) batch=1 bucket=128 elapsed_ms=748 active_bytes=1269534680 cache_bytes=0 peak_bytes=1514368404
+    cleanup_memory path=query cycle=0 failure=Some(Readback) batch=1 bucket=128 elapsed_ms=927 active_bytes=1258513820 cache_bytes=1572864 peak_bytes=1514368404
+    cleanup_memory path=query cycle=1 failure=None batch=1 bucket=128 elapsed_ms=3647 active_bytes=1269534680 cache_bytes=0 peak_bytes=1514368404
+    cleanup_memory path=query cycle=1 failure=Some(Forward) batch=1 bucket=128 elapsed_ms=85 active_bytes=1269534680 cache_bytes=0 peak_bytes=1269535752
+    cleanup_memory path=query cycle=1 failure=Some(Pool) batch=1 bucket=128 elapsed_ms=11 active_bytes=1269534680 cache_bytes=0 peak_bytes=1269537228
+    cleanup_memory path=query cycle=1 failure=Some(Eval) batch=1 bucket=128 elapsed_ms=2208 active_bytes=1269534680 cache_bytes=0 peak_bytes=1514368404
+    cleanup_memory path=query cycle=1 failure=Some(Readback) batch=1 bucket=128 elapsed_ms=505 active_bytes=1269534680 cache_bytes=0 peak_bytes=1514368404
+    cleanup_memory path=query cycle=2 failure=None batch=1 bucket=128 elapsed_ms=3539 active_bytes=1258513820 cache_bytes=0 peak_bytes=1514368404
+    cleanup_memory path=query cycle=2 failure=Some(Forward) batch=1 bucket=128 elapsed_ms=6 active_bytes=1258513820 cache_bytes=0 peak_bytes=1258514892
+    cleanup_memory path=query cycle=2 failure=Some(Pool) batch=1 bucket=128 elapsed_ms=22 active_bytes=1258513820 cache_bytes=0 peak_bytes=1258516368
+    cleanup_memory path=query cycle=2 failure=Some(Eval) batch=1 bucket=128 elapsed_ms=504 active_bytes=1266781632 cache_bytes=2753044 peak_bytes=1514368404
+    cleanup_memory path=query cycle=2 failure=Some(Readback) batch=1 bucket=128 elapsed_ms=238 active_bytes=1259300252 cache_bytes=786432 peak_bytes=1451191608
+    cleanup_memory path=query cycle=3 failure=None batch=1 bucket=128 elapsed_ms=260 active_bytes=1269534680 cache_bytes=0 peak_bytes=1514368404
+    cleanup_memory path=query cycle=3 failure=Some(Forward) batch=1 bucket=128 elapsed_ms=2 active_bytes=1258513820 cache_bytes=0 peak_bytes=1258514892
+    cleanup_memory path=query cycle=3 failure=Some(Pool) batch=1 bucket=128 elapsed_ms=15 active_bytes=1258513820 cache_bytes=0 peak_bytes=1258516368
+    cleanup_memory path=query cycle=3 failure=Some(Eval) batch=1 bucket=128 elapsed_ms=256 active_bytes=1269141452 cache_bytes=393232 peak_bytes=1514368404
+    cleanup_memory path=query cycle=3 failure=Some(Readback) batch=1 bucket=128 elapsed_ms=322 active_bytes=1269141452 cache_bytes=393228 peak_bytes=1514368404
+    cleanup_memory path=query cycle=4 failure=None batch=1 bucket=128 elapsed_ms=324 active_bytes=1269141460 cache_bytes=393220 peak_bytes=1504088900
+    cleanup_memory path=query cycle=4 failure=Some(Forward) batch=1 bucket=128 elapsed_ms=0 active_bytes=1258513820 cache_bytes=0 peak_bytes=1258514892
+    cleanup_memory path=query cycle=4 failure=Some(Pool) batch=1 bucket=128 elapsed_ms=20 active_bytes=1258513820 cache_bytes=0 peak_bytes=1258516368
+    cleanup_memory path=query cycle=4 failure=Some(Eval) batch=1 bucket=128 elapsed_ms=242 active_bytes=1269534680 cache_bytes=0 peak_bytes=1504088900
+    cleanup_memory path=query cycle=4 failure=Some(Readback) batch=1 bucket=128 elapsed_ms=350 active_bytes=1269534680 cache_bytes=0 peak_bytes=1514368404
+    cleanup_memory path=query cycle=5 failure=None batch=1 bucket=128 elapsed_ms=306 active_bytes=1267961792 cache_bytes=0 peak_bytes=1514368404
+    cleanup_memory path=query cycle=5 failure=Some(Forward) batch=1 bucket=128 elapsed_ms=1 active_bytes=1258513820 cache_bytes=0 peak_bytes=1258514892
+    cleanup_memory path=query cycle=5 failure=Some(Pool) batch=1 bucket=128 elapsed_ms=23 active_bytes=1258513820 cache_bytes=0 peak_bytes=1258516368
+    cleanup_memory path=query cycle=5 failure=Some(Eval) batch=1 bucket=128 elapsed_ms=288 active_bytes=1269534680 cache_bytes=0 peak_bytes=1514368404
+    cleanup_memory path=query cycle=5 failure=Some(Readback) batch=1 bucket=128 elapsed_ms=336 active_bytes=1269534680 cache_bytes=0 peak_bytes=1514368404
+    cleanup_memory path=query cycle=6 failure=None batch=1 bucket=128 elapsed_ms=317 active_bytes=1258513820 cache_bytes=11020860 peak_bytes=1514368404
+    cleanup_memory path=batch cycle=0 failure=None batch=2 bucket=128 elapsed_ms=2201 active_bytes=1280555484 cache_bytes=0 peak_bytes=1770221972
+    cleanup_memory path=batch cycle=0 failure=Some(Forward) batch=2 bucket=128 elapsed_ms=92 active_bytes=1280555484 cache_bytes=0 peak_bytes=1280557580
+    cleanup_memory path=batch cycle=0 failure=Some(Pool) batch=2 bucket=128 elapsed_ms=14 active_bytes=1280555484 cache_bytes=0 peak_bytes=1280559568
+    cleanup_memory path=batch cycle=0 failure=Some(Eval) batch=2 bucket=128 elapsed_ms=4390 active_bytes=1280555484 cache_bytes=0 peak_bytes=1770221972
+    cleanup_memory path=batch cycle=0 failure=Some(Readback) batch=2 bucket=128 elapsed_ms=2370 active_bytes=1258513820 cache_bytes=0 peak_bytes=1770221972
+    cleanup_memory path=batch cycle=1 failure=None batch=2 bucket=128 elapsed_ms=811 active_bytes=1280555484 cache_bytes=0 peak_bytes=1770221972
+    cleanup_memory path=batch cycle=1 failure=Some(Forward) batch=2 bucket=128 elapsed_ms=2 active_bytes=1280555484 cache_bytes=0 peak_bytes=1280557580
+    cleanup_memory path=batch cycle=1 failure=Some(Pool) batch=2 bucket=128 elapsed_ms=36 active_bytes=1280555484 cache_bytes=0 peak_bytes=1280559568
+    cleanup_memory path=batch cycle=1 failure=Some(Eval) batch=2 bucket=128 elapsed_ms=2482 active_bytes=1280555484 cache_bytes=0 peak_bytes=1770221972
+    cleanup_memory path=batch cycle=1 failure=Some(Readback) batch=2 bucket=128 elapsed_ms=848 active_bytes=1280555484 cache_bytes=0 peak_bytes=1770221972
+    cleanup_memory path=batch cycle=2 failure=None batch=2 bucket=128 elapsed_ms=4371 active_bytes=1280555484 cache_bytes=0 peak_bytes=1770221972
+    cleanup_memory path=batch cycle=2 failure=Some(Forward) batch=2 bucket=128 elapsed_ms=190 active_bytes=1280555484 cache_bytes=0 peak_bytes=1280557580
+    cleanup_memory path=batch cycle=2 failure=Some(Pool) batch=2 bucket=128 elapsed_ms=25 active_bytes=1280555484 cache_bytes=0 peak_bytes=1280559568
+    cleanup_memory path=batch cycle=2 failure=Some(Eval) batch=2 bucket=128 elapsed_ms=2641 active_bytes=1280555484 cache_bytes=0 peak_bytes=1770221972
+    cleanup_memory path=batch cycle=2 failure=Some(Readback) batch=2 bucket=128 elapsed_ms=1612 active_bytes=1280555480 cache_bytes=4 peak_bytes=1770221972
+    cleanup_memory path=batch cycle=3 failure=None batch=2 bucket=128 elapsed_ms=445 active_bytes=1280555484 cache_bytes=0 peak_bytes=1770221972
+    cleanup_memory path=batch cycle=3 failure=Some(Forward) batch=2 bucket=128 elapsed_ms=0 active_bytes=1280555484 cache_bytes=0 peak_bytes=1280557580
+    cleanup_memory path=batch cycle=3 failure=Some(Pool) batch=2 bucket=128 elapsed_ms=28 active_bytes=1258513820 cache_bytes=0 peak_bytes=1280557728
+    cleanup_memory path=batch cycle=3 failure=Some(Eval) batch=2 bucket=128 elapsed_ms=333 active_bytes=1280555484 cache_bytes=0 peak_bytes=1706278128
+    cleanup_memory path=batch cycle=3 failure=Some(Readback) batch=2 bucket=128 elapsed_ms=285 active_bytes=1277409732 cache_bytes=3145752 peak_bytes=1770221972
+    cleanup_memory path=batch cycle=4 failure=None batch=2 bucket=128 elapsed_ms=274 active_bytes=1258513820 cache_bytes=22041664 peak_bytes=1770221972
+    cleanup_memory path=batch cycle=4 failure=Some(Forward) batch=2 bucket=128 elapsed_ms=1 active_bytes=1258513820 cache_bytes=0 peak_bytes=1258515916
+    cleanup_memory path=batch cycle=4 failure=Some(Pool) batch=2 bucket=128 elapsed_ms=16 active_bytes=1258513820 cache_bytes=0 peak_bytes=1258517904
+    cleanup_memory path=batch cycle=4 failure=Some(Eval) batch=2 bucket=128 elapsed_ms=255 active_bytes=1277409736 cache_bytes=3145752 peak_bytes=1770221972
+    cleanup_memory path=batch cycle=4 failure=Some(Readback) batch=2 bucket=128 elapsed_ms=253 active_bytes=1277409740 cache_bytes=3145748 peak_bytes=1770221972
+    cleanup_memory path=batch cycle=5 failure=None batch=2 bucket=128 elapsed_ms=317 active_bytes=1258513820 cache_bytes=22041664 peak_bytes=1770221972
+    cleanup_memory path=batch cycle=5 failure=Some(Forward) batch=2 bucket=128 elapsed_ms=0 active_bytes=1258513820 cache_bytes=0 peak_bytes=1258515916
+    cleanup_memory path=batch cycle=5 failure=Some(Pool) batch=2 bucket=128 elapsed_ms=10 active_bytes=1258513820 cache_bytes=0 peak_bytes=1258517904
+    cleanup_memory path=batch cycle=5 failure=Some(Eval) batch=2 bucket=128 elapsed_ms=397 active_bytes=1275049412 cache_bytes=5506072 peak_bytes=1770221972
+    cleanup_memory path=batch cycle=5 failure=Some(Readback) batch=2 bucket=128 elapsed_ms=382 active_bytes=1277409740 cache_bytes=3145744 peak_bytes=1770221972
+    cleanup_memory path=batch cycle=6 failure=None batch=2 bucket=128 elapsed_ms=382 active_bytes=1258513820 cache_bytes=22041664 peak_bytes=1770221972
+    cleanup_memory model=cl-nagoya/ruri-v3-reranker-310m revision=bb46934ee9ed09f850b9fcff17501b3ef7ddb2b3
+    cleanup_memory path=reranker cycle=0 failure=None batch=2 bucket=128 elapsed_ms=1764 active_bytes=1279779704 cache_bytes=3145744 peak_bytes=1772586824
+    cleanup_memory path=reranker cycle=0 failure=Some(Forward) batch=2 bucket=128 elapsed_ms=3 active_bytes=1260879680 cache_bytes=0 peak_bytes=1260881776
+    cleanup_memory path=reranker cycle=0 failure=Some(Pool) batch=2 bucket=128 elapsed_ms=14 active_bytes=1260879680 cache_bytes=0 peak_bytes=1260882744
+    cleanup_memory path=reranker cycle=0 failure=Some(Eval) batch=2 bucket=128 elapsed_ms=4229 active_bytes=1282925448 cache_bytes=0 peak_bytes=1772586824
+    cleanup_memory path=reranker cycle=0 failure=Some(Readback) batch=2 bucket=128 elapsed_ms=2640 active_bytes=1282925448 cache_bytes=0 peak_bytes=1752033012
+    cleanup_memory path=reranker cycle=1 failure=None batch=2 bucket=128 elapsed_ms=2587 active_bytes=1282925448 cache_bytes=0 peak_bytes=1772586824
+    cleanup_memory path=reranker cycle=1 failure=Some(Forward) batch=2 bucket=128 elapsed_ms=1 active_bytes=1282925448 cache_bytes=0 peak_bytes=1282927544
+    cleanup_memory path=reranker cycle=1 failure=Some(Pool) batch=2 bucket=128 elapsed_ms=19 active_bytes=1282925448 cache_bytes=0 peak_bytes=1282928512
+    cleanup_memory path=reranker cycle=1 failure=Some(Eval) batch=2 bucket=128 elapsed_ms=557 active_bytes=1282925448 cache_bytes=0 peak_bytes=1749544848
+    cleanup_memory path=reranker cycle=1 failure=Some(Readback) batch=2 bucket=128 elapsed_ms=326 active_bytes=1282925448 cache_bytes=0 peak_bytes=1708648092
+    cleanup_memory path=reranker cycle=2 failure=None batch=2 bucket=128 elapsed_ms=4178 active_bytes=1282925448 cache_bytes=0 peak_bytes=1772586824
+    cleanup_memory path=reranker cycle=2 failure=Some(Forward) batch=2 bucket=128 elapsed_ms=1 active_bytes=1282925448 cache_bytes=0 peak_bytes=1282927544
+    cleanup_memory path=reranker cycle=2 failure=Some(Pool) batch=2 bucket=128 elapsed_ms=12 active_bytes=1282925448 cache_bytes=0 peak_bytes=1282928512
+    cleanup_memory path=reranker cycle=2 failure=Some(Eval) batch=2 bucket=128 elapsed_ms=2645 active_bytes=1282925448 cache_bytes=0 peak_bytes=1772586824
+    cleanup_memory path=reranker cycle=2 failure=Some(Readback) batch=2 bucket=128 elapsed_ms=461 active_bytes=1282925448 cache_bytes=0 peak_bytes=1751222088
+    cleanup_memory path=reranker cycle=3 failure=None batch=2 bucket=128 elapsed_ms=3360 active_bytes=1264037696 cache_bytes=18887748 peak_bytes=1772586824
+    cleanup_memory path=reranker cycle=3 failure=Some(Forward) batch=2 bucket=128 elapsed_ms=4 active_bytes=1260879680 cache_bytes=0 peak_bytes=1260881776
+    cleanup_memory path=reranker cycle=3 failure=Some(Pool) batch=2 bucket=128 elapsed_ms=29 active_bytes=1260879680 cache_bytes=0 peak_bytes=1260882744
+    cleanup_memory path=reranker cycle=3 failure=Some(Eval) batch=2 bucket=128 elapsed_ms=421 active_bytes=1282925444 cache_bytes=4 peak_bytes=1772586824
+    cleanup_memory path=reranker cycle=3 failure=Some(Readback) batch=2 bucket=128 elapsed_ms=378 active_bytes=1282139012 cache_bytes=786436 peak_bytes=1772586824
+    cleanup_memory path=reranker cycle=4 failure=None batch=2 bucket=128 elapsed_ms=447 active_bytes=1275060068 cache_bytes=3145744 peak_bytes=1772586824
+    cleanup_memory path=reranker cycle=4 failure=Some(Forward) batch=2 bucket=128 elapsed_ms=3 active_bytes=1260879680 cache_bytes=0 peak_bytes=1260881776
+    cleanup_memory path=reranker cycle=4 failure=Some(Pool) batch=2 bucket=128 elapsed_ms=18 active_bytes=1260879680 cache_bytes=0 peak_bytes=1260882744
+    cleanup_memory path=reranker cycle=4 failure=Some(Eval) batch=2 bucket=128 elapsed_ms=443 active_bytes=1282925448 cache_bytes=0 peak_bytes=1772586824
+    cleanup_memory path=reranker cycle=4 failure=Some(Readback) batch=2 bucket=128 elapsed_ms=404 active_bytes=1282925444 cache_bytes=4 peak_bytes=1772586824
+    cleanup_memory path=reranker cycle=5 failure=None batch=2 bucket=128 elapsed_ms=640 active_bytes=1282925448 cache_bytes=0 peak_bytes=1772586824
+    cleanup_memory path=reranker cycle=5 failure=Some(Forward) batch=2 bucket=128 elapsed_ms=3 active_bytes=1260879680 cache_bytes=0 peak_bytes=1282927532
+    cleanup_memory path=reranker cycle=5 failure=Some(Pool) batch=2 bucket=128 elapsed_ms=25 active_bytes=1260879680 cache_bytes=0 peak_bytes=1260882744
+    cleanup_memory path=reranker cycle=5 failure=Some(Eval) batch=2 bucket=128 elapsed_ms=407 active_bytes=1264037696 cache_bytes=15740976 peak_bytes=1772586824
+    cleanup_memory path=reranker cycle=5 failure=Some(Readback) batch=2 bucket=128 elapsed_ms=454 active_bytes=1264037696 cache_bytes=18887752 peak_bytes=1772586824
+    cleanup_memory path=reranker cycle=6 failure=None batch=2 bucket=128 elapsed_ms=590 active_bytes=1282925448 cache_bytes=0 peak_bytes=1772586824
+
+────────────
+     Summary [  75.383s] 1 test run: 1 passed (1 slow), 399 skipped
+      100.49 real        14.25 user        10.04 sys
+           920289280  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              512405  page reclaims
+               51308  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   3  messages sent
+                   3  messages received
+                   5  signals received
+               11575  voluntary context switches
+              221101  involuntary context switches
+           975236421  instructions retired
+           777036484  cycles elapsed
+            14565904  peak memory footprint

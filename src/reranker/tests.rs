@@ -1,4 +1,4 @@
-use super::mlx::truncate_pair;
+use super::processing::truncate_pair;
 use super::*;
 use crate::artifacts::RerankerKind;
 #[cfg(unix)]
@@ -184,26 +184,29 @@ fn from_probe_error_maps_correctly() {
     assert_from_probe_error_maps_correctly();
 }
 
-use super::mlx::sigmoid;
-
 #[test]
-fn sigmoid_zero_returns_half() {
-    assert!((sigmoid(0.0) - 0.5).abs() < 1e-7);
-}
-
-#[test]
-fn sigmoid_large_positive_approaches_one() {
-    assert!(sigmoid(20.0) > 0.999);
-}
-
-#[test]
-fn sigmoid_large_negative_approaches_zero() {
-    assert!(sigmoid(-20.0) < 0.001);
-}
-
-#[test]
-fn sigmoid_nan_returns_nan() {
-    assert!(sigmoid(f32::NAN).is_nan());
+fn score_readback_preserves_order_and_validates_shape_and_nan() {
+    use super::processing::scores_from_logits;
+    let scores = scores_from_logits(&[20.0, -20.0, 0.0, 1.0], 4, 128).unwrap();
+    assert!(scores[0] > 0.999);
+    assert!(scores[1] < 0.001);
+    assert!((scores[2] - 0.5).abs() < 1e-7);
+    assert!((scores[3] - 0.731_058_6).abs() < 1e-7);
+    // Preserve current saturation semantics; pre-sigmoid rejection belongs to #302.
+    assert_eq!(
+        scores_from_logits(&[f32::INFINITY, f32::NEG_INFINITY], 2, 128).unwrap(),
+        [1.0, 0.0]
+    );
+    for wrong in [vec![0.0], vec![0.0; 3]] {
+        assert!(matches!(
+            scores_from_logits(&wrong, 2, 128),
+            Err(RerankerError::Inference(_))
+        ));
+    }
+    assert!(matches!(
+        scores_from_logits(&[0.0, f32::NAN], 2, 128),
+        Err(RerankerError::NonFiniteOutput)
+    ));
 }
 
 /// MLX runtime tests — run with `cargo test --features test-mlx -- --ignored`

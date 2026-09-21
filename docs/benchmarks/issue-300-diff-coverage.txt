@@ -1,0 +1,13 @@
+-------------
+Diff Coverage
+Diff: origin/main...HEAD, staged, unstaged and untracked changes
+-------------
+src/modernbert/config.rs (100%)
+src/modernbert/model.rs (85.7%): Missing lines 172-173
+src/modernbert/weights.rs (100%)
+-------------
+Total:   184 lines
+Missing: 2 lines
+Coverage: 98%
+-------------
+

@@ -1,20 +1,19 @@
 #[cfg(test)]
 use crate::mlx_cache::testing::{Stage, checkpoint};
 
+use super::processing::{scores_from_logits, truncate_pair};
 use super::{Artifacts, ModelInitError, RerankerError};
 use crate::mlx_cache::{Component, clear_inference_cache, run_inference};
 use crate::model_io::{
     BUCKET_BOUNDS, MAX_SEQ_LEN, assign_bucket, compute_sub_batch_size, pad_sequences,
-    truncate_with_eos,
 };
-use crate::modernbert::{Config, ModernBert, layer_norm_eps_f32};
+use crate::modernbert::{
+    Config, ModernBert, biasless_layer_norm, layer_norm_eps_f32,
+    weights::{self, WeightKind},
+};
 
 use mlx_rs::{
-    builder::Builder,
-    error::Exception,
-    macros::ModuleParameters,
-    module::{Module, ModuleParametersExt},
-    nn,
+    builder::Builder, error::Exception, macros::ModuleParameters, module::Module, nn,
     ops::indexing::IndexOp,
 };
 
@@ -118,29 +117,7 @@ impl RerankerInner {
                 let flat: &[f32] = output.as_slice();
                 #[cfg(test)]
                 checkpoint(Stage::Readback).map_err(RerankerError::inference)?;
-                let flat_len = flat.len();
-                if flat_len != batch_size {
-                    tracing::warn!(
-                        expected = batch_size,
-                        actual = flat_len,
-                        batch_size,
-                        bucket_len,
-                        "score_batch: output shape mismatch"
-                    );
-                    return Err(RerankerError::inference(format!(
-                        "score_batch: expected {batch_size} scores, got {flat_len}"
-                    )));
-                }
-                let scores: Vec<f32> = flat.iter().map(|&logit| sigmoid(logit)).collect();
-                if scores.iter().any(|v| !v.is_finite()) {
-                    tracing::warn!(
-                        batch_size,
-                        bucket_len,
-                        "score_batch: non-finite output detected (NaN or Inf in reranker scores)"
-                    );
-                    return Err(RerankerError::NonFiniteOutput);
-                }
-                Ok(scores)
+                scores_from_logits(flat, batch_size, bucket_len)
             },
             || clear_inference_cache(Component::Reranker),
         )
@@ -167,12 +144,12 @@ struct RerankerModel {
 
 impl RerankerModel {
     fn new(config: &Config) -> Result<Self, Exception> {
-        let h = i32::try_from(config.hidden_size).expect("hidden_size fits in i32");
+        let model = ModernBert::new(config)?;
+        let h = i32::try_from(config.hidden_size).expect("validated hidden_size");
         let eps = layer_norm_eps_f32(config);
 
-        let model = ModernBert::new(config)?;
-        let dense = nn::LinearBuilder::new(h, h).build()?;
-        let norm = nn::LayerNormBuilder::new(h).eps(eps).build()?;
+        let dense = nn::LinearBuilder::new(h, h).bias(false).build()?;
+        let norm = biasless_layer_norm(h, eps)?;
         let classifier = nn::LinearBuilder::new(h, 1).build()?;
 
         Ok(Self {
@@ -183,11 +160,7 @@ impl RerankerModel {
     }
 
     fn load(path: &Path, config: &Config) -> Result<Self, Exception> {
-        let mut model = Self::new(config)?;
-        model
-            .load_safetensors(path)
-            .map_err(|e| Exception::custom(format!("SafeTensors load error: {e}")))?;
-        Ok(model)
+        weights::load(path, config, WeightKind::Reranker, Self::new)
     }
 
     fn forward(
@@ -214,28 +187,5 @@ impl RerankerModel {
     }
 }
 
-/// Truncate pair tokens to `max_len`, setting the last token to EOS.
-///
-/// # Precondition
-///
-/// `max_len` must be ≥ 1. A zero `max_len` is a no-op (returns immediately).
-pub(super) fn truncate_pair(
-    ids: &mut Vec<u32>,
-    mask: &mut Vec<u32>,
-    max_len: usize,
-    pair_idx: usize,
-) {
-    let orig_len = ids.len();
-    if truncate_with_eos(ids, mask, max_len) {
-        tracing::warn!(
-            pair_idx,
-            orig_len,
-            max_len,
-            "pair exceeds max_seq_len, truncating"
-        );
-    }
-}
-
-pub(super) fn sigmoid(x: f32) -> f32 {
-    1.0 / (1.0 + (-x).exp())
-}
+#[cfg(test)]
+mod tests;

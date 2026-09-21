@@ -1,25 +1,9 @@
-use std::panic::catch_unwind;
-use std::sync::{Mutex, PoisonError};
-
 use tracing_test::traced_test;
 
 use super::super::EmbedError;
 use super::super::metrics::EmbedKind;
 use super::{IndexedChunk, build_indexed_chunks, distribute_into_buckets, split_pooled};
 use crate::model_io::{BUCKET_BOUNDS, assign_bucket};
-
-#[test]
-fn poison_recovery_pattern_works() {
-    let lock = Mutex::new(());
-    let _ = catch_unwind(|| {
-        let _guard = lock.lock().unwrap();
-        panic!("intentional panic to poison lock");
-    });
-    assert!(lock.is_poisoned());
-    // Same pattern as mlx_cache::clear_inference_cache — unwrap_or_else recovers the guard
-    let guard = lock.lock().unwrap_or_else(PoisonError::into_inner);
-    drop(guard);
-}
 
 /// Full-position helper used by T-BKT-008 to express a shuffled multi-chunk
 /// doc layout. `make_chunk` delegates here with each chunk as its own
@@ -437,5 +421,97 @@ fn split_pooled_emits_warn_on_non_finite_output() {
     assert!(
         logs_contain("split_pooled: non-finite output"),
         "warn must be emitted on non-finite output"
+    );
+}
+
+fn word_tokenizer(words: &[String]) -> tokenizers::Tokenizer {
+    use crate::embed::DOCUMENT_PREFIX;
+    use tokenizers::{
+        Tokenizer, models::wordlevel::WordLevel, pre_tokenizers::whitespace::WhitespaceSplit,
+        processors::template::TemplateProcessing,
+    };
+
+    let vocab = [
+        ("[UNK]".into(), 0),
+        ("[BOS]".into(), 1),
+        ("[EOS]".into(), 2),
+        (DOCUMENT_PREFIX.trim().into(), 3),
+    ]
+    .into_iter()
+    .chain(
+        words
+            .iter()
+            .enumerate()
+            .map(|(i, w)| (w.clone(), u32::try_from(i + 4).unwrap())),
+    )
+    .collect();
+    let mut tokenizer = Tokenizer::new(
+        WordLevel::builder()
+            .vocab(vocab)
+            .unk_token("[UNK]".into())
+            .build()
+            .unwrap(),
+    );
+    tokenizer.with_pre_tokenizer(Some(WhitespaceSplit));
+    tokenizer.with_post_processor(Some(
+        TemplateProcessing::builder()
+            .try_single("[BOS] $A [EOS]")
+            .unwrap()
+            .special_tokens(vec![("[BOS]", 1), ("[EOS]", 2)])
+            .build()
+            .unwrap(),
+    ));
+    tokenizer
+}
+
+// Distinct word IDs expose dropped tails, wrong overlaps, prefixes and document order.
+// WordLevel deliberately has no prefix-boundary merges; real-tokenizer checks remain ignored.
+#[test]
+fn document_planning_preserves_prefix_overlap_tail_and_document_order() {
+    use super::plan_document_chunks;
+    use crate::embed::{DOCUMENT_PREFIX, extract_prefix_tokens, max_content};
+
+    let words: Vec<_> = (0..9000).map(|i| format!("語{i}")).collect();
+    let tokenizer = word_tokenizer(&words);
+    let prefix = extract_prefix_tokens(&tokenizer, DOCUMENT_PREFIX).unwrap();
+    let long = words.join(" ");
+    // 8192 slots minus BOS, prefix and EOS = 8189 content tokens.
+    let expected_first: Vec<_> = [1, 3].into_iter().chain(4..8193).chain([2]).collect();
+    // Second chunk starts 2048 content tokens before the accepted first end.
+    let expected_last: Vec<_> = [1, 3].into_iter().chain(6145..9004).chain([2]).collect();
+    let budget = max_content(prefix.len());
+    // The extra-token candidate forces adaptive shrink through the production planner.
+    // Its next start must use the accepted end, not the original oversized candidate.
+    for candidate_budget in [budget, budget + 1] {
+        let (chunks, counts) =
+            plan_document_chunks(&tokenizer, &["語0", &long, ""], &prefix, candidate_budget)
+                .unwrap();
+        assert_eq!(counts, [1, 2, 1]);
+        assert_eq!(chunks[0], [1, 3, 4, 2]);
+        assert_eq!(chunks[1], expected_first);
+        assert_eq!(chunks[2], expected_last);
+        assert_eq!(chunks[3], [1, 3, 2]);
+    }
+    let empty = plan_document_chunks(&tokenizer, &[], &prefix, budget).unwrap();
+    assert_eq!(empty, (vec![], vec![]));
+}
+
+#[test]
+fn shrink_chunk_to_fit_preserves_fitting_range_and_rejects_empty_range() {
+    use super::shrink_chunk_to_fit;
+
+    let tokenizer = word_tokenizer(&["語0".into()]);
+    let text = "語0";
+    let encoding = tokenizer.encode(text, false).unwrap();
+    let mut end = 1;
+    let ids = shrink_chunk_to_fit(&tokenizer, text, encoding.get_offsets(), 0, &mut end).unwrap();
+    assert_eq!(ids, [1, 3, 4, 2]);
+    assert_eq!(end, 1, "a fitting range must not shrink");
+
+    end = 0;
+    let error =
+        shrink_chunk_to_fit(&tokenizer, text, encoding.get_offsets(), 0, &mut end).unwrap_err();
+    assert!(
+        matches!(error, EmbedError::Inference { message, .. } if message.contains("cannot fit"))
     );
 }

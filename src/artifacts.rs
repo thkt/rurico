@@ -51,7 +51,10 @@ pub struct RerankerKind(());
 /// - All three artifact files exist on disk.
 /// - `config.json` parses as a valid [`crate::modernbert::Config`].
 /// - `tokenizer.json` loads without error.
-/// - The safetensors weights contain the expected keys for model kind `K`.
+/// - The safetensors header has the identifying prefixes for model kind `K`.
+///
+/// Full required-key, shape and dtype validation runs again at model load time;
+/// this type does not certify all weight tensors or prevent file modification.
 pub struct VerifiedArtifacts<K> {
     pub(crate) paths: ModelPaths,
     pub(crate) config: Config,

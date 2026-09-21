@@ -1,0 +1,12 @@
+   Compiling clang-sys v1.8.1
+   Compiling bindgen v0.72.1
+   Compiling mlx-sys v0.6.0
+   Compiling mlx-rs v0.32.0
+   Compiling rurico-ffi v0.1.0 (<checkout>/crates/rurico-ffi)
+   Compiling rurico v0.2.0 (<checkout>)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4m 07s
+     Running `<cargo-target>/debug/mlx_smoke verify-fixture`
+verify[w1] cosine_min=1.000000 max_abs_diff=9.537e-7 (thresholds: cos>=0.99999, diff<=1e-5)
+verify[w2] cosine_min=1.000000 max_abs_diff=4.172e-7 (thresholds: cos>=0.99999, diff<=1e-5)
+verify[w3] cosine_min=1.000000 max_abs_diff=5.960e-7 (thresholds: cos>=0.99999, diff<=1e-5)
+verify-fixture: all workloads match fixtures within NFR-001

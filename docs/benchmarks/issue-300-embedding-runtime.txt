@@ -1,0 +1,23 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.28s
+────────────
+ Nextest run ID 5b676c20-7861-4c1b-adb2-0064c1cb63b9 with nextest profile: default
+    Starting 1 test across 1 binary (402 tests skipped)
+        PASS [   1.162s] (1/1) rurico modernbert::model::tests::mlx_runtime_tests::official_embedding_load_contract
+  stdout ───
+
+    running 1 test
+    test modernbert::model::tests::mlx_runtime_tests::official_embedding_load_contract ... ok
+
+    test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 402 filtered out; finished in 1.13s
+
+  stderr ───
+    embed contract: model=cl-nagoya/ruri-v3-310m model/tokenizer_revision=18b60fb8c2b9df296fb4212bb7d23ef94e579cd3 dtype=F32
+    trial=0 checked=false seed=0 load_ms=92.524 metal_load_peak_bytes=1258448284
+    trial=0 checked=true seed=0 load_ms=76.847 metal_load_peak_bytes=1258448284
+    trial=1 checked=true seed=0 load_ms=75.344 metal_load_peak_bytes=1258448284
+    trial=1 checked=false seed=0 load_ms=77.461 metal_load_peak_bytes=1258448284
+    trial=2 checked=false seed=0 load_ms=77.019 metal_load_peak_bytes=1258448284
+    trial=2 checked=true seed=0 load_ms=74.604 metal_load_peak_bytes=1258448284
+
+────────────
+     Summary [   1.163s] 1 test run: 1 passed, 402 skipped
