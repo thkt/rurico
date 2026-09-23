@@ -1,0 +1,17 @@
+-------------
+Diff Coverage
+Diff: 6c0967b1f5f2337a03bb5eac6829f8a8c80c8362...HEAD, staged, unstaged and untracked changes
+-------------
+src/embed/processing.rs (99.3%): Missing lines 150
+src/mlx_cache.rs (100%)
+src/mlx_cache/testing.rs (100%)
+src/modernbert/config.rs (100%)
+src/modernbert/model.rs (85.7%): Missing lines 175-176
+src/modernbert/weights.rs (100%)
+src/reranker/processing.rs (100%)
+-------------
+Total:   458 lines
+Missing: 3 lines
+Coverage: 99%
+-------------
+

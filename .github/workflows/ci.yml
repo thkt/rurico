@@ -111,8 +111,12 @@ jobs:
           # stays measured. Mirrors yomu's ignore-regex; without it new
           # mock/MLX/backend lines a PR touches count as uncovered and fail the
           # gate (e.g. PR #205).
+          # The only additional exclusion is the cached-model memory observer. Its
+          # injection controls and lifetime regression in mlx_cache/testing.rs,
+          # plus the test-only forward checkpoint in modernbert/model.rs, remain
+          # measured. Run the observer separately on the host (CONTRIBUTING.md).
           cargo llvm-cov --workspace --features test-support,test-mlx \
-            --ignore-filename-regex '(test_support\.rs|/bin/|embed/(mlx|embedder)\.rs|reranker/mlx\.rs|model_io/hf_backend\.rs)' \
+            --ignore-filename-regex '(test_support\.rs|/bin/|embed/(mlx|embedder)\.rs|reranker/mlx\.rs|model_io/hf_backend\.rs|/mlx_cache/testing/runtime\.rs$)' \
             --lcov --output-path lcov.info
 
       - name: Diff coverage gate (changed lines >= 95%)

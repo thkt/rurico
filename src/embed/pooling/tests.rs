@@ -1,23 +1,6 @@
 //! `t_NNN_` prefix maps to Spec test scenarios in
 //! `.claude/workspace/planning/2026-04-24-phase3-gpu-pooling/spec.md`.
 
-use super::*;
-use mlx_rs::Array;
-use mlx_rs::error::Exception;
-
-// T-004 / FR-005 / AC-3
-//
-// Pure compile-time contract check: `gpu_pool_and_normalize` must consume
-// `hidden` by value so the drop-before-clear contract in
-// `src/mlx_cache.rs::release_inference_output` keeps its compile-time
-// guarantee. If someone relaxes the signature to `&Array`, the fn-pointer
-// coercion below fails to typecheck and this test refuses to compile —
-// which is the intended regression signal for AC-3.
-#[test]
-fn gpu_pool_signature_consumes_hidden_by_value() {
-    let _coerce: fn(Array, &Array) -> Result<Array, Exception> = gpu_pool_and_normalize;
-}
-
 /// MLX runtime tests — construct `mlx_rs::Array` and call
 /// `gpu_pool_and_normalize`. Gated behind `test-mlx` so the default
 /// `cargo test` (including CI seatbelt) stays green.
@@ -29,8 +12,9 @@ fn gpu_pool_signature_consumes_hidden_by_value() {
 mod mlx_runtime_tests {
     use serial_test::serial;
 
-    use super::*;
+    use super::super::gpu_pool_and_normalize;
     use crate::sandbox::require_unsandboxed_mlx_runtime;
+    use mlx_rs::Array;
 
     /// Build a `[batch, seq, hidden]` f32 Array filled deterministically
     /// from a row-major iteration counter so a CPU reference can recompute

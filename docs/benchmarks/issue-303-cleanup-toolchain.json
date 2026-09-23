@@ -1,0 +1,233 @@
+{
+  "confirmed_at": "2026-09-21T04:29:18.535007+00:00",
+  "method": "Retrospective inspection of retained measurement/comparison build artifacts and installed toolchain metadata; version commands below were run at confirmation, not captured during measurement. Paths under Cargo target directories are relative to the named target.",
+  "measurement_log": {
+    "sha256": "85a3c4078b8d942223430832dbf0d510075a76fced4c4b5b350805d5a84e2051",
+    "mtime": "2026-09-21T04:12:38.215801+00:00",
+    "ctime": "2026-09-21T04:12:38.215801+00:00"
+  },
+  "xcode": {
+    "version_command": "Xcode 27.0\nBuild version 27A266a",
+    "version_plist": {
+      "path": "/Applications/Xcode.app/Contents/version.plist",
+      "values": {
+        "BuildVersion": "2",
+        "CFBundleShortVersionString": "27.0",
+        "CFBundleVersion": "25183.107.5",
+        "ProductBuildVersion": "27A266a",
+        "ProjectName": "IDEApplication",
+        "SourceVersion": "25183107005000000"
+      },
+      "sha256": "99aa0f4ffa738d03c9d86b273745d4a3945c7cdc7462221033fb807463d895e9",
+      "mtime": "2026-09-03T09:58:46+00:00",
+      "ctime": "2026-09-15T05:27:49.408471+00:00"
+    },
+    "clang": {
+      "path": "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang",
+      "version_command": "Apple clang version 21.0.0 (clang-2100.3.34.2)\nTarget: arm64-apple-darwin27.0.0\nThread model: posix\nInstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin",
+      "sha256": "1590ac950a3d627817d09ade5cb60b2115f17a72182a3141e010b4bcc482a0c9",
+      "mtime": "2026-08-26T04:08:46+00:00",
+      "ctime": "2026-09-15T05:27:53.615333+00:00"
+    }
+  },
+  "metal": {
+    "version_command": [
+      "Apple metal version 32023.921 (metalfe-32023.921.6)",
+      "Target: air64-apple-darwin27.0.0",
+      "Thread model: posix"
+    ],
+    "asset_version": "27.1.266.1",
+    "toolchain_identifier": {
+      "Identifier": "com.apple.dt.toolchain.Metal.32023.921.5"
+    },
+    "toolchain_info": {
+      "sha256": "ec3b9db568a0cfeeb7a071a80a1b3385e8c6215a23876f22144a44437622d509",
+      "mtime": "2026-09-02T03:50:01+00:00",
+      "ctime": "2026-09-02T03:50:01+00:00",
+      "path": "/private/var/run/com.apple.security.cryptexd/mnt/com.apple.MobileAsset.MetalToolchain-v27.1.266.1.bsGCQt/Metal.xctoolchain/ToolchainInfo.plist"
+    },
+    "launcher": {
+      "sha256": "ac3dcce4f331e301def076a2280c973c978f72e6622f8576eb3f7c34d1486dd6",
+      "mtime": "2026-09-02T03:50:01+00:00",
+      "ctime": "2026-09-02T03:50:01+00:00",
+      "path": "/private/var/run/com.apple.security.cryptexd/mnt/com.apple.MobileAsset.MetalToolchain-v27.1.266.1.bsGCQt/Metal.xctoolchain/usr/bin/metal"
+    }
+  },
+  "build_artifacts": [
+    {
+      "target": "measurement",
+      "compiler": {
+        "path": "debug/build/mlx-sys-4eca9e5a707840f5/out/build/CMakeFiles/4.4.3/CMakeCXXCompiler.cmake",
+        "sha256": "0d7532c189f7dfadf92e71ec4989c9faf8d807ec10844316e6538c4072145ca6",
+        "mtime": "2026-09-20T12:14:14.216135+00:00",
+        "ctime": "2026-09-21T03:57:13.664920+00:00",
+        "excerpts": [
+          "set(CMAKE_CXX_COMPILER \"/usr/bin/c++\")",
+          "set(CMAKE_CXX_COMPILER_VERSION \"21.0.0.21000334\")",
+          "set(CMAKE_CXX_COMPILER_APPLE_SYSROOT \"/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk\")"
+        ]
+      },
+      "configure_log": {
+        "path": "debug/build/mlx-sys-4eca9e5a707840f5/out/build/CMakeFiles/CMakeConfigureLog.yaml",
+        "sha256": "05f9d5a5b46b099e66c13a62f8fccbddf3683a94045be3bbf947ab0281dffc2e",
+        "mtime": "2026-09-20T12:14:28.557336+00:00",
+        "ctime": "2026-09-21T03:57:13.662569+00:00",
+        "excerpts": [
+          "Apple clang version 21.0.0 (clang-2100.3.34.2)",
+          "InstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin",
+          "ignore line: [Apple clang version 21.0.0 (clang-2100.3.34.2)]",
+          "ignore line: [InstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin]"
+        ]
+      },
+      "metal_kernel": {
+        "path": "debug/build/mlx-sys-4eca9e5a707840f5/out/build/_deps/mlx-build/mlx/backend/metal/kernels/copy.air",
+        "sha256": "ab0338c6f330a9ae0ef3ed98478f3ef3c1ad2fbdb3bbed82c988c504a158f9d0",
+        "mtime": "2026-09-20T12:15:10.938258+00:00",
+        "ctime": "2026-09-21T03:57:13.797859+00:00",
+        "embedded_compiler_identifiers": [
+          "Apple metal version 32023.921 (metalfe-32023.921.6)"
+        ]
+      }
+    },
+    {
+      "target": "measurement",
+      "compiler": {
+        "path": "debug/build/mlx-sys-6822e502bac063f7/out/build/CMakeFiles/4.4.3/CMakeCXXCompiler.cmake",
+        "sha256": "0d7532c189f7dfadf92e71ec4989c9faf8d807ec10844316e6538c4072145ca6",
+        "mtime": "2026-09-20T12:18:12.394592+00:00",
+        "ctime": "2026-09-21T03:57:14.164639+00:00",
+        "excerpts": [
+          "set(CMAKE_CXX_COMPILER \"/usr/bin/c++\")",
+          "set(CMAKE_CXX_COMPILER_VERSION \"21.0.0.21000334\")",
+          "set(CMAKE_CXX_COMPILER_APPLE_SYSROOT \"/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk\")"
+        ]
+      },
+      "configure_log": {
+        "path": "debug/build/mlx-sys-6822e502bac063f7/out/build/CMakeFiles/CMakeConfigureLog.yaml",
+        "sha256": "06daf52f96031085688966fe278045e99ad45287035f22cfbaef6b9c501b3802",
+        "mtime": "2026-09-20T12:18:30.155254+00:00",
+        "ctime": "2026-09-21T03:57:14.162585+00:00",
+        "excerpts": [
+          "Apple clang version 21.0.0 (clang-2100.3.34.2)",
+          "InstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin",
+          "ignore line: [Apple clang version 21.0.0 (clang-2100.3.34.2)]",
+          "ignore line: [InstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin]"
+        ]
+      },
+      "metal_kernel": {
+        "path": "debug/build/mlx-sys-6822e502bac063f7/out/build/_deps/mlx-build/mlx/backend/metal/kernels/copy.air",
+        "sha256": "c4cc189ec8483c1a68c66dc99ac44ac87b67c7587e499bcff00f5e1239b6436e",
+        "mtime": "2026-09-20T12:19:26.910661+00:00",
+        "ctime": "2026-09-21T03:57:14.305704+00:00",
+        "embedded_compiler_identifiers": [
+          "Apple metal version 32023.921 (metalfe-32023.921.6)"
+        ]
+      }
+    },
+    {
+      "target": "success-comparison",
+      "compiler": {
+        "path": "debug/build/mlx-sys-4d058ea8af9e17f6/out/build/CMakeFiles/4.4.3/CMakeCXXCompiler.cmake",
+        "sha256": "0d7532c189f7dfadf92e71ec4989c9faf8d807ec10844316e6538c4072145ca6",
+        "mtime": "2026-09-21T04:14:03.502043+00:00",
+        "ctime": "2026-09-21T04:14:03.505120+00:00",
+        "excerpts": [
+          "set(CMAKE_CXX_COMPILER \"/usr/bin/c++\")",
+          "set(CMAKE_CXX_COMPILER_VERSION \"21.0.0.21000334\")",
+          "set(CMAKE_CXX_COMPILER_APPLE_SYSROOT \"/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk\")"
+        ]
+      },
+      "configure_log": {
+        "path": "debug/build/mlx-sys-4d058ea8af9e17f6/out/build/CMakeFiles/CMakeConfigureLog.yaml",
+        "sha256": "67d9b9933d26d7ad42f7a8c98b0b17ad0a0b97a1bc647c3831971541fae16288",
+        "mtime": "2026-09-21T04:14:15.950317+00:00",
+        "ctime": "2026-09-21T04:14:15.950317+00:00",
+        "excerpts": [
+          "Apple clang version 21.0.0 (clang-2100.3.34.2)",
+          "InstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin",
+          "ignore line: [Apple clang version 21.0.0 (clang-2100.3.34.2)]",
+          "ignore line: [InstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin]"
+        ]
+      },
+      "metal_kernel": {
+        "path": "debug/build/mlx-sys-4d058ea8af9e17f6/out/build/_deps/mlx-build/mlx/backend/metal/kernels/copy.air",
+        "sha256": "b67bc166b87b4686a0d10b4cec13730fb5293c278df28b3f2dfa1091b0168a56",
+        "mtime": "2026-09-21T04:14:45.438311+00:00",
+        "ctime": "2026-09-21T04:14:45.438682+00:00",
+        "embedded_compiler_identifiers": [
+          "Apple metal version 32023.921 (metalfe-32023.921.6)"
+        ]
+      }
+    },
+    {
+      "target": "success-comparison",
+      "compiler": {
+        "path": "debug/build/mlx-sys-4eca9e5a707840f5/out/build/CMakeFiles/4.4.3/CMakeCXXCompiler.cmake",
+        "sha256": "0d7532c189f7dfadf92e71ec4989c9faf8d807ec10844316e6538c4072145ca6",
+        "mtime": "2026-09-20T12:14:14.216135+00:00",
+        "ctime": "2026-09-21T04:13:39.748433+00:00",
+        "excerpts": [
+          "set(CMAKE_CXX_COMPILER \"/usr/bin/c++\")",
+          "set(CMAKE_CXX_COMPILER_VERSION \"21.0.0.21000334\")",
+          "set(CMAKE_CXX_COMPILER_APPLE_SYSROOT \"/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk\")"
+        ]
+      },
+      "configure_log": {
+        "path": "debug/build/mlx-sys-4eca9e5a707840f5/out/build/CMakeFiles/CMakeConfigureLog.yaml",
+        "sha256": "05f9d5a5b46b099e66c13a62f8fccbddf3683a94045be3bbf947ab0281dffc2e",
+        "mtime": "2026-09-20T12:14:28.557336+00:00",
+        "ctime": "2026-09-21T04:13:39.745901+00:00",
+        "excerpts": [
+          "Apple clang version 21.0.0 (clang-2100.3.34.2)",
+          "InstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin",
+          "ignore line: [Apple clang version 21.0.0 (clang-2100.3.34.2)]",
+          "ignore line: [InstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin]"
+        ]
+      },
+      "metal_kernel": {
+        "path": "debug/build/mlx-sys-4eca9e5a707840f5/out/build/_deps/mlx-build/mlx/backend/metal/kernels/copy.air",
+        "sha256": "ab0338c6f330a9ae0ef3ed98478f3ef3c1ad2fbdb3bbed82c988c504a158f9d0",
+        "mtime": "2026-09-20T12:15:10.938258+00:00",
+        "ctime": "2026-09-21T04:13:39.913977+00:00",
+        "embedded_compiler_identifiers": [
+          "Apple metal version 32023.921 (metalfe-32023.921.6)"
+        ]
+      }
+    },
+    {
+      "target": "success-comparison",
+      "compiler": {
+        "path": "debug/build/mlx-sys-6822e502bac063f7/out/build/CMakeFiles/4.4.3/CMakeCXXCompiler.cmake",
+        "sha256": "0d7532c189f7dfadf92e71ec4989c9faf8d807ec10844316e6538c4072145ca6",
+        "mtime": "2026-09-20T12:18:12.394592+00:00",
+        "ctime": "2026-09-21T04:13:40.315853+00:00",
+        "excerpts": [
+          "set(CMAKE_CXX_COMPILER \"/usr/bin/c++\")",
+          "set(CMAKE_CXX_COMPILER_VERSION \"21.0.0.21000334\")",
+          "set(CMAKE_CXX_COMPILER_APPLE_SYSROOT \"/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk\")"
+        ]
+      },
+      "configure_log": {
+        "path": "debug/build/mlx-sys-6822e502bac063f7/out/build/CMakeFiles/CMakeConfigureLog.yaml",
+        "sha256": "06daf52f96031085688966fe278045e99ad45287035f22cfbaef6b9c501b3802",
+        "mtime": "2026-09-20T12:18:30.155254+00:00",
+        "ctime": "2026-09-21T04:13:40.313592+00:00",
+        "excerpts": [
+          "Apple clang version 21.0.0 (clang-2100.3.34.2)",
+          "InstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin",
+          "ignore line: [Apple clang version 21.0.0 (clang-2100.3.34.2)]",
+          "ignore line: [InstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin]"
+        ]
+      },
+      "metal_kernel": {
+        "path": "debug/build/mlx-sys-6822e502bac063f7/out/build/_deps/mlx-build/mlx/backend/metal/kernels/copy.air",
+        "sha256": "c4cc189ec8483c1a68c66dc99ac44ac87b67c7587e499bcff00f5e1239b6436e",
+        "mtime": "2026-09-20T12:19:26.910661+00:00",
+        "ctime": "2026-09-21T04:13:40.467299+00:00",
+        "embedded_compiler_identifiers": [
+          "Apple metal version 32023.921 (metalfe-32023.921.6)"
+        ]
+      }
+    }
+  ]
+}
