@@ -1,6 +1,9 @@
+#[cfg(test)]
+use crate::mlx_cache::testing::{Stage, checkpoint};
+
 use super::processing::{scores_from_logits, truncate_pair};
 use super::{Artifacts, ModelInitError, RerankerError};
-use crate::mlx_cache::{Component, release_inference_output};
+use crate::mlx_cache::{Component, clear_inference_cache, run_inference};
 use crate::model_io::{
     BUCKET_BOUNDS, MAX_SEQ_LEN, assign_bucket, compute_sub_batch_size, pad_sequences,
 };
@@ -101,18 +104,23 @@ impl RerankerInner {
 
         let batch_size_i32 = i32::try_from(batch_size).expect("batch_size fits in i32");
         let max_len_i32 = i32::try_from(max_len).expect("max_len fits in i32");
-        let output = self
-            .model
-            .forward(&flat_ids, &flat_mask, batch_size_i32, max_len_i32)
-            .map_err(RerankerError::inference)?;
-
-        let result = (|| -> Result<Vec<f32>, RerankerError> {
-            output.eval().map_err(RerankerError::inference)?;
-            let flat: &[f32] = output.as_slice();
-            scores_from_logits(flat, batch_size, bucket_len)
-        })();
-        release_inference_output(output, Component::Reranker);
-        result
+        run_inference(
+            || {
+                self.model
+                    .forward(&flat_ids, &flat_mask, batch_size_i32, max_len_i32)
+                    .map_err(RerankerError::inference)
+            },
+            |output| {
+                output.eval().map_err(RerankerError::inference)?;
+                #[cfg(test)]
+                checkpoint(Stage::Eval).map_err(RerankerError::inference)?;
+                let flat: &[f32] = output.as_slice();
+                #[cfg(test)]
+                checkpoint(Stage::Readback).map_err(RerankerError::inference)?;
+                scores_from_logits(flat, batch_size, bucket_len)
+            },
+            || clear_inference_cache(Component::Reranker),
+        )
     }
 }
 
@@ -169,6 +177,8 @@ impl RerankerModel {
         // CLS pooling: [batch, seq, hidden] -> [seq, batch, hidden] -> index(0) -> [batch, hidden]
         let cls = hidden.transpose_axes(&[1, 0, 2])?.index(0);
 
+        #[cfg(test)]
+        checkpoint(Stage::Pool)?;
         let x = self.head.dense.forward(&cls)?;
         let x = nn::gelu(&x)?;
         let x = self.head.norm.forward(&x)?;

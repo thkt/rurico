@@ -31,40 +31,31 @@ impl Component {
 /// leaked compile-cache entry, not a Rust memory-safety violation.
 pub(crate) static MLX_CACHE_LOCK: Mutex<()> = Mutex::new(());
 
-/// Consume an MLX output array and attempt to clear the GPU cache.
+/// Run forward and CPU readback in one resource scope, then clean up once.
 ///
-/// Takes `output` by value to enforce drop-before-clear ordering at compile
-/// time. Cache-clear failures are non-fatal: logged as warnings.
+/// `forward` must own any partial inference Arrays; `readback` consumes its
+/// output and must return only CPU data/errors, retaining no inference Arrays.
+/// Both closures (including unused captures on forward failure) are dropped
+/// before cleanup. Model weights may remain live in the caller.
 ///
-/// Clears both the buffer pool (`mlx_clear_cache`) and the current thread's
-/// compile cache (`mlx_detail_compile_clear_cache`). The compile cache grows
-/// with each unique `(batch_size, seq_len)` pair; clearing it after every
-/// batch prevents Metal OOM across long embedding runs.
-///
-/// # Safety (caller invariants)
-/// 1. `output` is taken by value — no borrows remain after this call.
-/// 2. Model weights must remain live on the caller — only unused cache buffers are freed.
-/// 3. `MLX_CACHE_LOCK` serializes concurrent calls across all modules.
-pub(crate) fn release_inference_output(output: mlx_rs::Array, component: Component) {
-    drop(output);
-    clear_inference_cache(component);
+/// Returned errors are preserved. This covers `Result` failures, not panics or
+/// backend aborts. Cleanup remains best-effort and must not replace the result.
+pub(crate) fn run_inference<A, T, E>(
+    forward: impl FnOnce() -> Result<A, E>,
+    readback: impl FnOnce(A) -> Result<T, E>,
+    cleanup: impl FnOnce(),
+) -> Result<T, E> {
+    let result = forward().and_then(readback);
+    cleanup();
+    result
 }
 
-/// Clear the MLX GPU caches without consuming an Array.
-///
-/// Sibling of [`release_inference_output`] for the case where a forward
-/// pass succeeded (model weights uploaded, kernels compiled) but a
-/// downstream MLX op (`gpu_pool_and_normalize`, `eval`) errored, leaving
-/// no Array to drop. Skips the drop step but keeps the same cache-clear
-/// contract so error paths do not leak compile-cache entries across long
-/// embedding runs (Codex CX-001 regression guard for Phase 3b).
-///
-/// # Safety
-///
-/// Only call this when there is no live `Array` from the just-failed
-/// forward pass. If an Array exists, prefer [`release_inference_output`]
-/// to preserve the drop-before-clear ordering.
+/// Clear the buffer pool and current thread's compile cache after all temporary
+/// inference Arrays have been dropped. Keep the conservative per-forward policy;
+/// cache-policy optimization and GPU memory bounds require separate evidence.
 pub(crate) fn clear_inference_cache(component: Component) {
+    #[cfg(test)]
+    testing::record_cleanup();
     clear_inference_cache_with(
         component,
         rurico_ffi::mlx_clear_cache,
@@ -162,3 +153,6 @@ mod tests {
         assert!(logs_contain("component=\"reranker\""));
     }
 }
+
+#[cfg(test)]
+pub(crate) mod testing;
