@@ -1,9 +1,11 @@
+use std::error::Error;
 use std::fmt::{self, Debug, Formatter};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use super::{RankedResult, Rerank, RerankerError};
 
-type InitFn<R> = dyn Fn() -> Result<R, String> + Send + Sync;
+type InitError = Arc<dyn Error + Send + Sync>;
+type InitFn<R> = dyn Fn() -> Result<R, InitError> + Send + Sync;
 
 /// Defers wrapped reranker construction until the first [`Rerank`] call.
 ///
@@ -42,20 +44,46 @@ type InitFn<R> = dyn Fn() -> Result<R, String> + Send + Sync;
 /// # Ok::<(), rurico::reranker::RerankerError>(())
 /// ```
 pub struct LazyReranker<R: Rerank> {
-    cell: OnceLock<Result<R, String>>,
+    cell: OnceLock<Result<R, InitError>>,
     init: Box<InitFn<R>>,
 }
 
 impl<R: Rerank> LazyReranker<R> {
     /// Wrap a fallible init closure. The closure runs on the first
     /// [`Rerank`] method call and at most once.
+    ///
+    /// Retains the String-based signature for existing callers. The source contains
+    /// only that message; use [`Self::with_error`] to retain an original typed cause.
     pub fn new<F>(init: F) -> Self
     where
         F: Fn() -> Result<R, String> + Send + Sync + 'static,
     {
+        Self::with_error(init)
+    }
+
+    /// Wrap an init closure while retaining its error and source chain.
+    ///
+    /// Return the original error instead of calling `to_string()`. Both concrete
+    /// errors (e.g. [`super::ModelInitError`]) and boxed errors are accepted.
+    /// Initialization remains deferred and runs at most once; each failed call
+    /// returns [`RerankerError::InitFailed`] sharing the same source.
+    /// For a closure that only returns `Ok`, annotate its error type or use [`Self::new`].
+    ///
+    /// ```no_run
+    /// use rurico::reranker::{LazyReranker, Reranker, RerankerModelId, download_model};
+    /// let lazy = LazyReranker::with_error(|| -> Result<_, Box<dyn std::error::Error + Send + Sync>> {
+    ///     let artifacts = download_model(RerankerModelId::default())?;
+    ///     Ok(Reranker::new(&artifacts)?)
+    /// });
+    /// ```
+    pub fn with_error<F, E>(init: F) -> Self
+    where
+        F: Fn() -> Result<R, E> + Send + Sync + 'static,
+        E: Into<Box<dyn Error + Send + Sync>>,
+    {
         Self {
             cell: OnceLock::new(),
-            init: Box::new(init),
+            init: Box::new(move || init().map_err(|e| Arc::from(e.into()))),
         }
     }
 
@@ -65,7 +93,10 @@ impl<R: Rerank> LazyReranker<R> {
     fn inner(&self) -> Result<&R, RerankerError> {
         match self.cell.get_or_init(|| (self.init)()) {
             Ok(r) => Ok(r),
-            Err(msg) => Err(RerankerError::InitFailed(msg.clone())),
+            Err(source) => Err(RerankerError::InitFailed {
+                message: source.to_string(),
+                source: Some(Arc::clone(source)),
+            }),
         }
     }
 }

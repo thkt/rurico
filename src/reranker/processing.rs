@@ -43,18 +43,18 @@ pub(super) fn scores_from_logits(
             bucket_len,
             "score_batch: output shape mismatch"
         );
-        return Err(RerankerError::inference(format!(
+        return Err(RerankerError::inference_message(format!(
             "score_batch: expected {batch_size} scores, got {flat_len}"
         )));
     }
-    let scores: Vec<f32> = flat.iter().map(|&logit| sigmoid(logit)).collect();
-    if scores.iter().any(|v| !v.is_finite()) {
+    // Sigmoid maps +/-Inf to finite endpoints, so validate the raw readback.
+    if flat.iter().any(|v| !v.is_finite()) {
         tracing::warn!(
             batch_size,
             bucket_len,
-            "score_batch: non-finite output detected (NaN or Inf in reranker scores)"
+            "score_batch: non-finite output detected (NaN or Inf in reranker logits)"
         );
         return Err(RerankerError::NonFiniteOutput);
     }
-    Ok(scores)
+    Ok(flat.iter().map(|&logit| sigmoid(logit)).collect())
 }
