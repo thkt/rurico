@@ -383,10 +383,29 @@ reranker の `head.dense.bias`・`head.norm.bias` は parameter として作ら�
 
 | variant           | 発生条件                                                            |
 | ----------------- | ------------------------------------------------------------------- |
-| `Inference`       | MLX forward pass 失敗                                               |
+| `Inference`       | MLX forward/eval失敗、出力形状不一致、lockのpoison                   |
 | `Tokenizer`       | tokenizer エンコード失敗                                            |
-| `NonFiniteOutput` | reranker 出力に NaN または Inf が含まれる                           |
+| `NonFiniteOutput` | sigmoid変換前のlogitに NaN / +Inf / -Inf が含まれる                 |
 | `InitFailed`      | `LazyReranker` 初回呼び出し時の初期化失敗（cache 参照・ロード・DL） |
+
+`Inference` / `Tokenizer` は `message: String` と
+`source: Option<Box<dyn Error + Send + Sync>>` を持つ。
+`InitFailed` は同じ名前のフィールドを持ち、キャッシュした原因を複数回の失敗で共有するため
+`source` は `Option<Arc<dyn Error + Send + Sync>>` となる。
+`std::error::Error::source()` でMLX・tokenizer・初期化の原因を辿れる。
+`Inference` の形状不一致やlockのpoisonは、元の原因を保持せず `source: None` とする。
+表示の接頭辞と失敗分類は維持するが、backendのメッセージ全文は安定APIではない。
+
+既存の `LazyReranker::new` は `Result<R, String>` を返すclosureを引き続き受け取る。
+この場合に保持できるのは文字列だけであり、呼出側で既に文字列化した元の原因は復元できない。
+型付きの原因を残すには `LazyReranker::with_error` を使い、closureから元のエラーを返す。
+cache取得・download・loadの異なるエラーをまとめる場合は
+`Result<Reranker, Box<dyn std::error::Error + Send + Sync>>` として `?` で伝播できる。
+
+有限logitのscoreは従来のf32 sigmoidのままで、極端な有限値では0または1へ丸められる。
+同点は入力indexの昇順とし、raw logitでは並べ替えない。
+公開variantの移行方法は [CHANGELOG](CHANGELOG.md)、少数例の飽和確認とconsumerの照合範囲は
+[Issue #302の確認記録](docs/benchmarks/issue-302-reranker-errors.md) を参照。
 
 公開APIの失敗契約はrustdocの `# Errors` に記載する。repoの運用ルールは
 [`docs/errors.md`](docs/errors.md) を参照。

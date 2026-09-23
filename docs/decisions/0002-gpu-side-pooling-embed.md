@@ -12,6 +12,17 @@ decision-makers: thkt
 
 > **Note (2026-05-14, FR-001a defense-in-depth update)**: Consequences originally described FR-001a's defense-in-depth as distributed across `validate_attention_mask` (upstream rejection) **plus the probe bin's `is_finite` guard**. With the probe bin removed in Phase 3c, the `is_finite` guard moved into production `split_pooled` (`src/embed/mlx.rs:572`), keeping the defense-in-depth posture intact. The pairing is now `validate_attention_mask` + `split_pooled::is_finite`.
 
+現在のcleanupは [Issue #303](https://github.com/thkt/rurico/issues/303) に従い、
+`src/mlx_cache.rs::run_inference` でforwardからCPU readbackまでを扱う。
+forwardの部分的なArray、pool済みArrayを含む一時値をスコープ内で解放した後、
+成功・`Result::Err`のどちらでも既存のcache cleanupを1回実行する。
+以下の採用時記録にある `release_inference_output` は、この共通スコープに置き換わった。
+`gpu_pool_and_normalize` と `pool_output` の値渡し、GPU上のpooling、readback量は維持する。
+値渡しの関数シグネチャだけを固定した2テストは、共通スコープの解放順序・cleanup回数・
+エラー保持を実行して確認する回帰テストへ統合した。借用シグネチャへの変更そのものは検出しないが、
+成功・4段階の失敗でcleanupより先に一時リソースを解放する条件を確認する。
+これはRust側の解放順序の保証であり、GPUメモリの上限やリーク量の実測結果ではない。
+
 ## Context
 
 Phase 2 (length-bucket batching, PR #55-#61) reduced W3 `padding_ratio` from 2.316 to 1.165 and brought W2 and W3 into the primary SLA + padding thresholds. W1 (long-document mix, all three chunks at `seq_len ≈ 8K` resolving to bucket 3) stayed at `padding_ratio = 1.474` and batch/sequential `ratio = 1.254`. Bucket batching is a mechanical no-op for single-bucket workloads, so closing W1 needs a different lever.

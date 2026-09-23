@@ -1,0 +1,17 @@
+main 6c0967b:
+   Compiling clang-sys v1.8.1
+   Compiling bindgen v0.72.1
+   Compiling mlx-sys v0.6.0
+   Compiling rurico-ffi v0.1.0 (<main-checkout>/crates/rurico-ffi)
+   Compiling mlx-rs v0.32.0
+   Compiling rurico v0.2.0 (<main-checkout>)
+   Compiling cleanup-output-comparison v0.1.0 (<probe-directory>/main)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 9m 26s
+     Running `<cargo-target>/debug/cleanup-output-comparison`
+
+merged:
+   Compiling rurico-ffi v0.1.0 (<checkout>/crates/rurico-ffi)
+   Compiling rurico v0.2.0 (<checkout>)
+   Compiling cleanup-output-comparison v0.1.0 (<probe-directory>/merged)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 19.94s
+     Running `<cargo-target>/debug/cleanup-output-comparison`

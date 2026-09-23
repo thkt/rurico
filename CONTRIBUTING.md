@@ -90,6 +90,53 @@ binary 版を直接呼ぶ場合:
 cargo run --features smoke --bin mlx_smoke
 ```
 
+### 推論失敗時のcleanupとメモリ観測
+
+[Issue #303](https://github.com/thkt/rurico/issues/303) の順序回帰は通常のcheckに含まれる
+`inference_drops_resources_before_one_cleanup_and_preserves_result` で確認する。
+forward・pool・eval・readbackを個別に失敗させ、一時リソースの解放後にcleanupが1回走り、
+元のエラーまたは成功出力を保持することを検証する。GPUメモリは測定しない。
+`injection_controls_select_only_the_requested_stage_and_thread` は、実際の注入制御が
+指定段階だけを失敗させ、解除後は成功し、別スレッドに注入設定・cleanup計数を漏らさないことを確認する。
+cache handle取得・clear・解放と失敗通知は既存のFFI/cacheテストで引き続き確認する。
+
+`src/mlx_cache/testing.rs` の順序検査と注入制御は通常CIのcoverage対象に含める。
+cachedモデル必須の観測コードだけを `src/mlx_cache/testing/runtime.rs` に分け、
+このファイルに限ってcoverageの分母から除外する。観測テストは引き続きビルドされ、
+以下のホスト実行で検証する。`modernbert/model.rs` のForward注入地点は除外しない。
+coverageは通常CIで実行した行を示す指標であり、実モデル観測の代わりにはしない。
+
+実モデルの反復観測は、GPUが使えるsandbox外のホストで、embed 310mとreranker 310mの
+固定revisionをHF cacheに配置してから次のテストだけを実行する。モデル未配置は失敗となる。
+nextestの専用プロセスで動かし、他のGPU測定と並行させない。
+
+```sh
+cargo nextest run --locked --lib --features test-mlx --run-ignored=ignored-only --test-threads=1 --success-output=immediate real_model_cleanup_memory
+```
+
+公開APIのquery・2文書batch・2ペアrerankerを、それぞれbucket 128の固定合成文で実行する。
+各経路は「成功→forward失敗→pool失敗→eval失敗→readback失敗」を6周し、最後に成功へ復帰する。
+forward失敗はbackboneの最初のlayer後、pool失敗はembedのmask生成後／rerankerのCLS抽出後、
+eval失敗は実eval後、readback失敗はslice取得後に、テストビルド限定の例外を注入する。
+実際のOOMやMetal故障を発生させるテストではない。注入設定はthread-localで製品ビルドには含めない。
+各試行でcleanup回数とエラーを確認し、成功出力は同じ経路の初回出力と最大絶対差`1e-5`以内で比較する。
+従来出力との比較には既存の`smoke_verify_fixture`、rerankerの順位・入力順テストを併用する。
+
+`cleanup_memory` 行にはモデル/tokenizerの固定revision、経路、反復番号、失敗段階、batch、bucket、
+処理時間、MLXのactive/cache/peak bytesを出力する。peakは試行ごとにリセットする。
+最初のquery/reranker試行はモデルをロードした直後で、batchではqueryの実行済みモデルを使う。
+常駐する重みとlocal maskを含む値であり、コンパイルcache全体やプロセスRSSと同じ指標ではない。
+任意のメモリ閾値による合否判定は加えていない。各経路の初回と後続、成功と失敗の推移を確認し、
+継続増加があればその条件を調査する。テスト成功だけでメモリ観測の評価完了としない。
+
+[親Issue #296](https://github.com/thkt/rurico/issues/296) に従い、対象commitと差分、lockfile、
+Rust/Xcode/Metal、機種/OS、モデルrevision、実行コマンドと全サンプルを検証記録へ残す。
+ホストでは同じ実行のRSSも観測し、例えば上記コマンドに`/usr/bin/time -l`を付ける場合は、
+その最大RSSが実行全体の値であって試行ごとの値ではないことを明記する。
+共有する結果は`docs/benchmarks/`等の証拠保存先へ置き、通常の操作説明に実測値を混在させない。
+未実行・モデル不足・観測不能の指標は明記する。mockの順序確認や短い固定shapeの反復から、
+全shape・全モデル・長時間運転のGPUメモリ保証やリーク削減量を推定しない。
+
 ### 重みの読込み検証
 
 [Issue #300](https://github.com/thkt/rurico/issues/300) の CPU 検証は通常の check に含まれる。

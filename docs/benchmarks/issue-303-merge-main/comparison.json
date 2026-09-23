@@ -1,0 +1,16 @@
+{
+  "query": {
+    "elements": 768,
+    "max_absolute_difference": 0.0
+  },
+  "batch": {
+    "elements": 1536,
+    "max_absolute_difference": 0.0
+  },
+  "scores": {
+    "elements": 2,
+    "max_absolute_difference": 0.0
+  },
+  "byte_identical": true,
+  "sha256": "3d1d019ff6f01f87cfd1ca673728621f000c66c35a761d55217e3c2cb28d9eb9"
+}

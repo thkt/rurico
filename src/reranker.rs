@@ -13,8 +13,9 @@ use self::mlx::RerankerInner;
 use crate::artifacts;
 use crate::model_io::ModelArtifact;
 use crate::model_probe::{ProbeStatus, probe_paths_via_subprocess};
-use std::fmt::{self, Debug, Display, Formatter};
-use std::sync::{Mutex, MutexGuard};
+use std::error::Error;
+use std::fmt::{self, Debug, Formatter};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 pub use crate::artifacts::{ArtifactError, RerankerKind, VerifiedArtifacts};
 pub use crate::model_init::ModelInitError;
@@ -89,32 +90,89 @@ impl ModelArtifact for RerankerModelId {
 
 /// Errors from reranker operations at runtime.
 ///
-/// These errors occur during calls to [`Rerank`] trait methods after the
-/// wrapped Reranker has been initialised (lazily or eagerly).
-#[derive(Debug, thiserror::Error)]
+/// These errors occur during calls to [`Rerank`] trait methods, including
+/// initialization when the reranker is wrapped in [`LazyReranker`].
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum RerankerError {
-    /// MLX inference failure during a forward pass.
-    #[error("inference error: {0}")]
-    Inference(String),
+    /// MLX forward/evaluation failure, output shape mismatch, or poisoned lock.
+    Inference {
+        /// Display rendering at construction.
+        message: String,
+        /// Originating error; absent for message-only failures such as shape mismatch.
+        source: Option<Box<dyn Error + Send + Sync>>,
+    },
     /// Tokenizer encode failure (e.g. unsupported character sequence).
-    #[error("tokenizer error: {0}")]
-    Tokenizer(String),
-    /// Model output contains NaN or infinity.
-    #[error("non-finite values in reranker output (NaN or inf)")]
+    Tokenizer {
+        /// Display rendering at construction.
+        message: String,
+        /// Originating tokenizer error.
+        source: Option<Box<dyn Error + Send + Sync>>,
+    },
+    /// Model logit contains NaN or infinity, before sigmoid conversion.
     NonFiniteOutput,
     /// Lazy initialization failed (model load, cache lookup, or download).
     ///
     /// Returned by [`LazyReranker`] on the first method call when its init
     /// closure returns `Err`. Once observed, this failure is cached for the
     /// lifetime of the wrapper — see [`LazyReranker`] for rationale.
-    #[error("init failed: {0}")]
-    InitFailed(String),
+    InitFailed {
+        /// Display rendering at construction.
+        message: String,
+        /// Shared cause, retained across calls without requiring the error to be Clone.
+        source: Option<Arc<dyn Error + Send + Sync>>,
+    },
+}
+
+impl fmt::Display for RerankerError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Inference { message, .. } => write!(f, "inference error: {message}"),
+            Self::Tokenizer { message, .. } => write!(f, "tokenizer error: {message}"),
+            Self::InitFailed { message, .. } => write!(f, "init failed: {message}"),
+            Self::NonFiniteOutput => {
+                f.write_str("non-finite values in reranker output (NaN or inf)")
+            }
+        }
+    }
+}
+
+impl Error for RerankerError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Inference { source, .. } | Self::Tokenizer { source, .. } => {
+                source.as_deref().map(|e| e as &(dyn Error + 'static))
+            }
+            // Expose the error inside Arc directly, so downcasting sees the
+            // original init error rather than Arc's Error implementation.
+            Self::InitFailed { source, .. } => {
+                source.as_deref().map(|e| e as &(dyn Error + 'static))
+            }
+            Self::NonFiniteOutput => None,
+        }
+    }
 }
 
 impl RerankerError {
-    pub(crate) fn inference(e: impl Display) -> Self {
-        Self::Inference(e.to_string())
+    pub(crate) fn inference(e: impl Error + Send + Sync + 'static) -> Self {
+        Self::Inference {
+            message: e.to_string(),
+            source: Some(Box::new(e)),
+        }
+    }
+
+    pub(crate) fn inference_message(message: impl fmt::Display) -> Self {
+        Self::Inference {
+            message: message.to_string(),
+            source: None,
+        }
+    }
+
+    pub(crate) fn tokenizer(e: tokenizers::Error) -> Self {
+        Self::Tokenizer {
+            message: e.to_string(),
+            source: Some(e),
+        }
     }
 }
 
@@ -139,11 +197,22 @@ pub trait Rerank: Send + Sync {
     /// Score a single (query, document) pair.
     ///
     /// Returns `sigmoid(logit)` as `f32` in `[0, 1]`.
+    /// Finite extreme logits may round to 0 or 1.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RerankerError`] on initialization, tokenization or inference failure,
+    /// or [`RerankerError::NonFiniteOutput`] for a non-finite logit before sigmoid.
+    /// Backend-generated messages are opaque and not stable API.
     fn score(&self, query: &str, document: &str) -> Result<f32, RerankerError>;
 
     /// Score multiple (query, document) pairs in a single batched forward pass.
     ///
     /// Returns one score per pair in input order.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Rerank::score`]; one invalid logit fails the batch.
     fn score_batch(&self, pairs: &[(&str, &str)]) -> Result<Vec<f32>, RerankerError>;
 
     /// Rerank documents by relevance to a query.
@@ -151,6 +220,11 @@ pub trait Rerank: Send + Sync {
     /// Returns `Vec<RankedResult>` sorted by score descending. Ties on
     /// `score` are broken by ascending original input index, so repeated
     /// calls with identical scores produce identical ordering.
+    /// This includes ties caused by f32 sigmoid saturation; raw logits are not sort keys.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Rerank::score_batch`].
     fn rerank(&self, query: &str, documents: &[&str]) -> Result<Vec<RankedResult>, RerankerError>;
 }
 
@@ -192,6 +266,10 @@ impl Reranker {
     /// Scores are valid only for relative ranking within the same query.
     /// Do not compare scores across different queries or mix with embedding
     /// similarity scores. Absolute score values may change with model updates.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Rerank::score`].
     pub fn score(&self, query: &str, document: &str) -> Result<f32, RerankerError> {
         let scores = self.score_batch(&[(query, document)])?;
         Ok(scores[0])
@@ -204,6 +282,12 @@ impl Reranker {
     /// Scores are valid only for relative ranking within the same query.
     /// Do not compare scores across different queries or mix with embedding
     /// similarity scores. Absolute score values may change with model updates.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RerankerError`] for tokenizer, MLX or lock failures, shape mismatch,
+    /// or non-finite logits before sigmoid. Backend messages are opaque.
+    /// An empty input returns an empty vector without inference.
     pub fn score_batch(&self, pairs: &[(&str, &str)]) -> Result<Vec<f32>, RerankerError> {
         if pairs.is_empty() {
             return Ok(Vec::new());
@@ -216,6 +300,10 @@ impl Reranker {
     /// Returns `Vec<RankedResult>` sorted by score descending, with ties on
     /// `score` broken by ascending original input index. Each result contains
     /// the original index in `documents` and the relevance score.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Self::score_batch`].
     pub fn rerank(
         &self,
         query: &str,
@@ -247,7 +335,7 @@ impl Reranker {
                 error = %e,
                 "reranker: mutex poisoned (prior panic in critical section)"
             );
-            RerankerError::inference("reranker lock poisoned")
+            RerankerError::inference_message("reranker lock poisoned")
         })
     }
 }
