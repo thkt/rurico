@@ -1,11 +1,19 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use super::{ChunkedEmbedding, EMBEDDING_DIMS, Embed, EmbedError};
+use super::{ChunkedEmbedding, EMBEDDING_DIMS, Embed, EmbedError, validate_vector};
 
 fn one_hot(index: usize, dims: usize) -> Vec<f32> {
     let mut v = vec![0.0_f32; dims];
-    v[index % dims] = 1.0;
+    if dims != 0 {
+        v[index % dims] = 1.0;
+    }
     v
+}
+
+fn one_hot_query(dims: usize) -> Result<Vec<f32>, EmbedError> {
+    let vector = one_hot(0, dims);
+    validate_vector(&vector, 0, dims)?;
+    Ok(vector)
 }
 
 /// Returns deterministic one-hot vectors for all inputs.
@@ -26,6 +34,8 @@ impl Default for MockEmbedder {
 
 impl MockEmbedder {
     /// Create with a custom embedding dimension.
+    ///
+    /// With zero dimensions, generation returns an error; an empty batch succeeds.
     pub fn with_dims(dims: usize) -> Self {
         Self { dims }
     }
@@ -33,18 +43,20 @@ impl MockEmbedder {
 
 impl Embed for MockEmbedder {
     fn embed_query(&self, _text: &str) -> Result<Vec<f32>, EmbedError> {
-        Ok(one_hot(0, self.dims))
+        one_hot_query(self.dims)
     }
 
     fn embed_document(&self, _text: &str) -> Result<ChunkedEmbedding, EmbedError> {
-        Ok(ChunkedEmbedding::try_new(vec![one_hot(0, self.dims)])?)
+        Ok(ChunkedEmbedding::try_new_validated(vec![one_hot(
+            0, self.dims,
+        )])?)
     }
 
     fn embed_documents_batch(&self, texts: &[&str]) -> Result<Vec<ChunkedEmbedding>, EmbedError> {
         Ok(texts
             .iter()
             .enumerate()
-            .map(|(i, _)| ChunkedEmbedding::try_new(vec![one_hot(i, self.dims)]))
+            .map(|(i, _)| ChunkedEmbedding::try_new_validated(vec![one_hot(i, self.dims)]))
             .collect::<Result<Vec<_>, _>>()?)
     }
 
@@ -89,7 +101,9 @@ impl Embed for FailingEmbedder {
         if self.docs_fail {
             Err(EmbedError::inference_message(self.message))
         } else {
-            Ok(ChunkedEmbedding::try_new(vec![one_hot(0, self.dims)])?)
+            Ok(ChunkedEmbedding::try_new_validated(vec![one_hot(
+                0, self.dims,
+            )])?)
         }
     }
 
@@ -107,15 +121,18 @@ pub struct MismatchEmbedder;
 
 impl Embed for MismatchEmbedder {
     fn embed_query(&self, _text: &str) -> Result<Vec<f32>, EmbedError> {
-        Ok(one_hot(0, EMBEDDING_DIMS))
+        one_hot_query(EMBEDDING_DIMS)
     }
 
     fn embed_document(&self, _text: &str) -> Result<ChunkedEmbedding, EmbedError> {
-        Ok(ChunkedEmbedding::try_new(vec![one_hot(0, EMBEDDING_DIMS)])?)
+        Ok(ChunkedEmbedding::try_new_validated(vec![one_hot(
+            0,
+            EMBEDDING_DIMS,
+        )])?)
     }
 
     fn embed_documents_batch(&self, _texts: &[&str]) -> Result<Vec<ChunkedEmbedding>, EmbedError> {
-        Ok(vec![ChunkedEmbedding::try_new(vec![one_hot(
+        Ok(vec![ChunkedEmbedding::try_new_validated(vec![one_hot(
             0,
             EMBEDDING_DIMS,
         )])?])
@@ -148,6 +165,8 @@ impl MockChunkedEmbedder {
     }
 
     /// Create with the given number of chunks per document and a custom embedding dimension.
+    ///
+    /// With zero dimensions, generation returns an error; an empty batch succeeds.
     pub fn with_dims(chunks_per_doc: usize, dims: usize) -> Self {
         Self {
             chunks_per_doc,
@@ -158,11 +177,11 @@ impl MockChunkedEmbedder {
 
 impl Embed for MockChunkedEmbedder {
     fn embed_query(&self, _text: &str) -> Result<Vec<f32>, EmbedError> {
-        Ok(one_hot(0, self.dims))
+        one_hot_query(self.dims)
     }
 
     fn embed_document(&self, _text: &str) -> Result<ChunkedEmbedding, EmbedError> {
-        Ok(ChunkedEmbedding::try_new(
+        Ok(ChunkedEmbedding::try_new_validated(
             (0..self.chunks_per_doc)
                 .map(|i| one_hot(i, self.dims))
                 .collect(),
@@ -174,7 +193,7 @@ impl Embed for MockChunkedEmbedder {
             .iter()
             .enumerate()
             .map(|(i, _)| {
-                ChunkedEmbedding::try_new(
+                ChunkedEmbedding::try_new_validated(
                     (0..self.chunks_per_doc)
                         .map(|j| one_hot(i * self.chunks_per_doc + j, self.dims))
                         .collect(),
@@ -213,7 +232,7 @@ impl Default for AlternatingEmbedder {
 
 impl Embed for AlternatingEmbedder {
     fn embed_query(&self, _text: &str) -> Result<Vec<f32>, EmbedError> {
-        Ok(one_hot(0, self.dims))
+        one_hot_query(self.dims)
     }
 
     fn embed_document(&self, _text: &str) -> Result<ChunkedEmbedding, EmbedError> {
@@ -221,7 +240,9 @@ impl Embed for AlternatingEmbedder {
         if n.is_multiple_of(2) {
             Err(EmbedError::inference_message("alternating failure"))
         } else {
-            Ok(ChunkedEmbedding::try_new(vec![one_hot(0, self.dims)])?)
+            Ok(ChunkedEmbedding::try_new_validated(vec![one_hot(
+                0, self.dims,
+            )])?)
         }
     }
 

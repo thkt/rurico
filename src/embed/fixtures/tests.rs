@@ -10,13 +10,17 @@ fn sample_docs() -> Vec<ChunkedEmbedding> {
 
 #[test]
 fn save_and_load_round_trips_identically() {
-    let docs = sample_docs();
+    let mut docs = sample_docs();
+    // Validation is per document, accepts zero/non-unit/large finite values,
+    // and does not infer a shared model dimension for the whole fixture.
+    docs.push(ChunkedEmbedding::try_new(vec![vec![0.0, -0.0], vec![-2.0, f32::MAX]]).unwrap());
     let mut buf = Vec::new();
     save(&mut buf, &docs).unwrap();
     let loaded = load(&mut Cursor::new(&buf)).unwrap();
     assert_eq!(docs.len(), loaded.len());
     for (a, b) in docs.iter().zip(&loaded) {
         assert_eq!(a.chunks, b.chunks);
+        assert_eq!(a.chunk_ids(), b.chunk_ids());
     }
 }
 
@@ -143,6 +147,38 @@ fn load_rejects_doc_with_zero_chunks() {
         err.to_string().contains("at least one chunk"),
         "unexpected error: {err}"
     );
+}
+
+#[test]
+fn load_rejects_invalid_vector_content() {
+    use crate::embed::EmbeddingValidationError as E;
+    let cases = [
+        (vec![vec![]], E::EmptyVector { chunk: 0 }),
+        (
+            vec![vec![1.0, 2.0], vec![3.0]],
+            E::DimensionMismatch {
+                chunk: 1,
+                expected: 2,
+                actual: 1,
+            },
+        ),
+        (
+            vec![vec![f32::NAN]],
+            E::NonFiniteValue {
+                chunk: 0,
+                element: 0,
+            },
+        ),
+    ];
+    for (chunks, expected) in cases {
+        // The legacy constructor and writer can represent invalid old fixtures.
+        let doc = ChunkedEmbedding::try_new(chunks).unwrap();
+        let mut bytes = Vec::new();
+        save(&mut bytes, &[doc]).unwrap();
+        let err = load(&mut Cursor::new(bytes)).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+        assert_eq!(err.get_ref().unwrap().downcast_ref::<E>(), Some(&expected));
+    }
 }
 
 // Corrupt header: a chunk declares `dim` but the f32 payload is shorter

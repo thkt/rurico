@@ -17,8 +17,12 @@
 //!       f32 LE × hidden_dim
 //! ```
 //!
-//! Per-chunk `hidden_dim` makes the loader safe against model-dim drift; a
-//! mismatched fixture surfaces as a load error rather than silent corruption.
+//! [`load`] validates non-empty, equally sized, finite vectors within each
+//! document using [`ChunkedEmbedding::try_new_validated`]. Dimensions may differ
+//! between documents; the format does not identify a model or establish index
+//! compatibility. [`compare`] reports shape differences between two fixtures.
+//! [`save`] serializes the supplied values without content validation; use the
+//! validated constructor when producing new fixtures.
 //!
 //! # Buffering
 //!
@@ -109,6 +113,11 @@ pub fn save<W: Write>(w: &mut W, docs: &[ChunkedEmbedding]) -> io::Result<()> {
 ///
 /// Uses buffered reads per chunk. Callers reading from a [`std::fs::File`]
 /// should wrap it in a [`std::io::BufReader`] to avoid one syscall per chunk.
+///
+/// Invalid chunk/vector content is rejected as [`io::ErrorKind::InvalidData`],
+/// with an underlying [`super::EmbeddingValidationError`]. An empty fixture
+/// (zero documents) remains valid. This does not impose a total byte limit or
+/// check model identity or dimensions across documents.
 pub fn load<R: Read>(r: &mut R) -> io::Result<Vec<ChunkedEmbedding>> {
     let num_docs = u32_to_usize(read_u32(r)?, "num_docs")?;
     let mut docs = Vec::with_capacity(num_docs);
@@ -129,11 +138,18 @@ pub fn load<R: Read>(r: &mut R) -> io::Result<Vec<ChunkedEmbedding>> {
             })?;
             let mut bytes = vec![0u8; bytes_len];
             r.read_exact(&mut bytes)?;
-            let vec: Vec<f32> = bytemuck::cast_slice::<u8, f32>(&bytes).to_vec();
+            // Byte buffers (including the empty buffer for dim=0) need not be
+            // aligned for f32. Decode the wire format without an aligned cast.
+            let vec: Vec<f32> = bytes
+                .as_chunks::<BYTES_PER_F32>()
+                .0
+                .iter()
+                .map(|bytes| f32::from_le_bytes(*bytes))
+                .collect();
             chunks.push(vec);
         }
         docs.push(
-            ChunkedEmbedding::try_new(chunks)
+            ChunkedEmbedding::try_new_validated(chunks)
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
         );
     }

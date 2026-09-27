@@ -271,6 +271,59 @@ fn embed_documents_batch_empty_returns_empty() {
     assert!(result.is_empty(), "empty input should return empty vec");
 }
 
+#[test]
+fn zero_dimension_mocks_return_errors_for_generation_but_allow_empty_batches() {
+    let mocks: [&dyn Embed; 2] = [
+        &MockEmbedder::with_dims(0),
+        &MockChunkedEmbedder::with_dims(2, 0),
+    ];
+    for mock in mocks {
+        let errors = [
+            mock.embed_query("query").unwrap_err(),
+            mock.embed_text("text", SEMANTIC_PREFIX).unwrap_err(),
+            mock.embed_document("doc").unwrap_err(),
+            mock.embed_documents_batch(&["doc"]).unwrap_err(),
+        ];
+        for error in errors {
+            assert!(matches!(
+                error,
+                EmbedError::InvalidEmbedding(EmbeddingValidationError::EmptyVector { chunk: 0 })
+            ));
+        }
+        assert!(mock.embed_documents_batch(&[]).unwrap().is_empty());
+    }
+    let no_chunks = MockChunkedEmbedder::new(0);
+    assert!(matches!(
+        no_chunks.embed_document("doc"),
+        Err(EmbedError::EmptyChunks(EmptyChunksError))
+    ));
+    assert!(matches!(
+        no_chunks.embed_documents_batch(&["doc"]),
+        Err(EmbedError::EmptyChunks(EmptyChunksError))
+    ));
+    assert!(no_chunks.embed_documents_batch(&[]).unwrap().is_empty());
+}
+
+#[test]
+fn validated_mocks_keep_document_chunk_and_batch_order() {
+    let mock = MockChunkedEmbedder::with_dims(2, 3);
+    let docs = mock.embed_documents_batch(&["first", "second"]).unwrap();
+    assert_eq!(docs[0].chunks(), [vec![1.0, 0.0, 0.0], vec![0.0, 1.0, 0.0]]);
+    assert_eq!(docs[1].chunks(), [vec![0.0, 0.0, 1.0], vec![1.0, 0.0, 0.0]]);
+    for doc in &docs {
+        assert_eq!(doc.chunk_ids(), ["c0", "c1"]);
+    }
+    assert_eq!(
+        mock.embed_document("doc").unwrap().chunks(),
+        docs[0].chunks()
+    );
+    assert_eq!(mock.embed_query("query").unwrap(), vec![1.0, 0.0, 0.0]);
+    let single = MockEmbedder::with_dims(2);
+    let docs = single.embed_documents_batch(&["first", "second"]).unwrap();
+    assert_eq!(docs[0].chunks(), [vec![1.0, 0.0]]);
+    assert_eq!(docs[1].chunks(), [vec![0.0, 1.0]]);
+}
+
 // --- 1+3 prefix scheme ---
 
 #[test]
@@ -344,19 +397,6 @@ fn embed_error_helpers_preserve_source_chain() {
             .to_string(),
         "inner embed failure"
     );
-}
-
-// T-187-001: empty chunk lists are rejected by the public constructor.
-#[test]
-fn chunked_embedding_try_new_rejects_empty_input() {
-    let err = ChunkedEmbedding::try_new(Vec::new()).unwrap_err();
-    assert_eq!(err, EmptyChunksError);
-}
-
-#[test]
-fn chunked_embedding_try_new_generates_matching_chunk_ids() {
-    let ce = ChunkedEmbedding::try_new(vec![vec![0.0], vec![1.0]]).unwrap();
-    assert_eq!(ce.chunk_ids(), ["c0", "c1"]);
 }
 
 // ── EmbedOptions tests ──────────────────────────────────────────────────────
