@@ -90,6 +90,15 @@ binary 版を直接呼ぶ場合:
 cargo run --features smoke --bin mlx_smoke
 ```
 
+### 公式実装との数値比較・利用側の検索評価（Issue #307）
+
+公式Transformers/Sentence Transformersとの比較と、amiciの既存reference compositionの検索評価は、
+[調査用のホスト実行手順](docs/research/issue-307/README.md)を使う。
+固定revision、FP32、同一token列/shapeの比較、公開wrapper差、既存baseline差を分けて記録する。
+`research::official_comparison_embedding`と`research::official_comparison_reranker`はignoredであり、
+標準check成功だけでは実測済みにならない。参照出力は既存fixtureと別に保存する。
+[準備時点の記録](docs/research/issue-307/report.md)から測定状況と未確認範囲を確認できる。
+
 ### options付き推論の計測（Issue #306）
 
 `mlx_smoke measure-records` は固定revisionのキャッシュ済み310mモデルと既存W1/W2/W3の

@@ -1,0 +1,16 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "--lib",
+    "--features",
+    "smoke",
+    "--no-run",
+    "--message-format=json"
+  ],
+  "executable_sha256": "5e4dd5be84b3aa1c51724cb1be5b689681fe27a2bc3aed30a46c0355433d014e",
+  "cargo_lock_sha256": "05fa187fa27454c4afef44554be20360b7af181c8704690b95c448cdbae4c1a2",
+  "rustflags": null,
+  "profile": "test"
+}

@@ -189,3 +189,6 @@ impl RerankerModel {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(all(test, feature = "smoke"))]
+pub(super) mod research;
