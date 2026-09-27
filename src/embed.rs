@@ -99,15 +99,17 @@ pub(crate) const fn max_content(prefix_len: usize) -> usize {
 
 /// Embedding result for a single text, potentially split into multiple chunks.
 ///
-/// Each chunk is an embedding vector whose length equals the loaded model's
-/// `hidden_size`. Short texts produce a single chunk; texts exceeding
-/// [`MAX_SEQ_LEN`] produce multiple overlapping chunks.
+/// The MLX producer returns vectors of the loaded model's `hidden_size`.
+/// Short texts produce a single chunk; texts exceeding [`MAX_SEQ_LEN`]
+/// produce multiple overlapping chunks.
 ///
 /// `chunk_ids` carries a stable per-chunk identifier (`"c0"`, `"c1"`, …) used
 /// by chunk-level retrieval (Issue #76 / ADR 0004 Stage 1) to keep child
 /// chunks distinguishable through Stage 1 candidates and Stage 2 fusion.
-/// Public construction goes through [`ChunkedEmbedding::try_new`], which
-/// enforces that `chunks` is non-empty and that `chunk_ids.len() == chunks.len()`.
+/// [`Self::try_new_validated`] checks non-empty chunks, non-empty vectors,
+/// uniform dimensions within this result, and finite elements.
+/// The legacy [`Self::try_new`] only checks that `chunks` is non-empty.
+/// Both constructors generate IDs so `chunk_ids.len() == chunks.len()`.
 /// Use [`ChunkedEmbedding::chunks`] and [`ChunkedEmbedding::chunk_ids`] for
 /// read access.
 #[derive(Debug, Clone)]
@@ -121,11 +123,76 @@ pub struct ChunkedEmbedding {
 #[error("chunked embedding requires at least one chunk")]
 pub struct EmptyChunksError;
 
+/// Invalid content passed to [`ChunkedEmbedding::try_new_validated`].
+///
+/// Positions are zero-based. Chunks are checked in input order; within each
+/// chunk, emptiness and dimension are checked before the first non-finite element.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum EmbeddingValidationError {
+    /// No chunks were supplied (the same condition as the legacy constructor).
+    #[error(transparent)]
+    EmptyChunks(#[from] EmptyChunksError),
+    /// A chunk has no vector elements.
+    #[error("chunk {chunk} has an empty vector")]
+    EmptyVector {
+        /// Index of the empty chunk vector.
+        chunk: usize,
+    },
+    /// A vector's dimension differs from the first chunk's dimension.
+    #[error("chunk {chunk} dimension mismatch: expected {expected}, got {actual}")]
+    DimensionMismatch {
+        /// Index of the mismatched chunk.
+        chunk: usize,
+        /// Dimension of the first chunk.
+        expected: usize,
+        /// Dimension of this chunk.
+        actual: usize,
+    },
+    /// A vector contains NaN or positive/negative infinity.
+    #[error("chunk {chunk} element {element} is non-finite (NaN or inf)")]
+    NonFiniteValue {
+        /// Index of the chunk containing the non-finite value.
+        chunk: usize,
+        /// Index of the first non-finite element in that chunk.
+        element: usize,
+    },
+}
+
+// Shared by vector validation and MLX's already-readback flat-buffer check.
+fn first_non_finite(values: &[f32]) -> Option<usize> {
+    values.iter().position(|value| !value.is_finite())
+}
+
+fn validate_vector(
+    vector: &[f32],
+    chunk: usize,
+    expected: usize,
+) -> Result<(), EmbeddingValidationError> {
+    if vector.is_empty() {
+        return Err(EmbeddingValidationError::EmptyVector { chunk });
+    }
+    if vector.len() != expected {
+        return Err(EmbeddingValidationError::DimensionMismatch {
+            chunk,
+            expected,
+            actual: vector.len(),
+        });
+    }
+    if let Some(element) = first_non_finite(vector) {
+        return Err(EmbeddingValidationError::NonFiniteValue { chunk, element });
+    }
+    Ok(())
+}
+
 impl ChunkedEmbedding {
     /// Construct from chunk vectors with auto-generated chunk IDs (`"c0"`,
     /// `"c1"`, …). The default label scheme keeps producers (the MLX
     /// embedder, mocks, persistence loaders) consistent without forcing each
     /// caller to mint its own scheme.
+    ///
+    /// This legacy constructor does not validate vector content. Use
+    /// [`Self::try_new_validated`] to check dimensions and finite elements.
     ///
     /// # Errors
     ///
@@ -135,6 +202,38 @@ impl ChunkedEmbedding {
             return Err(EmptyChunksError);
         }
         Ok(Self::new_unchecked(chunks))
+    }
+
+    /// Construct from non-empty, equally sized vectors containing only finite
+    /// elements. The chunk list must also be non-empty.
+    ///
+    /// Values, input order, and the `"c0"`, `"c1"`, … ID scheme are preserved.
+    /// Zero vectors, non-unit lengths, negative values, and large finite values
+    /// are accepted; this does not normalize or otherwise correct values.
+    /// Only dimensions within this result are checked. The producer remains
+    /// responsible for the cross-document/query/call contract of [`Embed`].
+    /// This does not establish model identity or compatibility with an index.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EmbeddingValidationError`] with the kind and position of the
+    /// first invalid input. Empty chunks reuse the legacy [`EmptyChunksError`].
+    ///
+    /// ```
+    /// use rurico::embed::{ChunkedEmbedding, EmbeddingValidationError};
+    /// let result: Result<ChunkedEmbedding, EmbeddingValidationError> =
+    ///     ChunkedEmbedding::try_new_validated(vec![vec![0.0, -2.0], vec![3.0, 4.0]]);
+    /// let embedding = result?;
+    /// assert_eq!(embedding.chunk_ids(), ["c0", "c1"]);
+    /// # Ok::<(), EmbeddingValidationError>(())
+    /// ```
+    pub fn try_new_validated(chunks: Vec<Vec<f32>>) -> Result<Self, EmbeddingValidationError> {
+        let embedding = Self::try_new(chunks)?;
+        let expected = embedding.chunks[0].len();
+        for (chunk, vector) in embedding.chunks.iter().enumerate() {
+            validate_vector(vector, chunk, expected)?;
+        }
+        Ok(embedding)
     }
 
     /// Return the embedding vector for each chunk.
@@ -274,6 +373,9 @@ pub enum EmbedError {
     /// A producer attempted to construct a chunked embedding with no chunks.
     #[error(transparent)]
     EmptyChunks(#[from] EmptyChunksError),
+    /// A producer returned invalid vector content through the validated API.
+    #[error(transparent)]
+    InvalidEmbedding(EmbeddingValidationError),
     /// MLX inference failure during a forward pass.
     #[error("inference error: {message}")]
     Inference {
@@ -295,6 +397,15 @@ pub enum EmbedError {
     /// Embedding output contains non-finite values (NaN or infinity).
     #[error("non-finite values in embedding output (NaN or inf)")]
     NonFiniteOutput,
+}
+
+impl From<EmbeddingValidationError> for EmbedError {
+    fn from(error: EmbeddingValidationError) -> Self {
+        match error {
+            EmbeddingValidationError::EmptyChunks(error) => Self::EmptyChunks(error),
+            other => Self::InvalidEmbedding(other),
+        }
+    }
 }
 
 impl EmbedError {
@@ -358,6 +469,10 @@ pub struct EmbedOptions {
 /// # Contract
 /// All vectors returned by a single implementor MUST have the same length,
 /// determined by the model's `hidden_size`.
+/// This applies across documents, queries, text prefixes, and calls, as described
+/// in ADR-0011. [`ChunkedEmbedding::try_new_validated`] can validate non-empty,
+/// finite vectors of equal dimension within one document, but cannot enforce
+/// this cross-result producer responsibility or identify the model/index.
 pub trait Embed: Send + Sync {
     /// Embed a search query (prepends [`QUERY_PREFIX`]).
     /// Queries are truncated (not chunked) if they exceed [`MAX_SEQ_LEN`].

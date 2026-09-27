@@ -1,6 +1,9 @@
 //! Token planning, bucket distribution and readback validation for the MLX backend.
 use super::metrics::EmbedKind;
-use super::{CHUNK_OVERLAP_TOKENS, DOCUMENT_PREFIX, EmbedError, MAX_SEQ_LEN, tokenize_with_prefix};
+use super::{
+    CHUNK_OVERLAP_TOKENS, DOCUMENT_PREFIX, EmbedError, MAX_SEQ_LEN, first_non_finite,
+    tokenize_with_prefix,
+};
 use crate::model_io::assign_bucket;
 
 /// Per-chunk metadata carried through bucket forward so the flat output can be
@@ -239,7 +242,7 @@ pub(super) fn split_pooled(
             actual: flat.len(),
         });
     }
-    if !flat.iter().all(|v| v.is_finite()) {
+    if first_non_finite(flat).is_some() {
         tracing::warn!(
             call_site,
             batch_size,
