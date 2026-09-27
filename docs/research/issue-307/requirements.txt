@@ -33,4 +33,4 @@ transformers==4.56.2
 typing_extensions==4.16.0
 urllib3==2.8.0
 protobuf==6.32.1
-sentencepiece==0.2.1
+sentencepiece==0.2.2
