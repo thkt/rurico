@@ -244,6 +244,8 @@ impl EmbedderInner {
         let mut iter = all_embeddings.into_iter();
         for &count in &chunks_per_doc {
             let chunks: Vec<_> = iter.by_ref().take(count).collect();
+            // split_pooled already checked model shape and finite values after
+            // readback. Only check chunk presence here; do not rescan vectors.
             results.push(ChunkedEmbedding::try_new(chunks)?);
         }
 
