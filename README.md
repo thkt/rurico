@@ -99,6 +99,16 @@ for chunk_vec in doc.chunks() {
 
 `embed_documents_batch` は入力件数と同数の `Vec<ChunkedEmbedding>` を返し、入力順を保持する。
 
+`dyn Embed`でも `embed_documents_batch_with_options_and_metrics(&texts, &options)` を使うと、
+一度の推論の結果（`embeddings`）と利用可能な計測（`metrics: Option<InferenceMetrics>`）を受け取れる。
+MLXでは `Duration` の精度でhost側の区間時間、forwardごとのshape、pause回数を返す。
+既存implementorのdefault methodはoptions付き処理へ一度だけ委譲し、計測は`None`となる。
+optionsは引き続きbest-effort hints。既存の `BatchMetrics` と具象型のmetrics APIも利用できるが、
+時間は整数msでtokenization未分離をゼロ表示するため、新しい計測には上記APIを使う。
+区間の包含関係は `InferenceMetrics` のrustdoc、記録手順は
+[CONTRIBUTING](CONTRIBUTING.md#options付き推論の計測issue-306) を参照。
+
+
 `embed_text` はプレフィックスを明示指定して埋め込む低レベルAPI（chunkingなし、超過時はtruncate）。検索用途では `embed_query` / `embed_document` を使う。
 
 ```rust

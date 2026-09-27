@@ -77,7 +77,7 @@ cargo nextest run --run-ignored=ignored-only g_001_real_tokenizer_extract_prefix
 
 ### `mlx_smoke` smoke テスト
 
-`mlx_smoke` 統合テスト (`tests/mlx_smoke.rs`) と同名 binary (`src/bin/mlx_smoke.rs`) は `smoke` feature の背後にあり、実 ruri-v3 モデル + Apple Silicon の MLX runtime を要する。CI では走らせない（モデルダウンロードと推論で macos-latest runner の 15 分 timeout を圧迫するため）。ローカルで実行する場合は事前に対象モデルをキャッシュしてから:
+`mlx_smoke` 統合テスト (`tests/mlx_smoke.rs`) と同名 binary (`src/bin/mlx_smoke.rs`) は `smoke` feature の背後にある。実推論モードとignoredの統合テストは、キャッシュ済みのruri-v3モデルとApple SiliconのMLX runtimeを要する。記録の単体テストと `summarize-records` はモデルをロードしない。標準CIは `smoke` featureを含めず、実モデル検証はホストで別に実行する。ignoredの統合テストを実行する場合は、事前に対象モデルをキャッシュしてから:
 
 ```sh
 # ruri-v3 系モデルがローカル HF cache にあることを前提に走らせる
@@ -89,6 +89,86 @@ binary 版を直接呼ぶ場合:
 ```sh
 cargo run --features smoke --bin mlx_smoke
 ```
+
+### options付き推論の計測（Issue #306）
+
+`mlx_smoke measure-records` は固定revisionのキャッシュ済み310mモデルと既存W1/W2/W3の
+公開可能な合成入力を使う。default optionsと `token_budget=256, forward_pause=1ms` の双方で、
+通常／計測API、batch／singletonの連続呼出しを比較する。singleton側にも同じoptionsを渡す。
+各組合せをwarm-up後に3回実行し、batch→sequentialとsequential→batchを交互にする。
+通常／計測の順も試行ごとに反転する。3回なので完全に均等な順序ではない。
+毎回、既存fixtureと文書順・chunk構成・数値を比較する（cosine ≥ 0.99999、最大絶対差 ≤ 1e-5）。
+fixtureを再生成しない。shape・forward数・pause回数と、W2の非default時の分割を検査する。
+pause時間はsleepの保証する要求時間以上だけを確認し、実時間の一致や上限は要求しない。
+速度やタイミングの揺らぎは新たな合否閾値にしない。
+
+短時間で計測追加のコストを比較する場合は、同じbinaryの `measure-overhead` を使える。
+W2の先頭3文書とfixtureの対応する3文書を使い、同じ8組合せを各3回実行する。
+workload名は `w2_first3` で、rawは33推論recordと8集計（ほかにmodel load 1件）。
+非defaultでは2つのsub-batchとpauseを確認する。全workload検証の代用や長文への性能推定には使わない。
+再集計手順・区間の意味・隔離条件は `measure-records` と共通。
+
+GPUを利用できるホストで、他のGPU測定や重いビルドと並行せず実行する。
+先にビルドを完了し、記録先はcheckout外の新規ディレクトリにする（計測中の記録で作業差分hashを変えない）。
+測定開始前のprocess確認だけでなく、測定終了まで他作業のビルド・GPU測定が始まらない期間を
+ホスト側で確保する。通常checkやCI用ビルドもこの期間と重ねない。
+開始・終了時刻、負荷を止めた範囲、測定中のprocess名・CPU使用率と観測間隔を記録する。
+processの定期観測は短い活動や未知のGPU利用を見逃し得るため、無検出だけを隔離の証明にしない。
+負荷重複や監視欠落があった記録は条件未確認の観測として保持し、都合のよい試行だけを選別せず、
+条件を確保して全組合せを再実行する。隔離条件は注記だけでは免除されない。
+
+```sh
+cargo test --locked --features smoke --bin mlx_smoke
+cargo test --locked --features smoke --test mlx_smoke summarize_records
+cargo test --locked --lib measured_trait_fallback
+cargo test --locked --lib precise_metrics_keep
+cargo build --locked --release --features smoke --bin mlx_smoke
+# /tmp/rurico-306-evidence は新しい記録用ディレクトリの例
+mkdir /tmp/rurico-306-evidence
+RUST_LOG=off target/release/mlx_smoke measure-records > /tmp/rurico-306-evidence/raw.jsonl
+# モデルをロードせず、生recordだけから同じ集計を再生成
+target/release/mlx_smoke summarize-records /tmp/rurico-306-evidence/raw.jsonl > /tmp/rurico-306-evidence/summary.jsonl
+```
+
+`CARGO_TARGET_DIR`を指定している場合は、そのreleaseディレクトリを使う。
+実行時の作業場所はこのcheckoutのルートとする。sourceの識別は実行時のcommit、tracked diff、
+非ignoredのuntracked内容、Cargo.lock、実行ファイルのSHA-256。古いbinaryと新しいsourceを
+結び付けないため、必ず上記buildの直後に実行し、使用したbuildコマンドも記録に添える。
+比較する全組合せは同じbinary・build flags・入力・固定revisionを使い、実行中はsourceを編集しない。
+source・fixture・Cargo.lockのファイル別SHA-256とbinaryのSHA-256を測定前後で照合して保存する。
+rawと再生成summaryに加え、負荷条件・観測、model/tokenizer内容の確認結果または未確認の範囲を
+同じ実行の証拠として保存する。再生成summaryとraw内のsummaryはJSON値として一致を確認し、
+全組合せのサンプル数・中央値・最小最大と制約を報告する。記録は確認後に`docs/benchmarks/`へ置く。
+Rust/Cargo/Xcode/Metalは実行時に取得した版で、binaryのビルドに使った版を証明するものではない。
+取得不能な値・未計測のRSS/Metalメモリ・追加build flagsは`null`で、推定しない。
+model/tokenizer revisionは実際のcache lookupに使う固定revisionだが、キャッシュ内容の改変までは検出しない。
+入力本文・token列・個人のpath・認証情報はJSONに含めない。stderrはローカルpathを含む既存logがあり得るため、そのまま公開しない。
+
+JSONLのschema 1は次のように読む。
+
+- `event=model_load`は `Embedder::new` のhost wall。cache lookupとtokenizer検証は区間外。
+- inference recordは一つの実行の値。`sequence`はprocess内順序、`repeat`はwarm試行番号。
+  `method=batch`は1 API call、`sequential`は入力ごとにsingletonのoptions APIを呼び、
+  `calls`にその順でmetricsを保持する。通常APIのmetricsは`null`。
+- `state=first_inference`はprocess内最初の推論、`warmup`は後続の準備実行、`warm`だけが集計対象。
+  `validation`は空入力確認用で集計対象外。
+  毎forwardでbuffer/compile cacheをclearするため、warmはkernel cache保持の保証ではない。
+  OSのファイルcacheは消していない。cold diskの測定とは呼ばない。
+- 時間は`{"secs":整数,"nanos":整数}`。sub-msを保持する。`wall`は外側の呼出し全体、
+  `calls[].wall`は各公開API内側の時間。JSON出力・fixture比較は外側wallの後。
+  `preprocessing`等は内側wallの部分区間で、総和がwallになる保証はない。
+  `tokenize=null`は前処理から未分離。`forwards`の長さがforward数で各要素は実際のpadded shape。
+  `pause`は実sleep時間、`pause_count`は最後のforward後を含む実行回数。
+- `event=summary`は同一context・入力hash・workload・options・method・measuredのwarm recordを集計する。
+  `sequences`が原recordへの対応、`wall`がサンプル数・min・median・max。偶数の中央値は中央2値の中点。
+  通常／計測の分布から追加計測コストを読み、各profileのbatch／sequential分布から方式差を読む。
+  ばらつきが大きければ差を効果と断定しない。rawの値を集計値で上書きしない。
+
+`measure-baseline`も同じrecord形式と交互順を使うが、defaultの計測経路だけを実行し、既存の
+Phase 2閾値検査を続ける。stderrの `baseline` / `mdrow` は集計表示で、一回の推論値ではない。
+通常checkだけではsmoke feature・実モデルの検証は完了しない。フルcheckとCIを同じheadで確認し、
+公開可能な小さなraw record・summary・build条件・未確認事項を `docs/benchmarks/` に保存する。
+今回の実測結果と制約は [Issue #306の検証記録](docs/benchmarks/issue-306-metrics.md) を参照。
 
 ### 推論失敗時のcleanupとメモリ観測
 

@@ -12,6 +12,89 @@
 
 use std::time::Duration;
 
+use super::ChunkedEmbedding;
+
+/// Output and optional telemetry from the same, single batch invocation.
+#[derive(Debug)]
+pub struct MeasuredEmbedding {
+    /// Embeddings in the same order as the input documents.
+    pub embeddings: Vec<ChunkedEmbedding>,
+    /// `None` means the provider does not support measurement, not zero cost.
+    pub metrics: Option<InferenceMetrics>,
+}
+
+/// Actual padded input shape of one completed forward, in execution order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ForwardShape {
+    /// Number of chunk rows passed to the model.
+    pub batch_size: usize,
+    /// Padded bucket length passed to the model.
+    pub sequence_length: usize,
+}
+
+/// Host-side timings for one successful MLX batch call, preserving sub-ms precision.
+///
+/// `wall` encloses lock acquisition, preprocessing, all forwards, readbacks,
+/// cleanup, pauses, output reconstruction and logging. Other durations are
+/// disjoint subsets of wall, not an exhaustive partition: bookkeeping, Array
+/// destruction and result reconstruction are not separately timed. Do not add
+/// wall to its children. These are host elapsed times, **not GPU kernel times**.
+/// Errors return the original `EmbedError`, without a partial metrics snapshot.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct InferenceMetrics {
+    /// Tokenization, chunk planning, bucket routing/sorting and CPU padding.
+    pub preprocessing: Duration,
+    /// Not separated from preprocessing in MLX batches; always `None` there.
+    pub tokenize: Option<Duration>,
+    /// Waiting for this Embedder's mutex. The global cleanup lock is instead
+    /// included in `cache_clear`; it is not separately measured.
+    pub lock_wait: Duration,
+    /// Graph construction, forward, GPU pooling/normalization and pooled eval.
+    pub forward_eval: Duration,
+    /// Pooled host slice access, finite/shape validation and splitting into rows.
+    pub readback: Duration,
+    /// Best-effort buffer/compile cache cleanup after temporary Arrays drop,
+    /// including global cache lock wait and any cleanup diagnostics.
+    pub cache_clear: Duration,
+    /// Actual host time spent sleeping after each completed forward, including
+    /// the last forward. Zero means no sleep when no pause was requested.
+    pub pause: Duration,
+    /// Number of requested sleeps executed (including zero-duration requests).
+    pub pause_count: usize,
+    /// Elapsed duration of the measured public call through snapshot assembly.
+    pub wall: Duration,
+    /// One entry per completed forward; length is the forward count.
+    pub forwards: Vec<ForwardShape>,
+    /// Non-padding token positions across forwards.
+    pub real_tokens: usize,
+    /// All token positions across forwards, including padding.
+    pub padded_tokens: usize,
+    /// Total number of output chunks.
+    pub num_chunks: usize,
+    /// Chunk counts in the fixed 128/512/2048/8192 buckets.
+    pub bucket_hist: [usize; 4],
+}
+
+impl From<PhaseMetrics> for InferenceMetrics {
+    fn from(m: PhaseMetrics) -> Self {
+        Self {
+            preprocessing: m.preprocessing,
+            tokenize: None,
+            forward_eval: m.forward_eval,
+            readback: m.readback_pool,
+            cache_clear: m.cache_clear,
+            pause: m.pause,
+            pause_count: m.pause_count,
+            forwards: m.forwards,
+            real_tokens: m.real_tokens,
+            padded_tokens: m.padded_tokens,
+            num_chunks: m.num_chunks,
+            bucket_hist: m.bucket_hist,
+            ..Self::default()
+        }
+    }
+}
+
 /// Identifies which embed entry point a phase record or warn emit came from.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(super) enum EmbedKind {
@@ -44,9 +127,10 @@ pub struct BatchMetrics {
     pub padded_tokens: usize,
     /// Wall-clock of the forward + eval phase in milliseconds.
     pub forward_eval_ms: u128,
-    /// Wall-clock of the tokenization phase in milliseconds.
+    /// Legacy batch placeholder: zero means tokenization was not separated.
+    /// Use [`InferenceMetrics::tokenize`] to distinguish unavailable measurement.
     pub tokenize_ms: u128,
-    /// Wall-clock of the chunk-planning phase in milliseconds.
+    /// Legacy chunk-planning time, including tokenization, truncated to ms.
     pub chunk_plan_ms: u128,
     /// Number of chunks produced across all input texts.
     pub num_chunks: usize,
@@ -76,10 +160,15 @@ impl From<&PhaseMetrics> for BatchMetrics {
 }
 
 /// Phase timings and batch counters for one `embed_*` call.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub(super) struct PhaseMetrics {
     /// Identifies which entry point produced this record.
     pub kind: EmbedKind,
+    pub preprocessing: Duration,
+    pub pause: Duration,
+    /// Number of requested sleeps executed (including zero-duration requests).
+    pub pause_count: usize,
+    pub forwards: Vec<ForwardShape>,
     pub tokenize: Duration,
     pub chunk_plan: Duration,
     pub forward_eval: Duration,

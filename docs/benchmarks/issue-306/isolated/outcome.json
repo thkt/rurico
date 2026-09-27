@@ -1,0 +1,9 @@
+{
+  "exit_code": 0,
+  "competing_load_detected": false,
+  "started_unix": 1790496356.463992,
+  "finished_unix": 1790496364.6905081,
+  "sampling_interval_seconds": 0.25,
+  "preflight_quiet_seconds": 10,
+  "scope": "No builds or other GPU tests launched by this task; listed compiler/build and known model-test processes monitored before and throughout the short run. Background OS/application GPU activity is not measured."
+}

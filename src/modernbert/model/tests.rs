@@ -148,7 +148,6 @@ mod mlx_runtime_tests {
     #[serial]
     fn official_embedding_load_contract() {
         use crate::embed::{ModelId, cached_artifacts};
-        use crate::model_io::ModelArtifact;
 
         require_unsandboxed_mlx_runtime();
         let id = ModelId::DEFAULT;

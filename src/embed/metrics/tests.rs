@@ -70,3 +70,45 @@ fn t_met_001_log_emits_named_bucket_hist_fields() {
         "expected event message in subscriber output",
     );
 }
+
+#[test]
+fn precise_metrics_keep_sub_millisecond_values_and_unmeasured_tokenization() {
+    use super::{BatchMetrics, ForwardShape, InferenceMetrics};
+    use std::time::Duration;
+    let phases = PhaseMetrics {
+        preprocessing: Duration::from_nanos(123),
+        forward_eval: Duration::from_nanos(456),
+        readback_pool: Duration::from_nanos(78),
+        cache_clear: Duration::from_nanos(90),
+        pause: Duration::from_nanos(12),
+        forwards: vec![ForwardShape {
+            batch_size: 2,
+            sequence_length: 128,
+        }],
+        ..PhaseMetrics::default()
+    };
+    assert_eq!(BatchMetrics::from(&phases).forward_eval_ms, 0);
+    let forwards_ptr = phases.forwards.as_ptr();
+    let metrics = InferenceMetrics::from(phases);
+    assert_eq!(metrics.preprocessing.as_nanos(), 123);
+    assert_eq!(metrics.forward_eval.as_nanos(), 456);
+    assert_eq!(metrics.readback.as_nanos(), 78);
+    assert_eq!(metrics.cache_clear.as_nanos(), 90);
+    assert_eq!(metrics.pause.as_nanos(), 12);
+    assert_eq!(
+        metrics.forwards,
+        [ForwardShape {
+            batch_size: 2,
+            sequence_length: 128,
+        }]
+    );
+    // Snapshot assembly must transfer the collected allocation, not copy it.
+    assert_eq!(metrics.forwards.as_ptr(), forwards_ptr);
+    assert_eq!(metrics.tokenize, None);
+    let json = serde_json::to_value(&metrics).unwrap();
+    assert!(json["tokenize"].is_null());
+    assert_eq!(
+        serde_json::from_value::<InferenceMetrics>(json).unwrap(),
+        metrics
+    );
+}

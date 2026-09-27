@@ -7,7 +7,7 @@ use std::time::Instant;
 use mlx_rs::Array;
 
 use super::Artifacts;
-use super::metrics::{BatchMetrics, EmbedKind, PhaseMetrics};
+use super::metrics::{EmbedKind, ForwardShape, PhaseMetrics};
 use super::processing::{
     IndexedChunk, build_indexed_chunks, distribute_into_buckets, plan_document_chunks, split_pooled,
 };
@@ -151,22 +151,19 @@ impl EmbedderInner {
         texts: &[&str],
         options: &EmbedOptions,
     ) -> Result<Vec<ChunkedEmbedding>, EmbedError> {
-        self.embed_documents_batch_chunked_with_metrics(texts, options)
+        self.embed_documents_batch_chunked_with_metrics(texts, options, false)
             .map(|(results, _metrics)| results)
     }
 
-    /// Same as [`embed_documents_batch_chunked`](Self::embed_documents_batch_chunked)
-    /// but also returns a [`BatchMetrics`] snapshot of the call. Used by the
-    /// smoke harness (PR #6) to assert SLA + padding + R² bounds without
-    /// parsing a debug-log line. Empty `texts` yields
-    /// `(Vec::new(), BatchMetrics::default())`.
+    /// Shared single-inference pipeline; detailed collection is opt-in.
     pub(super) fn embed_documents_batch_chunked_with_metrics(
         &mut self,
         texts: &[&str],
         options: &EmbedOptions,
-    ) -> Result<(Vec<ChunkedEmbedding>, BatchMetrics), EmbedError> {
+        detailed: bool,
+    ) -> Result<(Vec<ChunkedEmbedding>, PhaseMetrics), EmbedError> {
         if texts.is_empty() {
-            return Ok((Vec::new(), BatchMetrics::default()));
+            return Ok((Vec::new(), PhaseMetrics::new(EmbedKind::Batch)));
         }
 
         let mut metrics = PhaseMetrics::new(EmbedKind::Batch);
@@ -180,6 +177,7 @@ impl EmbedderInner {
             max_content_tokens,
         )?;
         metrics.chunk_plan = t_plan.elapsed();
+        let t_route = detailed.then(Instant::now);
         let total_chunks = all_chunk_tokens.len();
         metrics.num_chunks = total_chunks;
 
@@ -187,6 +185,10 @@ impl EmbedderInner {
             distribute_into_buckets(build_indexed_chunks(all_chunk_tokens, &chunks_per_doc)?);
 
         let mut out: Vec<Option<Vec<f32>>> = (0..total_chunks).map(|_| None).collect();
+
+        if let Some(t) = t_route {
+            metrics.preprocessing = metrics.chunk_plan + t.elapsed();
+        }
 
         for (bucket_idx, mut bucket) in buckets.into_iter().enumerate() {
             metrics.bucket_hist[bucket_idx] = bucket.len();
@@ -196,24 +198,32 @@ impl EmbedderInner {
             // R-M02: cluster same-doc chunks inside each bucket so a sub_batch
             // prefers to carry chunks from the same document. chunk_in_doc is
             // the tie-breaker to preserve reading order within a doc.
+            let t_sort = detailed.then(Instant::now);
             bucket.sort_by_key(IndexedChunk::doc_order_key);
             // sub_batch_size against the bucket ceiling keeps every possible
             // sub-batch under TOKEN_BUDGET even when every chunk is at the
             // bucket_max boundary, matching the pre-bucketing OOM guarantee.
             let sub_batch_size =
                 compute_sub_batch_size(BUCKET_BOUNDS[bucket_idx], options.token_budget);
+            if let Some(t) = t_sort {
+                metrics.preprocessing += t.elapsed();
+            }
             for sub_batch in bucket.chunks(sub_batch_size) {
-                self.forward_sub_batch(sub_batch, bucket_idx, &mut out, &mut metrics)?;
+                self.forward_sub_batch(sub_batch, bucket_idx, &mut out, &mut metrics, detailed)?;
                 // Yield the GPU between forwards so interactive processes
                 // (WindowServer) regain responsiveness during long batches.
                 if let Some(pause) = options.forward_pause {
+                    let t_pause = detailed.then(Instant::now);
                     thread::sleep(pause);
+                    if let Some(t) = t_pause {
+                        metrics.pause += t.elapsed();
+                        metrics.pause_count += 1;
+                    }
                 }
             }
         }
 
         metrics.log();
-        let batch_metrics = BatchMetrics::from(&metrics);
 
         // Invariant: each global_idx was written exactly once across all bucket
         // forwards. None here signals a distribution or unpack bug, not input —
@@ -237,7 +247,7 @@ impl EmbedderInner {
             results.push(ChunkedEmbedding::try_new(chunks)?);
         }
 
-        Ok((results, batch_metrics))
+        Ok((results, metrics))
     }
 
     /// Forward one sub-batch of indexed chunks, write pooled embeddings into
@@ -257,7 +267,9 @@ impl EmbedderInner {
         bucket_idx: usize,
         out: &mut [Option<Vec<f32>>],
         metrics: &mut PhaseMetrics,
+        detailed: bool,
     ) -> Result<(), EmbedError> {
+        let t_pad = detailed.then(Instant::now);
         let sub_tokens: Vec<Vec<u32>> = sub_batch.iter().map(|c| c.tokens.clone()).collect();
         let (input_ids, attention_mask, batch_size, max_len) =
             pad_sequences(&sub_tokens, None, Some(BUCKET_BOUNDS[bucket_idx]));
@@ -265,6 +277,10 @@ impl EmbedderInner {
         metrics.padded_tokens += batch_size * max_len;
         metrics.batch_size = metrics.batch_size.max(batch_size);
         metrics.max_seq_len = metrics.max_seq_len.max(max_len);
+
+        if let Some(t) = t_pad {
+            metrics.preprocessing += t.elapsed();
+        }
 
         let batch_size_i32 = i32::try_from(batch_size).expect("batch_size fits in i32");
         let max_len_i32 = i32::try_from(max_len).expect("max_len fits in i32");
@@ -295,6 +311,13 @@ impl EmbedderInner {
                 metrics.cache_clear += t_clear.elapsed();
             },
         )?;
+
+        if detailed {
+            metrics.forwards.push(ForwardShape {
+                batch_size,
+                sequence_length: max_len,
+            });
+        }
 
         for (chunk, emb) in sub_batch.iter().zip(unpacked) {
             out[chunk.global_idx] = Some(emb);

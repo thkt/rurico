@@ -31,7 +31,7 @@ pub use crate::artifacts::{ArtifactError, EmbedKind, VerifiedArtifacts};
 pub use crate::model_init::ModelInitError;
 pub use crate::model_lifecycle::{cached_artifacts, download_model};
 pub use embedder::Embedder;
-pub use metrics::BatchMetrics;
+pub use metrics::{BatchMetrics, ForwardShape, InferenceMetrics, MeasuredEmbedding};
 pub(crate) use pooling::gpu_pool_and_normalize;
 
 use crate::artifacts;
@@ -215,6 +215,16 @@ pub enum ModelId {
 impl ModelId {
     /// Product-chosen default embedding model.
     pub const DEFAULT: Self = Self::RuriV3_310m;
+
+    /// Hugging Face repository used by the model lifecycle functions.
+    pub fn repo_id(self) -> &'static str {
+        <Self as ModelArtifact>::repo_id(self)
+    }
+
+    /// Pinned revision used for weights, config and tokenizer cache lookup.
+    pub fn revision(self) -> &'static str {
+        <Self as ModelArtifact>::revision(self)
+    }
 }
 
 impl ModelArtifact for ModelId {
@@ -323,7 +333,7 @@ impl EmbedError {
 /// trait-level default of
 /// [`embed_documents_batch_with_options`](Embed::embed_documents_batch_with_options)
 /// does exactly that.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct EmbedOptions {
     /// Token budget per forward pass, overriding the built-in
     /// `TOKEN_BUDGET` used to size sub-batches. Smaller budgets shorten
@@ -399,6 +409,27 @@ pub trait Embed: Send + Sync {
         _options: &EmbedOptions,
     ) -> Result<Vec<ChunkedEmbedding>, EmbedError> {
         self.embed_documents_batch(texts)
+    }
+
+    /// Embed once with best-effort options and return the result with available
+    /// metrics. Works through `dyn Embed`. The compatibility default delegates
+    /// exactly once to the existing options method and returns `metrics: None`.
+    /// It does not require existing providers to honor hints or measure time.
+    /// MLX returns `Some` even for empty input (no forwards, measured wall/lock).
+    ///
+    /// # Errors
+    ///
+    /// Propagates the same error as the options method without retrying inference.
+    fn embed_documents_batch_with_options_and_metrics(
+        &self,
+        texts: &[&str],
+        options: &EmbedOptions,
+    ) -> Result<MeasuredEmbedding, EmbedError> {
+        self.embed_documents_batch_with_options(texts, options)
+            .map(|embeddings| MeasuredEmbedding {
+                embeddings,
+                metrics: None,
+            })
     }
 
     /// Embed text using the specified prefix (prepended before tokenization).

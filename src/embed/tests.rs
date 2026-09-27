@@ -1,6 +1,6 @@
 use super::*;
 use crate::artifacts::EmbedKind;
-use crate::model_io::{EOS_TOKEN_ID, ModelArtifact, artifacts_from_cache, load_tokenizer};
+use crate::model_io::{EOS_TOKEN_ID, artifacts_from_cache, load_tokenizer};
 #[cfg(unix)]
 use crate::test_support::assert_probe_env_to_paths_preserves_snapshot_symlink_filename;
 use crate::test_support::{
@@ -384,4 +384,82 @@ fn embed_documents_batch_with_options_default_impl_ignores_options() {
     for (a, b) in with_opts.iter().zip(&without) {
         assert_eq!(a.chunks(), b.chunks());
     }
+}
+
+#[test]
+fn measured_trait_fallback_delegates_once_with_options_and_preserves_errors() {
+    use std::sync::Mutex;
+
+    #[derive(Default)]
+    struct Spy(Mutex<Vec<(Vec<String>, EmbedOptions)>>);
+    impl Embed for Spy {
+        fn embed_query(&self, _: &str) -> Result<Vec<f32>, EmbedError> {
+            panic!("wrong entry")
+        }
+        fn embed_document(&self, _: &str) -> Result<ChunkedEmbedding, EmbedError> {
+            panic!("wrong entry")
+        }
+        fn embed_text(&self, _: &str, _: &str) -> Result<Vec<f32>, EmbedError> {
+            panic!("wrong entry")
+        }
+        fn embed_documents_batch(&self, _: &[&str]) -> Result<Vec<ChunkedEmbedding>, EmbedError> {
+            panic!("options bypassed")
+        }
+        fn embed_documents_batch_with_options(
+            &self,
+            texts: &[&str],
+            options: &EmbedOptions,
+        ) -> Result<Vec<ChunkedEmbedding>, EmbedError> {
+            self.0
+                .lock()
+                .unwrap()
+                .push((texts.iter().map(|s| (*s).to_owned()).collect(), *options));
+            if texts == ["fail"] {
+                return Err(EmbedError::NonFiniteOutput);
+            }
+            texts
+                .iter()
+                .enumerate()
+                .map(|(i, _)| ChunkedEmbedding::try_new(vec![vec![i as f32]]).map_err(Into::into))
+                .collect()
+        }
+    }
+    let spy = Spy::default();
+    let provider: &dyn Embed = &spy;
+    let options = EmbedOptions {
+        token_budget: Some(128),
+        forward_pause: Some(Duration::from_nanos(123)),
+    };
+    for texts in [&["alpha", "beta"][..], &[][..], &["fail"][..]] {
+        let result = provider.embed_documents_batch_with_options_and_metrics(texts, &options);
+        if texts == ["fail"] {
+            assert!(matches!(result, Err(EmbedError::NonFiniteOutput)));
+        } else {
+            let output = result.unwrap();
+            assert!(output.metrics.is_none());
+            assert_eq!(output.embeddings.len(), texts.len());
+            for (i, doc) in output.embeddings.iter().enumerate() {
+                assert_eq!(doc.chunks(), &[vec![i as f32]]);
+            }
+        }
+    }
+    let calls = spy.0.lock().unwrap();
+    assert_eq!(calls.len(), 3);
+    assert_eq!(
+        calls.iter().map(|c| c.0.len()).collect::<Vec<_>>(),
+        [2, 0, 1]
+    );
+    assert!(calls.iter().all(|c| c.1 == options));
+
+    // An unchanged provider implementing only the old required methods still works.
+    let legacy = MockEmbedder::default();
+    let legacy: &dyn Embed = &legacy;
+    let output = legacy
+        .embed_documents_batch_with_options_and_metrics(&["alpha"], &options)
+        .unwrap();
+    assert!(output.metrics.is_none());
+    assert_eq!(
+        output.embeddings[0].chunks(),
+        legacy.embed_document("alpha").unwrap().chunks()
+    );
 }
