@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "kind": "embedding",
+  "common": {
+    "namespace": "example.org/mock",
+    "model": "synthetic-768",
+    "revision": "example-revision-1",
+    "weights_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "config_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+    "tokenizer_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+    "tokenizer_semantics": "example.org/tokenizer/v1",
+    "dimensions": 768,
+    "pooling": "masked-mean-including-special-and-prefix/v1",
+    "normalization": "l2-clamp-f32-min-positive/v1",
+    "precision": "f32-weights-compute-pool-output/v1",
+    "inference_semantics": "example.org/modernbert-mlx/v1"
+  },
+  "operation": {
+    "role": "document",
+    "prefix": "検索文書: ",
+    "outer_whitespace": "none/v1",
+    "long_input": "offset-retokenize-shrink/v1",
+    "max_tokens": 8192,
+    "bos": 2,
+    "eos": 3,
+    "overlap": 2048
+  }
+}

@@ -99,6 +99,13 @@ cargo run --features smoke --bin mlx_smoke
 標準check成功だけでは実測済みにならない。参照出力は既存fixtureと別に保存する。
 [準備時点の記録](docs/research/issue-307/report.md)から測定状況と未確認範囲を確認できる。
 
+### 構成識別の設計例（Issue #315）
+
+embedding・FTS構成の保存と照合の未採用案は、[設計報告と実行例](docs/research/issue-315/README.md)を参照する。
+記録の決定性・役割別照合・情報不足の扱いは、そこに示すPython標準ライブラリの検証で確認する。
+これはモデルを実行しない設計例で、製品APIの検証や標準checkの代わりにはならない。
+Rustの検証は引き続き上記のMLX構成で行う。
+
 ### options付き推論の計測（Issue #306）
 
 `mlx_smoke measure-records` は固定revisionのキャッシュ済み310mモデルと既存W1/W2/W3の
