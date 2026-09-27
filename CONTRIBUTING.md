@@ -97,6 +97,8 @@ cargo run --features smoke --bin mlx_smoke
 固定revision、FP32、同一token列/shapeの比較、公開wrapper差、既存baseline差を分けて記録する。
 `research::official_comparison_embedding`と`research::official_comparison_reranker`はignoredであり、
 標準check成功だけでは実測済みにならない。参照出力は既存fixtureと別に保存する。
+Python参照環境の通常インストール・依存整合・厳密な導入版・モデル不要テストもCIの`test`ジョブで検証する。
+[Python環境の検証手順](docs/research/issue-307/README.md#ホストで実行する)を使い、実モデル比較とは区別する。
 [準備時点の記録](docs/research/issue-307/report.md)から測定状況と未確認範囲を確認できる。
 
 ### 構成識別の設計例（Issue #315）

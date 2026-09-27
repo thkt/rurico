@@ -1,0 +1,128 @@
+{
+  "started_utc": "2026-09-27T17:57:38.321333+00:00",
+  "fresh_environment": "<REFERENCE_ENV>",
+  "source": {
+    "docs/research/issue-307/test_reference.py": "ea8a8c170beab07342171cb2f0553193995000e1ebff1898153df2b6e6b1a1e2",
+    "docs/research/issue-307/run.py": "f392efc6ce7356da6979669f3f22facf587b0344ebcae4b75c9bd2f65cdc61a3",
+    "docs/research/issue-307/search_quality.py": "ad2f06921d18e07c766c659d37e4bea6bb71cb665feb46e0e64f3f183eac68bd",
+    "docs/research/issue-307/test_capture.py": "a47da34d9d654214df5acf94dcfcf238d59824cfc100e760ca9d3402c86e5522",
+    "docs/research/issue-307/reference.py": "6a8d7677330bc77ac30a0bc4d64df1c66737970432935b65523cb825704e6d49",
+    "docs/research/issue-307/test_compare.py": "67fdb11275a71105963f7e15a8c36e563e76f241dd12539783aa4c7997407de7",
+    "docs/research/issue-307/compare.py": "a9ee60d66954b4a74e0d22830ee2a858e20dfb03814425b83bde723d02b540b4",
+    "docs/research/issue-307/test_environment.py": "d1c39e979dc8e8df2c41f916ca1ef36e3a854dda2924139ea0b30bde37c172a5"
+  },
+  "requirements_sha256": "b303c0bc5817f621d80e1521a61024493cc15a95130e891c15b5ddb643e16251",
+  "commands": [
+    {
+      "command": [
+        "uv",
+        "venv",
+        "--python",
+        "<PYTHON_3_12_13>",
+        "--seed",
+        "<REFERENCE_ENV>"
+      ],
+      "exit_code": 0,
+      "private_log_sha256": "2e324dbf392130399610e732c169265f0edccef549cba23091c3947018a746b7"
+    },
+    {
+      "command": [
+        "<REFERENCE_ENV>/bin/python",
+        "-m",
+        "pip",
+        "install",
+        "-r",
+        "docs/research/issue-307/requirements.txt"
+      ],
+      "exit_code": 0,
+      "private_log_sha256": "cd8a7f6f883624afb362a3eb5d0834418f72e6f598cd87d610734afe9089f546"
+    },
+    {
+      "command": [
+        "<REFERENCE_ENV>/bin/python",
+        "-m",
+        "pip",
+        "check"
+      ],
+      "exit_code": 0,
+      "private_log_sha256": "9261363b733079a641c2e4cc9bc46ffa1d8336945a87f807b6cf68847dbc9b09"
+    },
+    {
+      "command": [
+        "<REFERENCE_ENV>/bin/python",
+        "-c",
+        "import sys; sys.path.insert(0,\"docs/research/issue-307\"); import reference; print(reference.environment())"
+      ],
+      "exit_code": 0,
+      "private_log_sha256": "b4e4695ca7c0c91bbfbb08162932ec1c96e6700aa775084aa9598752ef573bb6"
+    },
+    {
+      "command": [
+        "<REFERENCE_ENV>/bin/python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "docs/research/issue-307",
+        "-p",
+        "test_*.py"
+      ],
+      "exit_code": 0,
+      "private_log_sha256": "673b1c2c609f52f22fc58a6c8ae1b8964aceda4842b0463982f29e09a6cd65d9"
+    }
+  ],
+  "passed": true,
+  "finished_utc": "2026-09-27T17:58:29.493975+00:00",
+  "original_record_sha256": "ec3c5e5c633fdf64475700006f1696a4152a579739f6a23be865b3399da878fd",
+  "publication_note": "Host record before R1-2. Local interpreter/environment paths replaced by placeholders; private logs omitted and identified by SHA-256. Source hashes and exit codes unchanged. python_packages extracted from the strict environment check log.",
+  "python_packages": {
+    "shellingham": "1.5.4",
+    "numpy": "2.5.3",
+    "scikit-learn": "1.9.1",
+    "cloudpickle": "3.1.2",
+    "sentence-transformers": "6.1.0",
+    "click": "8.5.0",
+    "packaging": "26.3",
+    "networkx": "3.7",
+    "joblib": "1.6.0",
+    "protobuf": "7.36.2",
+    "charset-normalizer": "3.5.1",
+    "pygments": "2.21.0",
+    "requests": "2.34.2",
+    "hf-xet": "1.6.0",
+    "rich": "15.0.0",
+    "sentencepiece": "0.2.2",
+    "torch": "2.14.0",
+    "tokenizers": "0.23.2",
+    "httpcore": "1.0.9",
+    "sympy": "1.14.0",
+    "transformers": "5.17.0",
+    "pip": "26.2.1",
+    "safetensors": "0.8.0",
+    "tqdm": "4.70.1",
+    "setuptools": "84.0.0",
+    "urllib3": "2.8.0",
+    "h11": "0.16.0",
+    "mdurl": "0.1.2",
+    "mpmath": "1.3.0",
+    "pyyaml": "6.0.3",
+    "fsspec": "2026.9.0",
+    "certifi": "2026.7.22",
+    "jinja2": "3.1.6",
+    "markdown-it-py": "4.2.0",
+    "annotated-doc": "0.0.5",
+    "markupsafe": "3.0.3",
+    "threadpoolctl": "3.7.0",
+    "filelock": "4.0.4",
+    "httpx": "0.28.1",
+    "typing-extensions": "4.16.0",
+    "regex": "2026.9.10",
+    "typer": "0.27.2",
+    "pillow": "12.3.0",
+    "anyio": "4.15.1",
+    "scipy": "1.18.1",
+    "huggingface-hub": "1.33.0",
+    "narwhals": "2.26.0",
+    "idna": "3.20"
+  }
+}

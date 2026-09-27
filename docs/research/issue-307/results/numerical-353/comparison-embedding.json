@@ -1,0 +1,1118 @@
+{
+  "kind": "embedding",
+  "tokenization": [
+    {
+      "id": "short",
+      "raw_equal": true,
+      "wrapper_equal": true,
+      "raw_lengths": [
+        8,
+        8
+      ],
+      "model_lengths": [
+        8,
+        8
+      ]
+    },
+    {
+      "id": "japanese",
+      "raw_equal": true,
+      "wrapper_equal": true,
+      "raw_lengths": [
+        13,
+        13
+      ],
+      "model_lengths": [
+        13,
+        13
+      ]
+    },
+    {
+      "id": "code",
+      "raw_equal": true,
+      "wrapper_equal": true,
+      "raw_lengths": [
+        36,
+        36
+      ],
+      "model_lengths": [
+        36,
+        36
+      ]
+    },
+    {
+      "id": "local-before",
+      "raw_equal": true,
+      "wrapper_equal": true,
+      "raw_lengths": [
+        126,
+        126
+      ],
+      "model_lengths": [
+        126,
+        126
+      ]
+    },
+    {
+      "id": "local-after",
+      "raw_equal": true,
+      "wrapper_equal": true,
+      "raw_lengths": [
+        130,
+        130
+      ],
+      "model_lengths": [
+        130,
+        130
+      ]
+    },
+    {
+      "id": "limit-before",
+      "raw_equal": true,
+      "wrapper_equal": true,
+      "raw_lengths": [
+        8190,
+        8190
+      ],
+      "model_lengths": [
+        8190,
+        8190
+      ]
+    },
+    {
+      "id": "limit-after",
+      "raw_equal": true,
+      "wrapper_equal": true,
+      "raw_lengths": [
+        8194,
+        8194
+      ],
+      "model_lengths": [
+        8192,
+        8192
+      ]
+    },
+    {
+      "id": "query-prefix",
+      "raw_equal": true,
+      "wrapper_equal": true,
+      "raw_lengths": [
+        13,
+        13
+      ],
+      "model_lengths": [
+        13,
+        13
+      ]
+    },
+    {
+      "id": "topic-prefix",
+      "raw_equal": true,
+      "wrapper_equal": true,
+      "raw_lengths": [
+        12,
+        12
+      ],
+      "model_lengths": [
+        12,
+        12
+      ]
+    },
+    {
+      "id": "no-prefix",
+      "raw_equal": true,
+      "wrapper_equal": true,
+      "raw_lengths": [
+        9,
+        9
+      ],
+      "model_lengths": [
+        9,
+        9
+      ]
+    }
+  ],
+  "same_tokens": [
+    {
+      "batch": "short/text/exact",
+      "shape": [
+        1,
+        8
+      ],
+      "rows": [
+        {
+          "key": "short/text",
+          "cosine": 0.9999999999929701,
+          "max_abs": 6.407499313354492e-07,
+          "reference_norm": 1.0000000278028247,
+          "actual_norm": 0.9999999934394745,
+          "within_criteria": true,
+          "hidden_probe_max_abs": 4.1961669921875e-05
+        }
+      ]
+    },
+    {
+      "batch": "short/text/bucket",
+      "shape": [
+        1,
+        128
+      ],
+      "rows": [
+        {
+          "key": "short/text",
+          "cosine": 0.9999999999957879,
+          "max_abs": 4.172325134277344e-07,
+          "reference_norm": 1.000000024137464,
+          "actual_norm": 0.9999999487520931,
+          "within_criteria": true,
+          "hidden_probe_max_abs": 3.4332275390625e-05
+        }
+      ]
+    },
+    {
+      "batch": "japanese/text/exact",
+      "shape": [
+        1,
+        13
+      ],
+      "rows": [
+        {
+          "key": "japanese/text",
+          "cosine": 0.9999999999995564,
+          "max_abs": 1.7881393432617188e-07,
+          "reference_norm": 0.9999999543579118,
+          "actual_norm": 1.0000000086125092,
+          "within_criteria": true,
+          "hidden_probe_max_abs": 1.33514404296875e-05
+        }
+      ]
+    },
+    {
+      "batch": "japanese/text/bucket",
+      "shape": [
+        1,
+        128
+      ],
+      "rows": [
+        {
+          "key": "japanese/text",
+          "cosine": 0.9999999999995626,
+          "max_abs": 1.7881393432617188e-07,
+          "reference_norm": 0.999999990340406,
+          "actual_norm": 0.9999999948706831,
+          "within_criteria": true,
+          "hidden_probe_max_abs": 1.52587890625e-05
+        }
+      ]
+    },
+    {
+      "batch": "code/text/exact",
+      "shape": [
+        1,
+        36
+      ],
+      "rows": [
+        {
+          "key": "code/text",
+          "cosine": 0.9999999999994552,
+          "max_abs": 1.2665987014770508e-07,
+          "reference_norm": 1.0000000564275824,
+          "actual_norm": 0.999999988398487,
+          "within_criteria": true,
+          "hidden_probe_max_abs": 2.288818359375e-05
+        }
+      ]
+    },
+    {
+      "batch": "code/text/bucket",
+      "shape": [
+        1,
+        128
+      ],
+      "rows": [
+        {
+          "key": "code/text",
+          "cosine": 0.9999999999994997,
+          "max_abs": 1.1455267667770386e-07,
+          "reference_norm": 1.0000000564275824,
+          "actual_norm": 0.9999999846249392,
+          "within_criteria": true,
+          "hidden_probe_max_abs": 1.52587890625e-05
+        }
+      ]
+    },
+    {
+      "batch": "local-before/text/exact",
+      "shape": [
+        1,
+        126
+      ],
+      "rows": [
+        {
+          "key": "local-before/text",
+          "cosine": 0.9999999999988591,
+          "max_abs": 2.3096799850463867e-07,
+          "reference_norm": 1.0000000376466012,
+          "actual_norm": 1.0000000086096885,
+          "within_criteria": true,
+          "hidden_probe_max_abs": 2.181529998779297e-05
+        }
+      ]
+    },
+    {
+      "batch": "local-before/text/bucket",
+      "shape": [
+        1,
+        128
+      ],
+      "rows": [
+        {
+          "key": "local-before/text",
+          "cosine": 0.9999999999988591,
+          "max_abs": 2.3096799850463867e-07,
+          "reference_norm": 1.0000000376466012,
+          "actual_norm": 1.0000000086096885,
+          "within_criteria": true,
+          "hidden_probe_max_abs": 2.181529998779297e-05
+        }
+      ]
+    },
+    {
+      "batch": "local-after/text/exact",
+      "shape": [
+        1,
+        130
+      ],
+      "rows": [
+        {
+          "key": "local-after/text",
+          "cosine": 0.9999999999985694,
+          "max_abs": 4.76837158203125e-07,
+          "reference_norm": 0.999999933607626,
+          "actual_norm": 0.9999999962546903,
+          "within_criteria": true,
+          "hidden_probe_max_abs": 0.0005779266357421875
+        }
+      ]
+    },
+    {
+      "batch": "local-after/text/bucket",
+      "shape": [
+        1,
+        512
+      ],
+      "rows": [
+        {
+          "key": "local-after/text",
+          "cosine": 0.999999999997973,
+          "max_abs": 7.152557373046875e-07,
+          "reference_norm": 0.999999933607626,
+          "actual_norm": 1.0000000064768597,
+          "within_criteria": true,
+          "hidden_probe_max_abs": 0.000885009765625
+        }
+      ]
+    },
+    {
+      "batch": "limit-before/text/exact",
+      "shape": [
+        1,
+        8190
+      ],
+      "rows": [
+        {
+          "key": "limit-before/text",
+          "cosine": 0.9999999999979878,
+          "max_abs": 4.647299647331238e-07,
+          "reference_norm": 0.9999999565649842,
+          "actual_norm": 0.9999999855251217,
+          "within_criteria": true,
+          "hidden_probe_max_abs": 3.6716461181640625e-05
+        }
+      ]
+    },
+    {
+      "batch": "limit-before/text/bucket",
+      "shape": [
+        1,
+        8192
+      ],
+      "rows": [
+        {
+          "key": "limit-before/text",
+          "cosine": 0.9999999999979878,
+          "max_abs": 4.647299647331238e-07,
+          "reference_norm": 0.9999999565649842,
+          "actual_norm": 0.9999999855251217,
+          "within_criteria": true,
+          "hidden_probe_max_abs": 3.6716461181640625e-05
+        }
+      ]
+    },
+    {
+      "batch": "limit-after/text/exact",
+      "shape": [
+        1,
+        8192
+      ],
+      "rows": [
+        {
+          "key": "limit-after/text",
+          "cosine": 0.999999999998132,
+          "max_abs": 3.548339009284973e-07,
+          "reference_norm": 0.9999999974853284,
+          "actual_norm": 0.999999982459265,
+          "within_criteria": true,
+          "hidden_probe_max_abs": 3.337860107421875e-05
+        }
+      ]
+    },
+    {
+      "batch": "limit-after/chunk-0/exact",
+      "shape": [
+        1,
+        8192
+      ],
+      "rows": [
+        {
+          "key": "limit-after/chunk-0",
+          "cosine": 0.999999999998132,
+          "max_abs": 3.548339009284973e-07,
+          "reference_norm": 0.9999999974853284,
+          "actual_norm": 0.999999982459265,
+          "within_criteria": true,
+          "hidden_probe_max_abs": 3.337860107421875e-05
+        }
+      ]
+    },
+    {
+      "batch": "limit-after/chunk-1/exact",
+      "shape": [
+        1,
+        2056
+      ],
+      "rows": [
+        {
+          "key": "limit-after/chunk-1",
+          "cosine": 0.9999999999997201,
+          "max_abs": 1.7881393432617188e-07,
+          "reference_norm": 1.0000000478477846,
+          "actual_norm": 0.999999926242244,
+          "within_criteria": true,
+          "hidden_probe_max_abs": 3.147125244140625e-05
+        }
+      ]
+    },
+    {
+      "batch": "limit-after/chunk-1/bucket",
+      "shape": [
+        1,
+        8192
+      ],
+      "rows": [
+        {
+          "key": "limit-after/chunk-1",
+          "cosine": 0.9999999999997201,
+          "max_abs": 1.7881393432617188e-07,
+          "reference_norm": 1.0000000478477846,
+          "actual_norm": 0.999999926242244,
+          "within_criteria": true,
+          "hidden_probe_max_abs": 3.147125244140625e-05
+        }
+      ]
+    },
+    {
+      "batch": "query-prefix/text/exact",
+      "shape": [
+        1,
+        13
+      ],
+      "rows": [
+        {
+          "key": "query-prefix/text",
+          "cosine": 0.9999999999995847,
+          "max_abs": 1.1920928955078125e-07,
+          "reference_norm": 0.9999999907215424,
+          "actual_norm": 0.9999999666365166,
+          "within_criteria": true,
+          "hidden_probe_max_abs": 8.58306884765625e-06
+        }
+      ]
+    },
+    {
+      "batch": "query-prefix/text/bucket",
+      "shape": [
+        1,
+        128
+      ],
+      "rows": [
+        {
+          "key": "query-prefix/text",
+          "cosine": 0.9999999999995888,
+          "max_abs": 1.7881393432617188e-07,
+          "reference_norm": 1.0000000069280495,
+          "actual_norm": 1.000000012758641,
+          "within_criteria": true,
+          "hidden_probe_max_abs": 1.239776611328125e-05
+        }
+      ]
+    },
+    {
+      "batch": "topic-prefix/text/exact",
+      "shape": [
+        1,
+        12
+      ],
+      "rows": [
+        {
+          "key": "topic-prefix/text",
+          "cosine": 0.9999999999996638,
+          "max_abs": 2.086162567138672e-07,
+          "reference_norm": 0.9999999855596552,
+          "actual_norm": 1.0000000241519371,
+          "within_criteria": true,
+          "hidden_probe_max_abs": 1.52587890625e-05
+        }
+      ]
+    },
+    {
+      "batch": "topic-prefix/text/bucket",
+      "shape": [
+        1,
+        128
+      ],
+      "rows": [
+        {
+          "key": "topic-prefix/text",
+          "cosine": 0.9999999999997102,
+          "max_abs": 1.2665987014770508e-07,
+          "reference_norm": 0.9999999978369837,
+          "actual_norm": 1.000000007715411,
+          "within_criteria": true,
+          "hidden_probe_max_abs": 2.47955322265625e-05
+        }
+      ]
+    },
+    {
+      "batch": "no-prefix/text/exact",
+      "shape": [
+        1,
+        9
+      ],
+      "rows": [
+        {
+          "key": "no-prefix/text",
+          "cosine": 0.9999999999998095,
+          "max_abs": 9.313225746154785e-08,
+          "reference_norm": 0.9999999295294993,
+          "actual_norm": 1.0000000279322936,
+          "within_criteria": true,
+          "hidden_probe_max_abs": 1.52587890625e-05
+        }
+      ]
+    },
+    {
+      "batch": "no-prefix/text/bucket",
+      "shape": [
+        1,
+        128
+      ],
+      "rows": [
+        {
+          "key": "no-prefix/text",
+          "cosine": 0.9999999999998181,
+          "max_abs": 7.078051567077637e-08,
+          "reference_norm": 1.0000000007234875,
+          "actual_norm": 0.9999999910530564,
+          "within_criteria": true,
+          "hidden_probe_max_abs": 1.71661376953125e-05
+        }
+      ]
+    },
+    {
+      "batch": "mixed/bucket",
+      "shape": [
+        5,
+        512
+      ],
+      "rows": [
+        {
+          "key": "short/text",
+          "cosine": 0.9999999999971123,
+          "max_abs": 2.7567148208618164e-07,
+          "reference_norm": 1.000000024137464,
+          "actual_norm": 1.0000000065652366,
+          "within_criteria": true,
+          "hidden_probe_max_abs": 1.71661376953125e-05
+        },
+        {
+          "key": "japanese/text",
+          "cosine": 0.9999999999994711,
+          "max_abs": 1.7508864402770996e-07,
+          "reference_norm": 0.999999990340406,
+          "actual_norm": 0.9999999767509815,
+          "within_criteria": true,
+          "hidden_probe_max_abs": 1.71661376953125e-05
+        },
+        {
+          "key": "code/text",
+          "cosine": 0.9999999999995279,
+          "max_abs": 1.1362135410308838e-07,
+          "reference_norm": 1.0000000564275824,
+          "actual_norm": 1.0000000142203134,
+          "within_criteria": true,
+          "hidden_probe_max_abs": 1.33514404296875e-05
+        },
+        {
+          "key": "local-before/text",
+          "cosine": 0.9999999999988582,
+          "max_abs": 2.682209014892578e-07,
+          "reference_norm": 1.0000000376466012,
+          "actual_norm": 0.999999978529292,
+          "within_criteria": true,
+          "hidden_probe_max_abs": 1.8358230590820312e-05
+        },
+        {
+          "key": "local-after/text",
+          "cosine": 0.999999999997973,
+          "max_abs": 7.152557373046875e-07,
+          "reference_norm": 0.999999933607626,
+          "actual_norm": 1.0000000064768597,
+          "within_criteria": true,
+          "hidden_probe_max_abs": 0.000885009765625
+        }
+      ]
+    }
+  ],
+  "padding": [
+    {
+      "key": "short/text",
+      "rurico": {
+        "cosine": 0.9999999999949407,
+        "max_abs": 3.762543201446533e-07,
+        "reference_norm": 0.9999999934394745,
+        "actual_norm": 0.9999999487520931,
+        "within_criteria": true
+      },
+      "reference": {
+        "cosine": 0.9999999999970182,
+        "max_abs": 3.3527612686157227e-07,
+        "reference_norm": 1.0000000278028247,
+        "actual_norm": 1.000000024137464,
+        "within_criteria": true
+      },
+      "observations": {
+        "exact": "short/text/exact",
+        "bucket": "short/text/bucket"
+      },
+      "same_observation": false
+    },
+    {
+      "key": "japanese/text",
+      "rurico": {
+        "cosine": 0.9999999999997137,
+        "max_abs": 8.381903171539307e-08,
+        "reference_norm": 1.0000000086125092,
+        "actual_norm": 0.9999999948706831,
+        "within_criteria": true
+      },
+      "reference": {
+        "cosine": 0.9999999999996532,
+        "max_abs": 1.1734664440155029e-07,
+        "reference_norm": 0.9999999543579118,
+        "actual_norm": 0.999999990340406,
+        "within_criteria": true
+      },
+      "observations": {
+        "exact": "japanese/text/exact",
+        "bucket": "japanese/text/bucket"
+      },
+      "same_observation": false
+    },
+    {
+      "key": "code/text",
+      "rurico": {
+        "cosine": 0.999999999999677,
+        "max_abs": 1.126900315284729e-07,
+        "reference_norm": 0.999999988398487,
+        "actual_norm": 0.9999999846249392,
+        "within_criteria": true
+      },
+      "reference": {
+        "cosine": 1.0,
+        "max_abs": 0.0,
+        "reference_norm": 1.0000000564275824,
+        "actual_norm": 1.0000000564275824,
+        "within_criteria": true
+      },
+      "observations": {
+        "exact": "code/text/exact",
+        "bucket": "code/text/bucket"
+      },
+      "same_observation": false
+    },
+    {
+      "key": "local-before/text",
+      "rurico": {
+        "cosine": 1.0,
+        "max_abs": 0.0,
+        "reference_norm": 1.0000000086096885,
+        "actual_norm": 1.0000000086096885,
+        "within_criteria": true
+      },
+      "reference": {
+        "cosine": 1.0000000000000002,
+        "max_abs": 0.0,
+        "reference_norm": 1.0000000376466012,
+        "actual_norm": 1.0000000376466012,
+        "within_criteria": true
+      },
+      "observations": {
+        "exact": "local-before/text/exact",
+        "bucket": "local-before/text/bucket"
+      },
+      "same_observation": false
+    },
+    {
+      "key": "local-after/text",
+      "rurico": {
+        "cosine": 0.9999999999991203,
+        "max_abs": 2.980232238769531e-07,
+        "reference_norm": 0.9999999962546903,
+        "actual_norm": 1.0000000064768597,
+        "within_criteria": true
+      },
+      "reference": {
+        "cosine": 1.0,
+        "max_abs": 0.0,
+        "reference_norm": 0.999999933607626,
+        "actual_norm": 0.999999933607626,
+        "within_criteria": true
+      },
+      "observations": {
+        "exact": "local-after/text/exact",
+        "bucket": "local-after/text/bucket"
+      },
+      "same_observation": false
+    },
+    {
+      "key": "limit-before/text",
+      "rurico": {
+        "cosine": 1.0,
+        "max_abs": 0.0,
+        "reference_norm": 0.9999999855251217,
+        "actual_norm": 0.9999999855251217,
+        "within_criteria": true
+      },
+      "reference": {
+        "cosine": 0.9999999999999999,
+        "max_abs": 0.0,
+        "reference_norm": 0.9999999565649842,
+        "actual_norm": 0.9999999565649842,
+        "within_criteria": true
+      },
+      "observations": {
+        "exact": "limit-before/text/exact",
+        "bucket": "limit-before/text/bucket"
+      },
+      "same_observation": false
+    },
+    {
+      "key": "limit-after/text",
+      "rurico": {
+        "cosine": 1.0,
+        "max_abs": 0.0,
+        "reference_norm": 0.999999982459265,
+        "actual_norm": 0.999999982459265,
+        "within_criteria": true
+      },
+      "reference": {
+        "cosine": 1.0000000000000002,
+        "max_abs": 0.0,
+        "reference_norm": 0.9999999974853284,
+        "actual_norm": 0.9999999974853284,
+        "within_criteria": true
+      },
+      "observations": {
+        "exact": "limit-after/text/exact",
+        "bucket": "limit-after/text/exact"
+      },
+      "same_observation": true
+    },
+    {
+      "key": "limit-after/chunk-0",
+      "rurico": {
+        "cosine": 1.0,
+        "max_abs": 0.0,
+        "reference_norm": 0.999999982459265,
+        "actual_norm": 0.999999982459265,
+        "within_criteria": true
+      },
+      "reference": {
+        "cosine": 1.0000000000000002,
+        "max_abs": 0.0,
+        "reference_norm": 0.9999999974853284,
+        "actual_norm": 0.9999999974853284,
+        "within_criteria": true
+      },
+      "observations": {
+        "exact": "limit-after/chunk-0/exact",
+        "bucket": "limit-after/chunk-0/exact"
+      },
+      "same_observation": true
+    },
+    {
+      "key": "limit-after/chunk-1",
+      "rurico": {
+        "cosine": 1.0,
+        "max_abs": 0.0,
+        "reference_norm": 0.999999926242244,
+        "actual_norm": 0.999999926242244,
+        "within_criteria": true
+      },
+      "reference": {
+        "cosine": 1.0000000000000002,
+        "max_abs": 0.0,
+        "reference_norm": 1.0000000478477846,
+        "actual_norm": 1.0000000478477846,
+        "within_criteria": true
+      },
+      "observations": {
+        "exact": "limit-after/chunk-1/exact",
+        "bucket": "limit-after/chunk-1/bucket"
+      },
+      "same_observation": false
+    },
+    {
+      "key": "query-prefix/text",
+      "rurico": {
+        "cosine": 0.9999999999996949,
+        "max_abs": 1.7881393432617188e-07,
+        "reference_norm": 0.9999999666365166,
+        "actual_norm": 1.000000012758641,
+        "within_criteria": true
+      },
+      "reference": {
+        "cosine": 0.9999999999997164,
+        "max_abs": 9.872019290924072e-08,
+        "reference_norm": 0.9999999907215424,
+        "actual_norm": 1.0000000069280495,
+        "within_criteria": true
+      },
+      "observations": {
+        "exact": "query-prefix/text/exact",
+        "bucket": "query-prefix/text/bucket"
+      },
+      "same_observation": false
+    },
+    {
+      "key": "topic-prefix/text",
+      "rurico": {
+        "cosine": 0.9999999999998348,
+        "max_abs": 8.381903171539307e-08,
+        "reference_norm": 1.0000000241519371,
+        "actual_norm": 1.000000007715411,
+        "within_criteria": true
+      },
+      "reference": {
+        "cosine": 0.9999999999997108,
+        "max_abs": 1.1920928955078125e-07,
+        "reference_norm": 0.9999999855596552,
+        "actual_norm": 0.9999999978369837,
+        "within_criteria": true
+      },
+      "observations": {
+        "exact": "topic-prefix/text/exact",
+        "bucket": "topic-prefix/text/bucket"
+      },
+      "same_observation": false
+    },
+    {
+      "key": "no-prefix/text",
+      "rurico": {
+        "cosine": 0.9999999999998661,
+        "max_abs": 7.450580596923828e-08,
+        "reference_norm": 1.0000000279322936,
+        "actual_norm": 0.9999999910530564,
+        "within_criteria": true
+      },
+      "reference": {
+        "cosine": 0.999999999999877,
+        "max_abs": 8.009374141693115e-08,
+        "reference_norm": 0.9999999295294993,
+        "actual_norm": 1.0000000007234875,
+        "within_criteria": true
+      },
+      "observations": {
+        "exact": "no-prefix/text/exact",
+        "bucket": "no-prefix/text/bucket"
+      },
+      "same_observation": false
+    }
+  ],
+  "wrapper_and_chunks": [
+    {
+      "id": "short",
+      "tokens_equal": true,
+      "native_wrapper": {
+        "cosine": 0.9999999999950097,
+        "max_abs": 4.76837158203125e-07,
+        "reference_norm": 1.0000000278028247,
+        "actual_norm": 0.9999999487520931,
+        "within_criteria": true
+      },
+      "public_vs_direct": {
+        "cosine": 1.0,
+        "max_abs": 0.0,
+        "reference_norm": 0.9999999487520931,
+        "actual_norm": 0.9999999487520931,
+        "within_criteria": true
+      }
+    },
+    {
+      "id": "japanese",
+      "tokens_equal": true,
+      "native_wrapper": {
+        "cosine": 0.9999999999995738,
+        "max_abs": 2.384185791015625e-07,
+        "reference_norm": 0.9999999543579118,
+        "actual_norm": 0.9999999948706831,
+        "within_criteria": true
+      },
+      "public_vs_direct": {
+        "cosine": 1.0,
+        "max_abs": 0.0,
+        "reference_norm": 0.9999999948706831,
+        "actual_norm": 0.9999999948706831,
+        "within_criteria": true
+      }
+    },
+    {
+      "id": "code",
+      "tokens_equal": true,
+      "native_wrapper": {
+        "cosine": 0.9999999999994997,
+        "max_abs": 1.1455267667770386e-07,
+        "reference_norm": 1.0000000564275824,
+        "actual_norm": 0.9999999846249392,
+        "within_criteria": true
+      },
+      "public_vs_direct": {
+        "cosine": 1.0,
+        "max_abs": 0.0,
+        "reference_norm": 0.9999999846249392,
+        "actual_norm": 0.9999999846249392,
+        "within_criteria": true
+      }
+    },
+    {
+      "id": "local-before",
+      "tokens_equal": true,
+      "native_wrapper": {
+        "cosine": 0.9999999999988591,
+        "max_abs": 2.3096799850463867e-07,
+        "reference_norm": 1.0000000376466012,
+        "actual_norm": 1.0000000086096885,
+        "within_criteria": true
+      },
+      "public_vs_direct": {
+        "cosine": 1.0,
+        "max_abs": 0.0,
+        "reference_norm": 1.0000000086096885,
+        "actual_norm": 1.0000000086096885,
+        "within_criteria": true
+      }
+    },
+    {
+      "id": "local-after",
+      "tokens_equal": true,
+      "native_wrapper": {
+        "cosine": 0.999999999997973,
+        "max_abs": 7.152557373046875e-07,
+        "reference_norm": 0.999999933607626,
+        "actual_norm": 1.0000000064768597,
+        "within_criteria": true
+      },
+      "public_vs_direct": {
+        "cosine": 1.0,
+        "max_abs": 0.0,
+        "reference_norm": 1.0000000064768597,
+        "actual_norm": 1.0000000064768597,
+        "within_criteria": true
+      }
+    },
+    {
+      "id": "limit-before",
+      "tokens_equal": true,
+      "native_wrapper": {
+        "cosine": 0.9999999999979878,
+        "max_abs": 4.647299647331238e-07,
+        "reference_norm": 0.9999999565649842,
+        "actual_norm": 0.9999999855251217,
+        "within_criteria": true
+      },
+      "public_vs_direct": {
+        "cosine": 1.0,
+        "max_abs": 0.0,
+        "reference_norm": 0.9999999855251217,
+        "actual_norm": 0.9999999855251217,
+        "within_criteria": true
+      }
+    },
+    {
+      "id": "limit-after",
+      "tokens_equal": true,
+      "native_wrapper": {
+        "cosine": 0.999999999998132,
+        "max_abs": 3.548339009284973e-07,
+        "reference_norm": 0.9999999974853284,
+        "actual_norm": 0.999999982459265,
+        "within_criteria": true
+      },
+      "public_vs_direct": {
+        "cosine": 1.0,
+        "max_abs": 0.0,
+        "reference_norm": 0.999999982459265,
+        "actual_norm": 0.999999982459265,
+        "within_criteria": true
+      }
+    },
+    {
+      "id": "query-prefix",
+      "tokens_equal": true,
+      "native_wrapper": {
+        "cosine": 0.999999999999651,
+        "max_abs": 1.043081283569336e-07,
+        "reference_norm": 0.9999999907215424,
+        "actual_norm": 1.000000012758641,
+        "within_criteria": true
+      },
+      "public_vs_direct": {
+        "cosine": 0.9999999999999998,
+        "max_abs": 0.0,
+        "reference_norm": 1.000000012758641,
+        "actual_norm": 1.000000012758641,
+        "within_criteria": true
+      }
+    },
+    {
+      "id": "topic-prefix",
+      "tokens_equal": true,
+      "native_wrapper": {
+        "cosine": 0.9999999999996094,
+        "max_abs": 2.086162567138672e-07,
+        "reference_norm": 0.9999999855596552,
+        "actual_norm": 1.000000007715411,
+        "within_criteria": true
+      },
+      "public_vs_direct": {
+        "cosine": 1.0,
+        "max_abs": 0.0,
+        "reference_norm": 1.000000007715411,
+        "actual_norm": 1.000000007715411,
+        "within_criteria": true
+      }
+    },
+    {
+      "id": "no-prefix",
+      "tokens_equal": true,
+      "native_wrapper": {
+        "cosine": 0.9999999999998347,
+        "max_abs": 9.685754776000977e-08,
+        "reference_norm": 0.9999999295294993,
+        "actual_norm": 0.9999999910530564,
+        "within_criteria": true
+      },
+      "public_vs_direct": {
+        "cosine": 0.9999999999999999,
+        "max_abs": 0.0,
+        "reference_norm": 0.9999999910530564,
+        "actual_norm": 0.9999999910530564,
+        "within_criteria": true
+      }
+    },
+    {
+      "id": "short/text",
+      "chunk_public_vs_direct": {
+        "cosine": 0.9999999999970484,
+        "max_abs": 2.882443368434906e-07,
+        "reference_norm": 0.9999999487520931,
+        "actual_norm": 1.0000000065652366,
+        "within_criteria": true
+      }
+    },
+    {
+      "id": "japanese/text",
+      "chunk_public_vs_direct": {
+        "cosine": 0.9999999999995485,
+        "max_abs": 1.3457611203193665e-07,
+        "reference_norm": 0.9999999948706831,
+        "actual_norm": 0.9999999767509815,
+        "within_criteria": true
+      }
+    },
+    {
+      "id": "code/text",
+      "chunk_public_vs_direct": {
+        "cosine": 0.9999999999996592,
+        "max_abs": 1.0989606380462646e-07,
+        "reference_norm": 0.9999999846249392,
+        "actual_norm": 1.00000004255359,
+        "within_criteria": true
+      }
+    },
+    {
+      "id": "local-before/text",
+      "chunk_public_vs_direct": {
+        "cosine": 0.9999999999994887,
+        "max_abs": 1.257285475730896e-07,
+        "reference_norm": 1.0000000086096885,
+        "actual_norm": 0.9999999502910787,
+        "within_criteria": true
+      }
+    },
+    {
+      "id": "local-after/text",
+      "chunk_public_vs_direct": {
+        "cosine": 1.0,
+        "max_abs": 0.0,
+        "reference_norm": 1.0000000064768597,
+        "actual_norm": 1.0000000064768597,
+        "within_criteria": true
+      }
+    },
+    {
+      "id": "limit-before/text",
+      "chunk_public_vs_direct": {
+        "cosine": 1.0,
+        "max_abs": 0.0,
+        "reference_norm": 0.9999999855251217,
+        "actual_norm": 0.9999999855251217,
+        "within_criteria": true
+      }
+    },
+    {
+      "id": "limit-after/chunk-0",
+      "chunk_public_vs_direct": {
+        "cosine": 1.0,
+        "max_abs": 0.0,
+        "reference_norm": 0.999999982459265,
+        "actual_norm": 0.999999982459265,
+        "within_criteria": true
+      }
+    },
+    {
+      "id": "limit-after/chunk-1",
+      "chunk_public_vs_direct": {
+        "cosine": 1.0,
+        "max_abs": 0.0,
+        "reference_norm": 0.999999926242244,
+        "actual_norm": 0.999999926242244,
+        "within_criteria": true
+      }
+    }
+  ],
+  "ranking": [],
+  "same_token_numerics_within_criteria": true,
+  "interpretation": "Threshold crossings are observations. Hidden probes sample three positions, not all tensors. No product tolerance adopted."
+}

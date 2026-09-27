@@ -6,24 +6,38 @@
 
 ## Python依存の固定と更新
 
-[requirements.txt](requirements.txt) は参照計算の条件を固定するための依存一覧である。
-[Issue #349](https://github.com/thkt/rurico/issues/349) の合意に従い、
-`sympy==1.14.0` が要求する `mpmath>=1.1.0,<1.4` に適合する `mpmath==1.3.0` と、
-`reference.py` の `PINS` および保存済み測定と一致する `sentence-transformers==5.1.1` を使う。
-Python 3.12.13、Torch 2.8.0、Transformers 4.56.2 と、`environment()` の厳密検査を維持する。
-SentencePiece 0.2.2 と protobuf 6.33.6 も下記の環境検証に含める。
-この2依存は[保存済み環境](results/reranker-reference-refresh/environment.json)の
-0.2.1 / 6.32.1 から更新されているため、現在のrequirements全体を過去の測定環境と同一とは扱わない。
+[requirements.txt](requirements.txt) を、導入版と検証対象の唯一の正本とする。
+Python 3.12.13 / macOS arm64向けに、推論ライブラリと推移依存を含む全runtime依存を固定する。
+`reference.environment()` は隔離環境・Python版・一覧の全導入版を検査し、未記載の依存も拒否する。
+venvの導入ツールであるpipだけは一覧一致の対象外とし、実行環境の記録にはその版も残す。
+同じ版を参照コードの別テーブルへ転記しない。
 
-[renovate.json](../../../renovate.json) は、公式仕様の
-[`packageRules.matchFileNames`](https://docs.renovatebot.com/configuration-options/#packageRules.matchFileNames)
-でこのrequirementsだけを指定し、`enabled: false` で自動更新を止める。
-共有presetと既定の除外設定は維持する。設定のローカル検証と、運用中Renovateの次回実行は別に確認する。
+[Issue #353](https://github.com/thkt/rurico/issues/353) に従い、主要推論ライブラリを優先して
+互換する最新安定版を選ぶ。Torch 2.14.0、Transformers 5.17.0、Sentence Transformers 6.1.0を
+今回の組合せとし、全依存の再照合・API変更・検証状況は[更新記録](validation-353.md)に残す。
+これは過去の[実測環境](results/reranker-reference-refresh/environment.json)とは別条件である。
+[report.md](report.md)と`results/`の旧依存版・モデルrevision・数値を新環境の成功へ読み替えない。
 
-依存を更新するときは、新しい隔離環境で通常の依存解決付きインストール、`pip check`、
-既存Pythonテスト、参照コード・README・保存済み環境に記録された測定条件との整合を確認する。
-`--no-deps` や厳密検査の緩和で不整合を迂回しない。
-参照ライブラリや測定条件を変える場合は、別条件での再測定を合意してから進める。
+最新公開版を採用できない依存は次のとおり。上位依存の更新PRで配布メタデータを再確認し、
+制約が解消されたらRenovateの`allowedVersions`も見直す。恒久的な更新除外にはしない。
+
+| 依存 | 採用版 / 採用できない最新版 | 理由と再確認条件 |
+| --- | --- | --- |
+| huggingface-hub | 1.33.0 / 2.0.0 | [Transformers 5.17.0](https://pypi.org/pypi/transformers/5.17.0/json)と[Sentence Transformers 6.1.0](https://pypi.org/pypi/sentence-transformers/6.1.0/json)が`<2.0`を要求。いずれかの更新時に両方の制約を再確認する |
+| mpmath | 1.3.0 / 1.4.1 | [SymPy 1.14.0](https://pypi.org/pypi/sympy/1.14.0/json)が`>=1.1.0,<1.4`を要求。SymPy更新時に再確認する |
+
+[renovate.json](../../../renovate.json) はこのrequirementsの`pip_requirements`更新を
+`Python reference environment`グループにまとめる。major/minor/patchを分割せず、
+`automerge: false`とする。共有presetのCargo・Actions設定と除外pathは変更しない。
+依存解決と通常インストール、整合検査、Pythonテストを通したPRを人が確認する。
+推論依存・wrapperが変わる場合は、下記の固定実モデル比較も確認してから採用する。
+
+更新時はPyPIの最新安定版とRequires-Distを再照合し、checkout外の候補一覧で
+主要ライブラリの目標版を明示し、他の既存依存を現在版以上として解決する。
+解決結果で目標版と全既存依存の非ダウングレードを確認し、追加の推移依存も含めて
+厳密な版一覧へ反映する。制約を全部外すと、hubの最新版を優先して主要ライブラリを
+大幅に古くする解決があり得るため、解決成功だけで最新化成功としない。
+新しい隔離環境で下記の通常インストールを行い、`--no-deps`や検査の緩和で迂回しない。
 環境検証の成功だけでは実モデル数値・検索品質の再測定を意味しない。
 
 ## ホストで実行する
@@ -33,6 +47,9 @@ Apple Silicon、対応Metal Toolchain、Rust 1.96以上を用意する。
 `cargo fetch --locked` と `bash scripts/check.sh` をそのまま使う。
 本調査はignored testを明示実行するため、標準checkだけでは完了しない。
 CIのtest・coverage・security・zizmorも、公開担当が同じPR headで確認する。
+既存の必須`test`ジョブは、Python 3.12.13の新規venvで通常インストール、`pip check`、
+厳密な版検査と全Pythonテストを実行してからRust検証へ進む。path filter・失敗無視は使わない。
+固定実モデルのダウンロードや推論はこのCIに含まず、次のホスト手順で別に確認する。
 
 Python **3.12.13** の隔離環境をcheckout外に新規作成する。
 以下はリポジトリrootから実行し、既存の研究環境を再利用・上書きしない。
@@ -52,14 +69,15 @@ printf 'Reference environment: %s\n' "$reference_env"
 )
 ```
 
-Issue #349 のPython検証はここまでとし、実モデル数値・検索品質を再測定しない。
-別途、Issue #307 の測定全体を再実行する場合は、上で表示された環境pathを指定する。
-結果の保存先も新規pathを使う。
+Issue #353では、上で表示された環境pathを指定してembedding・rerankerの数値比較を実行する。
+結果の保存先も新規pathを使い、比較結果・source/環境/hash・未確認範囲を[更新記録](validation-353.md)へ追記する。
+このIssueはamici検索pipelineを変えないため、検索品質の再測定は要求しない。
 
 ```sh
 reference_env=/tmp/rurico-307-reference-env.XXXXXX # 上で作成した実際のpathへ置換
 "$reference_env/bin/python" docs/research/issue-307/run.py numerical /tmp/rurico-307-numerical
-"$reference_env/bin/python" docs/research/issue-307/run.py amici /tmp/rurico-307-search
+# 別途、Issue #307の検索評価全体を再実行する場合だけ:
+# "$reference_env/bin/python" docs/research/issue-307/run.py amici /tmp/rurico-307-search
 ```
 
 HF/GitHub/Cargoへの接続が必要。sandboxでは実行しない。サーバー・ブラウザー・画面撮影は使わない。
@@ -106,8 +124,10 @@ Rustの観測は既存`smoke` feature配下の`src/research.rs`の2件のignored
 cargo test --locked --lib --features smoke research::
 ```
 
-参照側はTorch 2.8.0、Transformers 4.56.2、Sentence Transformers 5.1.1、CPU、FP32、eager attention、
-eval mode、4 threads、seed 0、deterministic algorithmsを固定する。
+参照側の依存版はrequirementsのとおり。CPU、FP32、eager attention、eval mode、4 threads、
+seed 0、deterministic algorithmsを固定する。Transformers 5ではModernBERTの`reference_compile`設定が
+削除されたため、コンパイル済みmoduleを拒否し、Torchの`force_eager`でコンパイルを無効化する。
+記録の`reference_compile: false`はこの実行条件を表し、削除済みconfig属性の値ではない。
 embeddingは公式wrapperのmean pooling（promptを含む）と明示L2正規化、rerankerは公式headとsigmoidを使う。
 rerankerの公開wrapperは入力ごとに`predict`を1回呼び、activation callableで生logitを保存して
 Torch sigmoidを返す。同じforwardのlogitとscoreを記録し、別shapeのmodel比較は別に実行する。

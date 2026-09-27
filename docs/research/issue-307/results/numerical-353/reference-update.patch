@@ -1,0 +1,21 @@
+--- measured/reference.py
++++ current/reference.py
+@@ -18,14 +18,17 @@
+ 
+ def requirements():
+     """The installed and verified runtime versions have one source of truth."""
++    from packaging.version import Version
++
+     pins = {}
+     for line in Path(__file__).with_name("requirements.txt").read_text().splitlines():
+         line = line.strip()
+         if not line or line.startswith("#"):
+             continue
+-        match = re.fullmatch(r"([A-Za-z0-9][A-Za-z0-9_.-]*)==([0-9]+(?:\.[0-9]+)*)", line)
++        match = re.fullmatch(r"([A-Za-z0-9][A-Za-z0-9_.-]*)==(\S+)", line)
+         require(match is not None, f"expected an exact stable dependency pin: {line}")
+         name, version = normalized_name(match[1]), match[2]
++        require(not Version(version).is_prerelease, f"expected a stable dependency pin: {line}")
+         require(name not in pins, f"duplicate dependency pin: {name}")
+         pins[name] = version
+     require({"torch", "transformers", "sentence-transformers"} <= pins.keys(),
