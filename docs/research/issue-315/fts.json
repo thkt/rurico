@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "kind": "fts",
+  "normalization_semantics": "rurico/nfkc-ascii-collapse/v1",
+  "normalization": {
+    "nfkc": true,
+    "ascii_lowercase": true,
+    "collapse_whitespace": true
+  },
+  "consumer": {
+    "namespace": "example.org/consumer",
+    "semantics": "example.org/fts-adapter/v1",
+    "tokenizer": "fts5/trigram/example-v1",
+    "options": "case_sensitive=0;remove_diacritics=0",
+    "preprocess": "identity-before-rurico-normalize/v1"
+  }
+}
