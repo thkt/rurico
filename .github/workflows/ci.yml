@@ -22,16 +22,18 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install reference Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - name: Install uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          python-version: '3.12.13'
+          version: latest
+          enable-cache: false
 
       - name: Verify Python reference environment
         shell: bash
         run: |
           reference_env=$(mktemp -d "$RUNNER_TEMP/rurico-reference.XXXXXX")
-          python -m venv "$reference_env"
+          # setup-python has no macOS arm64 distribution for Python 3.12.13.
+          uv venv --python 3.12.13 --managed-python --no-project --seed "$reference_env"
           "$reference_env/bin/python" -m pip install -r docs/research/issue-307/requirements.txt
           "$reference_env/bin/python" -m pip check
           "$reference_env/bin/python" -c 'import sys; sys.path.insert(0, "docs/research/issue-307"); import reference; reference.environment()'

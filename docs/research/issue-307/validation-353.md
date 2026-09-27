@@ -1,5 +1,8 @@
 # Issue #353 Python参照環境の更新記録
 
+最新の修正状況は末尾の[PR #354のCI導入修正](#pr-354のci導入修正)を参照。
+以下の初回実装・評価時の記録は、その時点のsourceと検証結果として保持する。
+
 2026-09-28 JST、47依存の固定一覧、wrapper/API対応、Python CIとホスト実行手順を準備した。
 レビューR1-1で不足していた実測sourceとの対応を調査し、固定実モデルの両比較を再集計した。
 測定版と現行版の推論実装・入力の同一性を確認できたため、下記の範囲で実測を再利用する。
@@ -259,3 +262,66 @@ R2-1の原因は、この追加証拠が本文へ反映されず、完了済み�
 
 初回実装の15件成功はその時点の記録として保持する。R1-2修正後の15件成功は上記の追加証拠で
 確認済みであり、今回の文書修正後に更新する標準check・最終独立評価・CIとは区別する。
+
+## PR #354のCI導入修正
+
+2026-09-28 JST、公開済みcommit `514d12ad99cca52c563e0269540cb73f13d978fd`を修正基点とした。
+[失敗したtestジョブ](https://github.com/thkt/rurico/actions/runs/36340920933/job/108680700835)は
+`Install reference Python`でPython 3.12.13 / arm64をmacOS 26.6.2向けに取得できず停止した。
+保存済みログで確認し、Pythonテストには到達していない。同日読み直した
+[公式配布manifest](https://raw.githubusercontent.com/actions/python-versions/main/versions-manifest.json)の
+3.12.13にはLinux/RHELの8配布だけがあり、macOS配布はなかった。
+Python版を変えずuvによる導入へ切り替える、採用済みの修正依頼に従う。
+
+[setup-uv v10.2.0の公式release](https://github.com/astral-sh/setup-uv/releases/tag/v10.2.0)から
+commit `c18668ad3cf93ea998bef934396af7bb5c839dc7`を照合し、ActionをそのSHAへ固定した。
+同commitの[README](https://github.com/astral-sh/setup-uv/blob/c18668ad3cf93ea998bef934396af7bb5c839dc7/README.md)と
+[action.yml](https://github.com/astral-sh/setup-uv/blob/c18668ad3cf93ea998bef934396af7bb5c839dc7/action.yml)で、
+`python-version`入力は`UV_PYTHON`を設定するだけであることを確認した。
+uvは`version: latest`で導入し、`enable-cache: false`でActions cacheの保存・復元を使わない。
+続くstepで`uv venv --python 3.12.13 --managed-python --no-project --seed`を明示し、
+uv管理のPythonを必要に応じて取得して新規venvを作る。Python 3.12ではseed対象はpipだけである。
+APIは[uvの公式CLI仕様](https://docs.astral.sh/uv/reference/cli/#uv-venv)とuv 0.12.19のhelpで照合した。
+ActionのSHA固定はuv自体の版固定ではなく、使用したuv版は導入ログで確認する。
+シェルのscout取得はネットワークエラーとなったため、公式資料の再照合にはWeb取得を使った。
+
+通常の`pip install -r`、`pip check`、`reference.environment()`、全15 Pythonテストのコマンドは
+修正基点から不変である。macos-latest、Rustの全step、coverage/security/zizmor、Renovate設定も維持した。
+Actionが解釈できても対象Pythonの配布がない問題は再発し得るため、
+[現行README](README.md#ホストで実行する)にOS・architecture別の配布と新規導入の確認を記した。
+この局所的な導入変更は検索評価の所有境界を変えず、新たなADRや汎用テスト基盤は追加しない。
+
+今回の対象確認では`actionlint 1.7.12`、`zizmor 1.30.1 --offline`、shell blockの`bash -n`、
+`git diff --check`が成功した。zizmorは既存の7 suppressionを維持し、新規指摘はなかった。
+uv 0.12.19の`python list 3.12.13 --only-downloads --offline`もmacOS aarch64の候補を表示した。
+これはuvが持つ配布一覧の確認であり、実ダウンロードの成功ではない。
+初回の一覧取得はsandboxが既定cacheへの書込みを拒否したため、新規一時cacheを指定して再確認した。
+新しいネットワーク依存の単体テストやworkflow文字列の固定テストは追加しない。
+前者は外部配布に左右され、後者では実際の取得失敗を検出できない。既存CIの通常導入がその検証を担う。
+既存テストの追加・削除・統合・変更はなく、版ずれ・依存集合・隔離条件、wrapper読込み・pooling・正規化、
+同一forwardのlogit/score・token対応・例外伝播・比較器の検出条件を失っていない。
+速度・検索品質・検証時間の改善は主張しない。
+
+[修正後のホストPython記録](results/numerical-353/host-python-validation.json)の8 Python sourceと
+requirementsのSHA-256を現物と再照合した。さらに[測定環境](results/numerical-353/environment.json)の
+Rust source・Cargo設定・入力・requirements・run/compareの103 hashが一致した。
+今回の変更はCIとREADME・本記録だけであり、reference.pyも修正基点から不変である。
+上記の測定版との差分・推論ASTの同一性に基づく実モデル証拠の再利用範囲は変わらない。
+過去の15件成功と実モデル比較は保持するが、新しいmanaged download経路の成功へ読み替えない。
+旧report・旧環境・ADRはIssue開始commitから不変で、既存結果JSONや過去ログは上書きしていない。
+
+作業中に追加された[新しいホスト導入記録](results/ci-bootstrap-353.json)も照合した。
+2026-09-28 03:34:50–03:35:29 JST、macOS 27.0 / arm64 / uv 0.12.19で、
+未配置の専用managed Pythonディレクトリと新規cache・venvを使い、上記と同じvenv作成オプションで
+Python 3.12.13を実ダウンロードした。通常install・pip check・厳密な版検査・15テストはすべて成功した。
+公開記録と原記録の6ログhash、ダウンロード・install完了・整合成功・15件成功のログ内容、
+全47導入版を照合し、8 Python sourceとrequirementsのhashも現行ファイルに一致した。
+ログと個人pathは公開せず、小さな記録だけを保存する。
+これはホストでの新しい導入経路の成功であり、GitHub runner上のAction実行成功はまだ確認していない。
+
+標準check、変更文書と追加記録を含む新しい独立評価、更新headのtest・coverage・security・zizmorはホストで確認する。
+今回sandboxではフル検証・推論再実行・公開操作を行っていない。新しいheadの成功やreadyは未確認である。
+公開担当はPR全体の説明と今回の修正を合わせ、旧本文の有効な根拠・制約を保持して更新する。
+全47依存の公開最新版と共有preset全体の独立再照合未完了、生出力の非同梱、模擬reranker forwardと
+実重みの区別、負荷隔離記録の観測限界は引き続き適用される。
+同じheadのCIと公開本文を確認してからreadyへ進み、人の承認・マージは代行しない。

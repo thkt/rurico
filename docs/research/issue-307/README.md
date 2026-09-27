@@ -47,20 +47,26 @@ Apple Silicon、対応Metal Toolchain、Rust 1.96以上を用意する。
 `cargo fetch --locked` と `bash scripts/check.sh` をそのまま使う。
 本調査はignored testを明示実行するため、標準checkだけでは完了しない。
 CIのtest・coverage・security・zizmorも、公開担当が同じPR headで確認する。
-既存の必須`test`ジョブは、Python 3.12.13の新規venvで通常インストール、`pip check`、
+既存の必須`test`ジョブは、SHA固定の`astral-sh/setup-uv`でuvを導入し、
+uvのmanaged Python 3.12.13でcheckout外に新規venvを作る。uvのActions cacheは使用しない。
+その環境で通常インストール、`pip check`、
 厳密な版検査と全Pythonテストを実行してからRust検証へ進む。path filter・失敗無視は使わない。
 固定実モデルのダウンロードや推論はこのCIに含まず、次のホスト手順で別に確認する。
 
+ホストにも[uv](https://docs.astral.sh/uv/getting-started/installation/)を用意し、
 Python **3.12.13** の隔離環境をcheckout外に新規作成する。
 以下はリポジトリrootから実行し、既存の研究環境を再利用・上書きしない。
 Python依存は参照計算専用で、ruricoのCargo依存・CPU backendを変更しない。
+`--managed-python`でuv管理のPythonを指定し、未配置なら自動取得する。
+`--no-project`でproject探索を避け、`--seed`で通常install用のpipを用意する。
+Pythonや導入Actionの更新時は、対象OS・architecture向けの配布と新規環境での導入成功を確認する。
+Actionの`python-version`入力やlint成功だけでは、Python本体の取得成功を保証しない。
 
 ```sh
 (
 set -eu
-python3.12 -c 'import platform; assert platform.python_version() == "3.12.13", "use Python 3.12.13"'
 reference_env=$(mktemp -d /tmp/rurico-307-reference-env.XXXXXX)
-python3.12 -m venv "$reference_env"
+uv venv --python 3.12.13 --managed-python --no-project --seed "$reference_env"
 "$reference_env/bin/python" -m pip install -r docs/research/issue-307/requirements.txt
 "$reference_env/bin/python" -m pip check
 "$reference_env/bin/python" -c 'import sys; sys.path.insert(0, "docs/research/issue-307"); import reference; reference.environment()'
