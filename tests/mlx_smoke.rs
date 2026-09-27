@@ -60,7 +60,7 @@ fn smoke_verify_fixture() {
 ///    paste, future parsers) catch format drift before number drift.
 ///
 /// Run time is ~4 minutes on Apple Silicon because each workload is timed
-/// `MEASURE_REPEATS = 3` times to harden the median against single-run noise.
+/// three times after warm-up to harden the median against single-run noise.
 #[test]
 #[ignore] // requires ruri-v3-310m cached + MLX (Apple Silicon); ~4 minute runtime
 fn smoke_measure_baseline() {
@@ -214,4 +214,49 @@ fn assert_smoke_success(output: &Output) {
         "smoke binary failed with {:?}\nstderr: {stderr}",
         output.status.code()
     );
+}
+
+/// Offline record replay must bypass model lookup and Metal initialization.
+#[test]
+fn summarize_records_cli_preserves_sub_ms_and_excludes_warmup() {
+    use serde_json::{Value, json};
+    use std::fs;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("raw.jsonl");
+    let records: Vec<_> = [("warmup", 99_999), ("warm", 100), ("warm", 300)]
+        .into_iter()
+        .enumerate()
+        .map(|(sequence, (state, nanos))| {
+            json!({
+                "schema": 1, "context": {"synthetic": true}, "sequence": sequence,
+                "workload": "synthetic", "input_sha256": null,
+                "options": {"token_budget": null, "forward_pause": null},
+                "method": "batch", "measured": false, "state": state,
+                "repeat": null, "wall": {"secs": 0, "nanos": nanos}, "calls": [null]
+            })
+            .to_string()
+        })
+        .collect();
+    fs::write(&path, records.join("\n")).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_mlx_smoke"))
+        .arg("summarize-records")
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let summary: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(summary["wall"]["n"], 2);
+    assert_eq!(summary["wall"]["median"]["nanos"], 200);
+    assert_eq!(summary["sequences"], json!([1, 2]));
+    // A missing input cannot be reported as successful empty verification.
+    let bad = Command::new(env!("CARGO_BIN_EXE_mlx_smoke"))
+        .arg("summarize-records")
+        .arg(dir.path().join("absent.jsonl"))
+        .output()
+        .unwrap();
+    assert!(!bad.status.success());
 }

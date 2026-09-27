@@ -1,12 +1,19 @@
 # Phase 3 Result — embed pipeline
 
-Phase 3 outcomes (issue [#52](https://github.com/thkt/rurico/issues/52)) for the GPU-side pooling effort, measured on Apple Silicon + cached `cl-nagoya/ruri-v3-310m` after PR #62 (Phase 3a probe) and PR #63 (Phase 3b production rewire) had both merged. Comparison target is [`phase2_result.md`](./phase2_result.md). Each timed number below is the median of `MEASURE_REPEATS = 3` runs per workload after warm-up (see `src/bin/mlx_smoke.rs::run_measure_baseline`).
+Phase 3 outcomes (issue [#52](https://github.com/thkt/rurico/issues/52)) for the GPU-side pooling effort, measured on Apple Silicon + cached `cl-nagoya/ruri-v3-310m` after PR #62 (Phase 3a probe) and PR #63 (Phase 3b production rewire) had both merged. Comparison target is [`phase2_result.md`](./phase2_result.md). Phase 3 の batch time は、当時の `MEASURE_REPEATS = 3` による warm-up 後の中央値として報告された値。現在の計測実装とは区別する。
 
-Regenerate via `target/release/mlx_smoke measure-baseline` on any later Phase 3 commit. Numerical equivalence against Phase 1 fixtures continues to be enforced bit-near-exact through `mlx_smoke verify-fixture` (NFR-001).
+この記録は歴史的な観測であり、現在のコードで再実行しても同じ測定にはならない。現行の再実行手順は [CONTRIBUTING](../../CONTRIBUTING.md#options付き推論の計測issue-306) を参照。 Numerical equivalence against Phase 1 fixtures continues to be enforced bit-near-exact through `mlx_smoke verify-fixture` (NFR-001).
 
 ## Headline result
 
-ADR 0002 primary lever proven empirically: `readback_pool_ms = 0` on every workload, replacing the Phase 2 `O(seq × hidden)` readback with a single `[batch × hidden]` GPU-pooled tensor. Phase 1 fixture parity holds at `cosine = 1.000000` and `max_abs_diff` 13–34× under the `1e-5` threshold. The end-to-end `batch_ms` reduction lands at -6.9% (W1) / -5.8% (W2) / -50.6% (W3) median-of-3 (W3 caveat in [Aggregate semantics](#aggregate-semantics)).
+GPU側poolingにより、readbackのshapeは `seq × hidden` から `batch × hidden` へ縮小した。記録上の `readback_pool_ms = 0` は整数msへの切捨てを含み、処理時間ゼロやGPU kernel単独時間を示さない。Phase 1 fixtureとの比較結果は以下に保持する。
+
+**2026-09-27訂正（[Issue #306](https://github.com/thkt/rurico/issues/306)）**:
+以前「Phase 2」と記した17,024 / 565 / 5,150msは [Phase 1](./phase1_baseline.md#batch-vs-sequential) の値だった。
+[Phase 2](./phase2_result.md#batch-vs-sequential) の16,565 / 617 / 2,696msに訂正した。
+以下の差は報告済みの数値を引き直した参考差分で、新しい測定でも、同条件で確かめた速度改善率でもない。
+旧版の-6.9% / -5.8% / -50.6%という値と、それをGPU poolingの寄与に帰属した説明は撤回する。
+照合した原資料の版は `cbb9068b06d957bcf9496e431cc6092416918d13`。
 
 ## AC-2 / NFR-001 numerical equivalence
 
@@ -30,27 +37,29 @@ All three workloads PASS NFR-001 with comfortable margin, validating that GPU-si
 | W2 | 100 | 76,800 | 0 | ~1.46M elements (100 chunks × 19 seq_len × 768 hidden) |
 | W3 | 10 | 7,680 | 0 | ~8.36M elements (10 chunks at bucket-padded seq_len × 768 hidden) |
 
-`readback_pool_ms = 0` reflects that the `batch × 768` flat slice is small enough to be dominated by the surrounding async-eval handshake. The structural reduction stands regardless of whether the millisecond floor is 0 or sub-1 on a given run.
+`readback_pool_ms = 0` から分かるのは当時の整数ms表示の値だけであり、async-eval handshakeが支配したという原因はこの記録では確認できない。shape縮小と時間の寄与は区別する。
 
 ## NFR-004 batch-time reduction
 
 ### Aggregate semantics
 
-Phase 2 timed `forward_eval_ms` to include the post-forward CPU `mean_pooling + l2_normalize` (since the readback was the last step inside the timed window). Phase 3b moves pooling onto the GPU, so the comparable aggregate is `forward_eval_ms + readback_pool_ms`, not either axis alone. A `forward_eval_ms` uptick on W1 (+1.0%) reflects the GPU pool work shifting into that bucket; the offsetting `readback_pool_ms` drop (Phase 2 was non-zero, Phase 3 is 0) wipes it out at the aggregate level.
+前版は `forward_eval_ms` と `readback_pool_ms` の包含関係、およびW1の+1.0%を根拠にreadback削減が相殺したと説明していた。しかしPhase 2の比較表にはreadbackの測定値がなく、Phase 3の対応するforward生recordも本資料に残っていない。その寄与分解とforward差分は未確認として撤回する。現在の区間定義は公開APIの `InferenceMetrics` rustdocを参照し、当時の区間へ遡及適用しない。
 
-### Per-workload median-of-3
+### 報告済みbatch timeの訂正比較
 
-| Workload | Phase 2 `batch_ms` | Phase 3 `batch_ms` | Δ `batch_ms` | Δ `forward_eval_ms` | Phase 3 `readback_pool_ms` |
-| --- | --- | --- | --- | --- | --- |
-| W1 | 17,024 | 15,852 | **-6.9%** | +1.0% | 0 |
-| W2 | 565 | 532 | **-5.8%** | -3.3% | 0 |
-| W3 | 5,150 | 2,544 | **-50.6%** | (W3 caveat below) | 0 |
+| Workload | Phase 2 `batch_ms` | Phase 3 `batch_ms`（保存値） | 報告値間の参考差分 |
+| --- | --- | --- | --- |
+| W1 | 16,565 | 15,852 | -4.3% |
+| W2 | 617 | 532 | -13.8% |
+| W3 | 2,696 | 2,544 | -5.6% |
 
-W1 saturated diagnostic only (every chunk in bucket 3); the -6.9% reduction comes from readback elimination on a workload that bucket batching could not improve. W2 was already at primary PASS in Phase 2. The additional -5.8% comes from the GPU pool on a hot path that was already fast.
+差分は `(Phase 3 / Phase 2 - 1) × 100`。Phase 3のfixture比較・batch time・readback表示値は変更していない。
 
-### W3 baseline caveat
+### W3比較の限界
 
-Phase 2 W3 `batch_ms = 5,150` was a single-run value. Across four separate `measure-baseline` invocations during Phase 2 the W3 ratio spanned 0.87 / 0.97 / 1.08 / 0.97 (`phase2_result.md::Batch vs Sequential`), so the `5,150` cell sits at the high end of the observed variance band. Phase 3 W3 `batch_ms = 2,544` is itself median-of-3 from a single Phase 3 invocation. The headline `-50.6%` therefore mixes a Phase 2 outlier with a Phase 3 median; readers should treat the magnitude as "structural improvement, exact percentage variance-bound" rather than a tight bound. Repeated Phase 3 invocations would refine the central tendency.
+5,150msはPhase 1由来であり、Phase 2の外れ値という旧説明は誤りだった。
+Phase 2本文は1回の `measure-baseline` invocation内で3試行の中央値を使うと説明し、別invocation間のW3比率を0.87 / 0.97 / 1.08 / 0.97と記録している。
+Phase 3の2,544msも1 invocationの中央値として保存された値だが、両者の生record・固定環境の対応はこの資料から復元できない。-5.6%を再現可能な改善率やpoolingだけの効果として扱わない。
 
 ## Workloads
 

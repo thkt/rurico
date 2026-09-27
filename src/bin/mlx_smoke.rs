@@ -17,11 +17,19 @@
 //! - `measure-baseline`: run W1/W2/W3 timing `embed_documents_batch` and a
 //!   sequential equivalent, emitting one `baseline[wN] ...` line per workload
 //!   so the numbers can be copied into `docs/benchmarks/phase1_baseline.md`.
+//! - `measure-records`: default/nondefault options and ordinary/measured APIs,
+//!   alternating batch/sequential runs with immutable JSONL records on stdout.
+//! - `measure-overhead`: the same API/options comparisons on the first three W2
+//!   documents, for short measurements with controlled background load.
+//! - `summarize-records FILE`: replay JSONL summaries without loading a model.
 //! - `verify-fixture`: run W1/W2/W3, load the committed fixtures, and assert
 //!   numerical equivalence within Spec NFR-001 tolerances
 //!   (`cosine_similarity ≥ 0.99999 AND max_abs_diff ≤ 1e-5`). Fails non-zero
 //!   when any workload diverges; used by `tests/mlx_smoke.rs::smoke_verify_fixture`
 //!   to drive T-BIT-001〜003.
+
+#[path = "mlx_smoke/records.rs"]
+mod records;
 
 use std::env;
 use std::fs::{self, File};
@@ -30,7 +38,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use rurico::embed::{
-    self, BatchMetrics, EMBEDDING_DIMS, Embed,
+    self, BatchMetrics, Embed,
     fixtures::{self, DEFAULT_COSINE_MIN, DEFAULT_MAX_ABS_DIFF},
     linreg::{linear_regression, r_squared},
     workloads::{workload_w1, workload_w2, workload_w3},
@@ -57,6 +65,11 @@ fn init_tracing_subscriber() {
 }
 
 fn main() {
+    let mode = env::args().nth(1).unwrap_or_default();
+    if mode == "summarize-records" {
+        records::summarize_file(&env::args().nth(2).expect("summarize-records JSONL"));
+        return;
+    }
     init_tracing_subscriber();
 
     // Also acts as a probe subprocess when probe env vars are set.
@@ -68,18 +81,36 @@ fn main() {
         .expect("cache lookup failed")
         .expect("model not cached; run download first");
 
+    let context = matches!(
+        mode.as_str(),
+        "measure-baseline" | "measure-records" | "measure-overhead"
+    )
+    .then(records::context);
+    let load_start = Instant::now();
     let embedder = embed::Embedder::new(&artifacts).expect("model load");
-
-    let mode = env::args().nth(1).unwrap_or_default();
+    let load_elapsed = load_start.elapsed();
+    if let Some(context) = &context {
+        records::emit_load(context, load_elapsed);
+    }
     match mode.as_str() {
         "capture-fixture" => run_capture_fixture(&embedder),
-        "measure-baseline" => run_measure_baseline(&embedder),
+        "measure-baseline" => run_measure_baseline(&embedder, context.as_ref().unwrap()),
+        "measure-records" => {
+            records::run(&embedder, context.as_ref().unwrap(), records::Mode::Records);
+        }
+        "measure-overhead" => {
+            records::run(
+                &embedder,
+                context.as_ref().unwrap(),
+                records::Mode::Overhead,
+            );
+        }
         "verify-fixture" => run_verify_fixture(&embedder),
         "" => run_assertions(&embedder),
         unknown => {
             eprintln!(
                 "mlx_smoke: unknown mode {unknown:?} \
-                 (known: capture-fixture, measure-baseline, verify-fixture); \
+                 (known: capture-fixture, measure-baseline, measure-records, measure-overhead, summarize-records, verify-fixture); \
                  running default assertions"
             );
             run_assertions(&embedder);
@@ -223,16 +254,6 @@ fn run_verify_fixture(embedder: &embed::Embedder) {
 
 // ── measure-baseline mode ────────────────────────────────────────────────────
 
-/// Number of timed repetitions per workload. Three is the minimum that yields
-/// a median immune to single-run outliers; the trade-off is ~3× wall-clock
-/// runtime compared to a single-run measurement (see `docs/benchmarks/phase2_result.md`).
-const MEASURE_REPEATS: usize = 3;
-
-fn median_u128(values: &mut [u128]) -> u128 {
-    values.sort_unstable();
-    values[values.len() / 2]
-}
-
 /// Single definition of the `batch_ms / sequential_ms` workload ratio so the
 /// stderr `baseline[wN]` line and the `check_thresholds` gate always read the
 /// same value. `sequential_ms == 0` maps to `0.0` — the no-violation side —
@@ -246,112 +267,72 @@ fn workload_ratio(batch_ms: u128, sequential_ms: u128) -> f64 {
     }
 }
 
-fn run_measure_baseline(embedder: &embed::Embedder) {
-    // MLX compiles a kernel per distinct (batch_size, max_seq_len) shape. Warm
-    // each workload's batched shape AND each per-document shape used by the
-    // sequential pass before timing, so neither side absorbs a compile spike
-    // on its first timed call.
-    for texts in [workload_w1(), workload_w2(), workload_w3()] {
-        let refs = as_refs(&texts);
-        let _ = embedder
-            .embed_documents_batch(&refs)
-            .expect("warm-up batch");
-        for text in &refs {
-            let _ = embedder.embed_document(text).expect("warm-up sequential");
-        }
-    }
-
-    let mut results: Vec<WorkloadResult> = Vec::new();
-    for (name, texts) in [
-        ("w1", workload_w1()),
-        ("w2", workload_w2()),
-        ("w3", workload_w3()),
-    ] {
-        let refs = as_refs(&texts);
-
-        let mut batch_samples = Vec::with_capacity(MEASURE_REPEATS);
-        let mut sequential_samples = Vec::with_capacity(MEASURE_REPEATS);
-        let mut forward_eval_samples = Vec::with_capacity(MEASURE_REPEATS);
-        let mut last_metrics = BatchMetrics::default();
-        for _ in 0..MEASURE_REPEATS {
-            let t0 = Instant::now();
-            let (_docs, metrics) = embedder
-                .embed_documents_batch_with_metrics(&refs)
-                .expect("batch embed");
-            batch_samples.push(t0.elapsed().as_millis());
-            forward_eval_samples.push(metrics.forward_eval_ms);
-            // Non-timing fields (padding_ratio, real_tokens, bucket_hist,
-            // etc.) are deterministic across runs, so the final snapshot
-            // carries the correct shape; only the `forward_eval_ms` field
-            // is replaced with its median below.
-            last_metrics = metrics;
-
-            let t1 = Instant::now();
-            for text in &refs {
-                let _ = embedder.embed_document(text).expect("sequential embed");
-            }
-            sequential_samples.push(t1.elapsed().as_millis());
-        }
-        let batch_ms = median_u128(&mut batch_samples);
-        let sequential_ms = median_u128(&mut sequential_samples);
-        // Align `forward_eval_ms` with the median timing path so the R²
-        // linearity gate never reads a one-shot outlier (Codex P2).
-        last_metrics.forward_eval_ms = median_u128(&mut forward_eval_samples);
-        let ratio = workload_ratio(batch_ms, sequential_ms);
-
-        let m = &last_metrics;
-        let bucket_str = format!(
-            "[{},{},{},{}]",
-            m.bucket_hist[0], m.bucket_hist[1], m.bucket_hist[2], m.bucket_hist[3]
+fn run_measure_baseline(embedder: &embed::Embedder, context: &serde_json::Value) {
+    let records = records::run(embedder, context, records::Mode::Baseline);
+    let mut results = Vec::new();
+    let mut forward_medians = Vec::new();
+    for name in ["w1", "w2", "w3"] {
+        let batch: Vec<_> = records
+            .iter()
+            .filter(|r| {
+                r.workload == name && r.state == "warm" && r.method == records::Method::Batch
+            })
+            .collect();
+        let sequential: Vec<_> = records
+            .iter()
+            .filter(|r| {
+                r.workload == name && r.state == "warm" && r.method == records::Method::Sequential
+            })
+            .collect();
+        let batch_time = records::distribution(batch.iter().map(|r| r.wall).collect());
+        let sequential_time = records::distribution(sequential.iter().map(|r| r.wall).collect());
+        let forward = records::distribution(
+            batch
+                .iter()
+                .map(|r| r.calls[0].as_ref().unwrap().forward_eval)
+                .collect(),
+        );
+        let m = batch[0].calls[0].as_ref().unwrap();
+        let ratio = workload_ratio(
+            batch_time.median.as_nanos(),
+            sequential_time.median.as_nanos(),
+        );
+        let padding = m.padded_tokens as f32 / m.real_tokens as f32;
+        let fw = forward.median.as_secs_f64() * 1000.0;
+        forward_medians.push(fw);
+        eprintln!(
+            "baseline[{name}] summary=true n={} batch_ms={:.6} sequential_ms={:.6} ratio={ratio:.3} padding_ratio={padding:.3} real_tokens={} padded_tokens={} forward_eval_ms={fw:.6} tokenize_ms=unmeasured chunk_plan_ms=unmeasured num_chunks={} bucket_hist={:?}",
+            batch_time.n,
+            batch_time.median.as_secs_f64() * 1000.0,
+            sequential_time.median.as_secs_f64() * 1000.0,
+            m.real_tokens,
+            m.padded_tokens,
+            m.num_chunks,
+            m.bucket_hist
         );
         eprintln!(
-            "baseline[{name}] num_texts={nt} batch_ms={batch_ms} sequential_ms={sequential_ms} \
-             ratio={ratio:.3} padding_ratio={pr:.3} real_tokens={rt} padded_tokens={pt} \
-             forward_eval_ms={fw} tokenize_ms={tk} chunk_plan_ms={cp} num_chunks={nc} \
-             bucket_hist={bucket_str}",
-            nt = refs.len(),
-            pr = m.padding_ratio,
-            rt = m.real_tokens,
-            pt = m.padded_tokens,
-            fw = m.forward_eval_ms,
-            tk = m.tokenize_ms,
-            cp = m.chunk_plan_ms,
-            nc = m.num_chunks,
+            "mdrow[{name}] summary | {name} | unmeasured | unmeasured | {fw:.6} | {padding:.3} | {} | {:?} |",
+            m.num_chunks, m.bucket_hist
         );
-        // Pipe-delimited row aligned to `docs/benchmarks/phase2_result.md`'s
-        // per-phase metrics table so its cells can be filled by copy-paste.
+        let hs = embedder.embedding_dims();
         eprintln!(
-            "mdrow[{name}] | {up} | {tk} | {cp} | {fw} | {pr:.3} | {nc} | {bucket_str} |",
-            up = name.to_uppercase(),
-            tk = m.tokenize_ms,
-            cp = m.chunk_plan_ms,
-            fw = m.forward_eval_ms,
-            pr = m.padding_ratio,
-            nc = m.num_chunks,
+            "readback_shape[{name}]: hidden_size={hs} total_rows={} total_flat={}",
+            m.num_chunks,
+            m.num_chunks * hs
         );
-        // T-006 / FR-002 / NFR-002: per-workload proof that the Phase 3b
-        // GPU pool reduced the readback to `O(batch * hidden)` floats.
-        // Emission is post-`split_pooled` invariant — any sub-batch shape
-        // mismatch would have `?`-returned earlier and skipped this line.
-        //
-        // `EMBEDDING_DIMS` is the default-model compile-time constant.
-        // The runtime invariant inside `forward_sub_batch` checks against
-        // `self.embedding_dims` (config-driven). For non-default model
-        // runs, the banner is informative for the default-model case;
-        // extending `BatchMetrics` to carry the runtime `hidden_size` is
-        // a Phase 3c follow-up if multi-model `measure-baseline` becomes
-        // a use case.
-        eprintln!(
-            "readback_shape[{name}]: hidden_size={hs} total_rows={rows} total_flat={flat}",
-            hs = EMBEDDING_DIMS,
-            rows = m.num_chunks,
-            flat = m.num_chunks * EMBEDDING_DIMS,
-        );
-
+        // Shape-only data for existing threshold checks. Timing aggregates stay
+        // separate from per-invocation snapshots in the immutable raw records.
         results.push(WorkloadResult {
             name,
             ratio,
-            metrics: last_metrics,
+            metrics: BatchMetrics {
+                padding_ratio: padding,
+                real_tokens: m.real_tokens,
+                padded_tokens: m.padded_tokens,
+                num_chunks: m.num_chunks,
+                bucket_hist: m.bucket_hist,
+                ..BatchMetrics::default()
+            },
         });
     }
 
@@ -361,10 +342,7 @@ fn run_measure_baseline(embedder: &embed::Embedder) {
         .iter()
         .map(|r| r.metrics.real_tokens as f64)
         .collect();
-    let ys: Vec<f64> = results
-        .iter()
-        .map(|r| r.metrics.forward_eval_ms as f64)
-        .collect();
+    let ys = forward_medians;
     let (slope, intercept) = linear_regression(&xs, &ys);
     let r2 = r_squared(&xs, &ys, slope, intercept);
     eprintln!("linearity slope={slope:.6} intercept={intercept:.3} r_squared={r2:.4}");
@@ -376,7 +354,7 @@ fn run_measure_baseline(embedder: &embed::Embedder) {
              residual={residual:.3}",
             name = r.name,
             rt = r.metrics.real_tokens,
-            fw = r.metrics.forward_eval_ms,
+            fw = y,
         );
     }
 

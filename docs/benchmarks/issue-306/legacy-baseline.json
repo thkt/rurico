@@ -1,0 +1,56 @@
+{
+  "base": {
+    "base_commit": "cbb9068b06d957bcf9496e431cc6092416918d13",
+    "command_exit": 101,
+    "timed_out": false,
+    "diagnostics": [
+      "baseline[w1] num_texts=2 batch_ms=21385 sequential_ms=21116 ratio=1.013 padding_ratio=1.475 real_tokens=16666 padded_tokens=24576 forward_eval_ms=20346 tokenize_ms=0 chunk_plan_ms=300 num_chunks=3 bucket_hist=[0,0,0,3]",
+      "mdrow[w1] | W1 | 0 | 300 | 20346 | 1.475 | 3 | [0,0,0,3] |",
+      "readback_shape[w1]: hidden_size=768 total_rows=3 total_flat=2304",
+      "baseline[w2] num_texts=100 batch_ms=3074 sequential_ms=4611 ratio=0.667 padding_ratio=6.772 real_tokens=1890 padded_tokens=12800 forward_eval_ms=3069 tokenize_ms=0 chunk_plan_ms=4 num_chunks=100 bucket_hist=[100,0,0,0]",
+      "mdrow[w2] | W2 | 0 | 4 | 3069 | 6.772 | 100 | [100,0,0,0] |",
+      "readback_shape[w2]: hidden_size=768 total_rows=100 total_flat=76800",
+      "baseline[w3] num_texts=10 batch_ms=4194 sequential_ms=4442 ratio=0.944 padding_ratio=1.630 real_tokens=6675 padded_tokens=10880 forward_eval_ms=3841 tokenize_ms=0 chunk_plan_ms=345 num_chunks=10 bucket_hist=[5,0,5,0]",
+      "mdrow[w3] | W3 | 0 | 345 | 3841 | 1.630 | 10 | [5,0,5,0] |",
+      "readback_shape[w3]: hidden_size=768 total_rows=10 total_flat=7680",
+      "linearity slope=1.242882 intercept=-1367.716 r_squared=0.9218",
+      "residual[w1] real_tokens=16666 forward_eval_ms=20346 predicted=19346.150 residual=999.850",
+      "residual[w2] real_tokens=1890 forward_eval_ms=3069 predicted=981.330 residual=2087.670",
+      "residual[w3] real_tokens=6675 forward_eval_ms=3841 predicted=6928.519 residual=-3087.519",
+      "saturated: Sla { workload: \"w1\", actual: 1.0127391551430196, threshold: 0.8 }",
+      "saturated: Padding { workload: \"w1\", actual: 1.474619, threshold: 1.1 }",
+      "aspirational: Sla { workload: \"w3\", actual: 0.9441692931112111, threshold: 0.8 }",
+      "primary violation: Padding { workload: \"w2\", actual: 6.7724867, threshold: 1.2 }",
+      "primary violation: Padding { workload: \"w3\", actual: 1.6299626, threshold: 1.2 }",
+      "primary violation: RSquared { actual: 0.9218336497757331, threshold: 0.95 }",
+      "measure-baseline: 3 primary threshold violation(s); see stderr"
+    ]
+  },
+  "implementation": {
+    "base_commit": "cbb9068b06d957bcf9496e431cc6092416918d13",
+    "command_exit": 100,
+    "timed_out": false,
+    "diagnostics": [
+      "mdrow[w1] summary | w1 | unmeasured | unmeasured | 17384.741084 | 1.475 | 3 | [0, 0, 0, 3] |",
+      "readback_shape[w1]: hidden_size=768 total_rows=3 total_flat=2304",
+      "baseline[w2] summary=true n=3 batch_ms=3612.183708 sequential_ms=5580.268875 ratio=0.647 padding_ratio=6.772 real_tokens=1890 padded_tokens=12800 forward_eval_ms=3607.652083 tokenize_ms=unmeasured chunk_plan_ms=unmeasured num_chunks=100 bucket_hist=[100, 0, 0, 0]",
+      "mdrow[w2] summary | w2 | unmeasured | unmeasured | 3607.652083 | 6.772 | 100 | [100, 0, 0, 0] |",
+      "readback_shape[w2]: hidden_size=768 total_rows=100 total_flat=76800",
+      "baseline[w3] summary=true n=3 batch_ms=4237.961416 sequential_ms=4550.414459 ratio=0.931 padding_ratio=1.630 real_tokens=6675 padded_tokens=10880 forward_eval_ms=4194.353667 tokenize_ms=unmeasured chunk_plan_ms=unmeasured num_chunks=10 bucket_hist=[5, 0, 5, 0]",
+      "mdrow[w3] summary | w3 | unmeasured | unmeasured | 4194.353667 | 1.630 | 10 | [5, 0, 5, 0] |",
+      "readback_shape[w3]: hidden_size=768 total_rows=10 total_flat=7680",
+      "linearity slope=0.991545 intercept=56.362 r_squared=0.9208",
+      "residual[w1] real_tokens=16666 forward_eval_ms=17384.741084 predicted=16581.444 residual=803.297",
+      "residual[w2] real_tokens=1890 forward_eval_ms=3607.652083 predicted=1930.381 residual=1677.271",
+      "residual[w3] real_tokens=6675 forward_eval_ms=4194.353666999999 predicted=6674.922 residual=-2480.568",
+      "saturated: Sla { workload: \"w1\", actual: 1.0150509250152637, threshold: 0.8 }",
+      "saturated: Padding { workload: \"w1\", actual: 1.474619, threshold: 1.1 }",
+      "aspirational: Sla { workload: \"w3\", actual: 0.9313352562024285, threshold: 0.8 }",
+      "primary violation: Padding { workload: \"w2\", actual: 6.7724867, threshold: 1.2 }",
+      "primary violation: Padding { workload: \"w3\", actual: 1.6299626, threshold: 1.2 }",
+      "primary violation: RSquared { actual: 0.9208125138616536, threshold: 0.95 }",
+      "measure-baseline: 3 primary threshold violation(s); see stderr"
+    ]
+  },
+  "comparison_limit": "Base uses embed_document and fixed method order; implementation uses options singleton calls, warm-up and alternating order. Timing values are not a same-condition performance comparison."
+}

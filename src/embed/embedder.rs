@@ -1,10 +1,12 @@
 use std::fmt::{self, Debug, Formatter};
 use std::sync::{Mutex, MutexGuard};
+use std::time::Instant;
 
 use super::metrics::BatchMetrics;
 use super::mlx::EmbedderInner;
 use super::{
-    Artifacts, ChunkedEmbedding, Embed, EmbedError, EmbedOptions, ModelInitError, QUERY_PREFIX,
+    Artifacts, ChunkedEmbedding, Embed, EmbedError, EmbedOptions, InferenceMetrics,
+    MeasuredEmbedding, ModelInitError, QUERY_PREFIX,
 };
 use crate::model_probe::ProbeStatus;
 
@@ -75,7 +77,8 @@ impl Embedder {
         texts: &[&str],
     ) -> Result<(Vec<ChunkedEmbedding>, BatchMetrics), EmbedError> {
         self.lock_inner()?
-            .embed_documents_batch_chunked_with_metrics(texts, &EmbedOptions::default())
+            .embed_documents_batch_chunked_with_metrics(texts, &EmbedOptions::default(), false)
+            .map(|(results, metrics)| (results, BatchMetrics::from(&metrics)))
     }
 
     /// Test whether the model can load without aborting the caller.
@@ -127,6 +130,26 @@ impl Embed for Embedder {
     ) -> Result<Vec<ChunkedEmbedding>, EmbedError> {
         self.lock_inner()?
             .embed_documents_batch_chunked_with_options(texts, options)
+    }
+
+    fn embed_documents_batch_with_options_and_metrics(
+        &self,
+        texts: &[&str],
+        options: &EmbedOptions,
+    ) -> Result<MeasuredEmbedding, EmbedError> {
+        let started = Instant::now();
+        let mut inner = self.lock_inner()?;
+        let lock_wait = started.elapsed();
+        let (embeddings, phases) =
+            inner.embed_documents_batch_chunked_with_metrics(texts, options, true)?;
+        drop(inner);
+        let mut metrics = InferenceMetrics::from(phases);
+        metrics.lock_wait = lock_wait;
+        metrics.wall = started.elapsed();
+        Ok(MeasuredEmbedding {
+            embeddings,
+            metrics: Some(metrics),
+        })
     }
 
     fn embed_text(&self, text: &str, prefix: &str) -> Result<Vec<f32>, EmbedError> {
