@@ -10,7 +10,9 @@ embeddingは共通モデル情報と操作別条件に分け、FTSは独立し�
 要求の正本は[Issue #315](https://github.com/thkt/rurico/issues/315)（提供された更新時刻 `2026-09-27T11:55:00Z`）。
 2026-09-27の開始commitは `eede511287ab8b7fa131169afa0afa351504373c`、ローカルの`origin/main`も同じだった。
 Cargo.lockのSHA-256は `05fa187fa27454c4afef44554be20360b7af181c8704690b95c448cdbae4c1a2`。
-`git ls-remote origin refs/heads/main`はDNS解決に失敗し、リモートの最新mainとの差は未確認。
+ホストの作業記録では、開始前と独立レビュー開始後の`gh api repos/thkt/rurico/commits/main`が成功し、
+上記開始commitと一致した。担当sandboxの`git ls-remote origin refs/heads/main`はDNS解決に失敗したが、
+これはホストの確認とは別の観測である。公開時はホストがmainを再照合し、この一致を将来へ延長しない。
 以下の資料は開始commitの内容と作業開始時のファイルを照合した。引き継ぎ版の差し替えはない。
 
 | 根拠 | 照合した版・状態 | 今回に適用する内容 |
@@ -245,6 +247,10 @@ hash入力は`b"rurico/spec-example/1\0" + canonical(record)`、表示は`spec-e
 以下は参照例の関数を使う疑似コードで、DBスキーマや自動migrationを提案するものではない。
 `require_match`はMatch以外なら処理を止め、Comparisonの相違/不足を呼出元へ返す。
 `producer.lease()`はdescriptor取得から生成・書込みまで設定を固定するconsumer側の仕組みを表す。
+`acquire`は取得根拠と世代だけを確認する。そのMatchだけではrecordの完全性や利用を許可しない。
+新索引は`fingerprint(..., expected_kind="embedding")`、追加は`append`、検索は`search`で
+recordの形・canonical表現・意味を検査し、成功してから副作用へ進む。新索引のkind指定は、
+FTS/pair用にも使える汎用fingerprintが別種のrecordをdocument索引として受理することを防ぐ。
 
 ```python
 # 新索引: producerに対応するdescriptorを同じleaseで取得する。
@@ -253,7 +259,7 @@ with producer.lease() as lease:
     require_match(acquire(snapshot, lease.generation))
     document_spec = snapshot.spec
     # consumerが選んだ保存先へJSON全体を保存する。hash単独にしない。
-    metadata = {"spec": document_spec, "id": fingerprint(document_spec)}
+    metadata = {"spec": document_spec, "id": fingerprint(document_spec, expected_kind="embedding")}
     consumer.create_index_and_metadata_atomically(metadata)
 
 # 追加: recordはstrictに読み、保存hashも再計算する。
@@ -280,6 +286,15 @@ Snapshot取得後のproducer差し替え・設定変更・索引世代の切替�
 世代番号はprocess間fingerprintの一部にはしない。比較と実行を同じleaseに置けなければ取得不能として止める。
 索引metadataとvectorのatomicity、複数writer、検索中の索引切替はconsumerのDB設計で保証する。
 関数`acquire`の合成世代検査だけではTOCTOUを解決しない。
+取得gateと後続の完全検証は同じ固定入力に対して続けて行う。`fingerprint`の`Incomplete`も処理を止める。
+保存recordの読込み・保存IDの再計算と比較、承認pair、独立したstored/currentの検査は残す。
+
+Python参照例の`pair()`と`Snapshot`は、構築時に入力dictを入れ子まで複製する。
+その後に元のdocument/query/specを変更しても、pairの照合基準やsnapshotの記録・fingerprintは変わらない。
+ただし返されたpairや`Snapshot.spec`自体は編集可能で、`frozen=True`も入れ子dictを凍結しない。
+承認後のpairや取得済みsnapshotを編集しない責任はcallerにある。新構成は新しい候補として取得・承認・再照合する。
+複製中や照合中の並行変更を防ぐlockはなく、callerは入力と照合基準をその間固定する。
+この所有権分離はモデル内容の不変snapshotやproducerのleaseを実装するものではない。
 
 FTSでは索引作成前にconsumer設定を含む`FtsIndexSpec`を保存し、追加時に現在の索引側spec、検索前にquery側の索引前処理契約と`fts`で照合する。
 query plan等の検索時方針の更新は、その別記録と既存検索検証で扱う。
@@ -299,48 +314,61 @@ fixture側に別の意味定義を作らない。#304には安全な読込み上
 
 ## 検証結果と引き継ぎ
 
-2026-09-27、Python 3.14.7で[READMEのコマンド](README.md)を実行し、6つのテスト群が成功した。
-これは公開合成recordに対する設計例の検証であり、Rustの公開API試作・実モデル推論ではない。
-同じrecordのmap順を替え、別process・作業ディレクトリ・Python hash seedでも同じIDを得た。
-保存JSONのファイル名も替え、再読込み後の一致を確認した。
-既知のcanonical byte列との照合に加え、同次元のmodel/revision・tokenizer・prefix・空白順・chunking・pooling・precisionを変えた例で相違を確認した。
-queryだけの変更では既存pairを拒否し、documentを保持した新pairで検索を許す例も確認した。
+2026-09-27、修正開始版`5de9b3cbdc8486b8fa5e0ce5b1c600cb42616519`に対する今回の差分を、
+Python 3.14.7で[READMEのコマンド](README.md)から検証し、最終の11テスト群が成功した。
+対象は公開合成recordの設計例であり、Rust公開APIのコンパイルや実モデル推論ではない。
+同じrecordのmap順、別process・作業ディレクトリ・Python hash seed、保存JSONのファイル名を変えてもIDは一致した。
+既知のcanonical bytesとの照合、同次元のmodel/revision・tokenizer・prefix・空白順・chunking・pooling・precisionの差、
+正しいquery/document pairとquery側だけの変更、FTS対称性、未知情報、取得失敗・世代変更も確認した。
 
-新しい検証が防ぐのは、次元だけでの誤受理、role差の過剰拒否、unknown/defaultの誤用、未知field脱落、
-保存順やprocessに依存したID、取得失敗・古い世代の成功扱いである。
-既存のplanner・pooling・fixture・FTS正規化テストはこの新しいmetadata比較を扱わないため、小さな純粋関数の検証を追加した。
-意味の差は表形式の変更例へまとめ、process起動は決定性を確認する2回だけにした。GPU・network・時間閾値は不要である。
-実loaderの不変snapshot、並行producer、DB atomicity、未知producerの真実性は模擬値では検証できず、採用実装で検証する必要がある。
-一時コピーで「次元だけで追加を許可」「未知fieldを無視」の2つの誤実装を入れると、対応する検証がいずれもassertionで失敗した。
-元ファイルを変更せず、import失敗を検出力の証拠には数えていない。
+`pair()`と`Snapshot`の入力参照共有については、先に回帰例を追加し、同じPython・入力・コマンドで修正前後を比較した。
+修正前は、元のdocument/queryのprefix変更を旧pairが受理する2条件と、元specのprefix変更がsnapshotへ伝わる1条件で
+期待するDifferentがMatchとなり、assertionで失敗した。入力を深く複製した後は、相違fieldの報告と元のfingerprintの保持が成功した。
+変更後の構成から明示的に作った新pairはMatchとなる。Snapshotの同一世代での取得gateと古い世代の拒否も維持した。
+これは入力との所有権分離の確認で、返り値の編集禁止や並行安全性の証明ではない。
 
-既存テストの追加複製・削除・統合はなく、失われる既存の検出条件はない。
-数値・tokenization・FTS処理の再実装テストを追加せず、既存の検証と#307の限定した観測を参照する。
-型検査を済ませた製品API、全言語間のhash互換、性能・保守時間の改善、検索品質向上は未確認。
+入力検証は形の検査、canonical符号化、意味の検査に分けている。非文字列の`kind`は`Incomplete`と
+理由`kind: wrong type`で拒否する。fingerprintは検証時のbytesをhashにも使い、searchは親pairで検査した子を比較へ渡す。
+保存documentと現在queryは独立して検査し、共有した検査結果は一つの同期呼出し内に閉じる。
+追加の永続状態や呼出し・producer世代を跨ぐcacheはない。
+取得gateは根拠・世代の確認に限定し、その直後のID生成/照合でsnapshotの完全検証を一度行う。
+新索引・追加・検索の同じ合成recordで、修正前はsnapshotに対する形検査・符号化・意味検査が各2回、
+修正後は各1回となった。先に合成経路へ拡張した計数例は修正前に`2 != 1`で失敗し、修正後に成功した。
+不完全recordは取得gateを通っても、後続で`Incomplete`または理由付きUnknownとなる。
+新索引では別kindの拒否も確認し、取得根拠・古い世代の拒否、既知の差と不足理由の保持を維持した。
 
-初回作成時の`cargo fetch --locked`は終了0。標準`bash scripts/check.sh`、変更文書を含む既存の独立評価、
-同じheadの`test`・`coverage`・`security`・`zizmor`確認はホストの工程へ引き継ぐ。
-この時点ではそれらの成功、公開PR、ユーザーによる採用を主張しない。撮影を要する成果物はない。
-製品API・前処理・推論・FTS検索意味・fixture・accepted ADR・wiki・Cargo.lockは変更していない。
+### 検証の価値と再利用する証拠
+
+追加した所有権の2テスト群は、承認済みの照合基準や取得済み記録が入力の後編集で暗黙に変わる誤受理を防ぐ。
+既存例は別dictを作って変更していたため、この参照共有を検出できなかった。document/queryの対称な条件は一つの表にまとめた。
+他の検査は次元だけの受理、role差の過剰拒否、unknown/defaultの誤用、未知field脱落、不安定なID、
+例外経路からの型エラー漏れ、検査共有での境界検証漏れを防ぐため保持する。
+製品のplanner・pooling・fixture・FTS正規化テストは新しいmetadata照合を扱わないため、その複製は加えていない。
+
+呼出し回数の検査は結果比較だけでは分からない重複走査を検出する。単独関数から取得gateとの合成経路へ
+既存の一群を拡張し、別の計数群は重ねていない。内部関数名に依存する保守費用はあるが、
+時間閾値・追加processなしで検出できる。後続の検証を省く誤修正は、形・数値表現・意味の不正と
+新索引の別kindを拒否する一群で検出する。所有権の回帰もGPU・network・時間閾値を使わない。
+process起動は決定性を確認する既存の2回だけである。単独関数内・pairの子・独立入力の計数と
+別呼出し後の変更の拒否は合成経路でも保持し、失われる既存の検出条件はない。
+実時間・メモリ・保守時間の改善は測定しておらず、入力複製の費用も未測定である。
+
+[修正開始版の報告](https://github.com/thkt/rurico/blob/5de9b3cbdc8486b8fa5e0ce5b1c600cb42616519/docs/research/issue-315/report.md#入力型と重複検査の修正後の検証)には、
+入力型・重複検査を直す前後のコピーを同じ合成入力で比較した2,718ケースの判定・理由・ID一致が記録されている。
+意図して例外を変えた非文字列kindはその比較から除外し、所定例外・理由の回帰例で確認した。
+同条件の`sys.setprofile`では、fingerprintのdocument符号化が2回から1回、searchの承認済みdocument/query各々の
+形検査と符号化が各3回から1回になった。今回も回数の回帰例は成功したが、過去の全ケース比較を再実行した結果ではない。
+同報告の一時コピーによる「次元だけで追加を許可」「未知fieldを無視」の変異検証は、対応するassertionで失敗した証拠として保持する。
+これらの変異検証も今回は再実行していない。所有権修正の検出力は上記の修正前後比較で確認した。
+
+### 未確認範囲とホスト工程
+
+実loaderの不変snapshot、並行producer、DB atomicity、未知producerの真実性、全言語間のhash互換、
+Metalの数値一致・性能、検索品質は今回の合成記録では検証できない。#307の値は同報告の条件に限る過去観測の再利用で、再測定ではない。
+開始commit、Cargo.lock、根拠表の引き継ぎblobは不変。製品API・前処理・推論・FTS検索意味・fixture・accepted ADR・wikiは変更していない。
+
+依存準備の`cargo fetch --locked`は終了0だった。
+標準`bash scripts/check.sh`と同じheadの`test`・`coverage`・`security`・`zizmor`は、GPUを利用できるホストの工程で確認する。
+担当sandboxでは今回の標準check・CIを実行していない。変更文書を含む独立評価と公開時の検証結果はPRへ記録し、
+旧headの成功を修正後の成功として流用しない。撮影を要する成果物はない。
 採用判断では、記録＋照合API、取得時snapshotの費用、pairの登録責任、保存version運用を確認し、consumerごとの移行は別途合意する。
-
-### 入力型と重複検査の修正後の検証
-
-2026-09-27、保存JSONの`kind`がobjectだと、`fingerprint`が型検査前の集合検索で`TypeError`を漏らすことを再現した。
-非文字列の`kind`は、理由`kind: wrong type`を持つ`Incomplete`で拒否するよう修正した。
-また、fingerprintは検証時のcanonical bytesをhashにも使い、検索はpair内で検査済みの子recordを同じ呼出し内で再検査しない構造にした。
-保存documentと現在queryは引き続き独立して検査する。別呼出し・producer世代を跨ぐcacheは設けていない。
-
-Python 3.14.7で[同じ検証コマンド](README.md)を再実行し、8つのテスト群が成功した。
-既存の不明入力検査に、JSON読込みからfingerprintまでの所定例外・理由の確認を追加した。
-新しい検査は重複走査の再発と、検査共有による未知field/version・数値範囲・role制約の見落としを防ぐ。
-これらは既存の結果比較だけでは検出できないため追加し、入力境界の変更例は一つの表にまとめた。
-呼出し回数の検査は内部関数名に依存する保守費用があるが、時間閾値や追加processを使わず、今回確認した重複を直接検出する。
-既存検査は削除せず、失う検出条件はない。変更前の例外漏れ・重複回数で回帰検査が失敗することも確認した。
-
-修正前のコピーと修正後を同じ合成入力で比較し、追加・検索・fingerprintの2,718ケースで判定・理由・IDが一致した。
-非文字列kindのfingerprintは意図した例外変更なのでこの一致比較から除き、上記の回帰検査で確認した。
-`sys.setprofile`による同条件の計数では、fingerprintのdocument符号化は2回から1回、
-searchの承認済みdocument/query各々の形検査と符号化は各3回から1回になった。実時間・メモリの改善量は未測定。
-開始commit、Cargo.lock、上表の引き継ぎblobに変更はなく、#307の数値を再測定した結果でもない。
-修正後の標準checkと同じheadのCIはホストで確認する。実loader・並行producer・DB atomicity・Metal推論については従来の未確認範囲を維持する。

@@ -6,6 +6,10 @@
 `spec.py`は保存記録の照合とfingerprintの実行可能な参照例、`document.json`と`fts.json`は公開用の合成構成である。
 モデル名・revision・hash・consumer設定は架空であり、実索引へ付与してはいけない。
 `test_spec.py`はその設計例を検証する。Python標準ライブラリだけを使い、推論もモデル取得も行わない。
+`pair()`と`Snapshot`は入力を入れ子まで複製する。返り値の編集や並行変更を防ぐ仕組みではないため、
+利用時の所有権と設定固定の条件は[報告の利用例](report.md#consumerの最小利用例と移行)に従う。
+`acquire`のMatchは取得根拠・世代の確認だけを表す。副作用の前に、同じ固定入力を
+ID生成（新索引では`expected_kind="embedding"`を指定）または照合で完全検証する。
 製品のRust/MLX構成、Cargo.lock、既存fixtureは変更していない。CPU推論backendも追加しない。
 
 checkoutのルートから実行する。
@@ -26,4 +30,4 @@ bash scripts/check.sh
 標準checkは`test` job相当であり、`coverage`・`security`・`zizmor`は別に同じheadで確認する。
 詳細は[CONTRIBUTING](../../../CONTRIBUTING.md#テスト)を使う。
 設計例の成功をMetal実測、Rust APIのコンパイル検証、検索品質の証明とは扱わない。
-撮影は不要。今回の依頼ではcommit・push・PR公開を行わず、変更文書もホストの既存独立評価に含める。
+撮影は不要。変更文書も独立評価の対象とする。調査成果の公開は製品APIや保存契約の採用を意味しない。

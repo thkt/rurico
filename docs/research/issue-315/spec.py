@@ -3,6 +3,7 @@
 JSON is transport. canonical() defines the example's fingerprint bytes.
 All semantic records are closed; evidence/runtime data must stay separate.
 """
+from copy import deepcopy
 from dataclasses import dataclass
 import hashlib
 import json
@@ -141,12 +142,14 @@ def problems(value, kind):
     return _validate(value, kind)[0]
 
 
-def fingerprint(value):
+def fingerprint(value, *, expected_kind=None):
     if type(value) is dict and "kind" in value and type(value["kind"]) is not str:
         raise Incomplete("kind: wrong type")
     kind = value.get("kind") if type(value) is dict else None
     if kind not in {"embedding", "fts", "pair"}:
         raise Incomplete("missing/unknown kind")
+    if expected_kind is not None and kind != expected_kind:
+        raise Incomplete("schema/kind: unsupported")
     issues, encoded = _validate(value, kind)
     if issues:
         raise Incomplete("; ".join(issues))
@@ -195,8 +198,8 @@ def append(stored, current):
 
 
 def pair(document, query):
-    """Build a proposal. The caller, not this helper, authorizes its use."""
-    return {"schema": 1, "kind": "pair", "document": document, "query": query}
+    """Copy inputs into a proposal; the caller authorizes use and controls edits."""
+    return {"schema": 1, "kind": "pair", "document": deepcopy(document), "query": deepcopy(query)}
 
 
 def search(stored_document, current_query, approved_pair):
@@ -227,14 +230,22 @@ def fts(index_side, query_side):
 
 @dataclass(frozen=True)
 class Snapshot:
+    """Own a copy of the input spec, without freezing nested dicts or a producer."""
     spec: dict
     evidence: str
     generation: int
 
+    def __post_init__(self):
+        object.__setattr__(self, "spec", deepcopy(self.spec))
+
 
 def acquire(snapshot, current_generation):
-    """Illustrate a caller's gate; this does not hash files or lock a real producer."""
-    missing = problems(snapshot.spec, "embedding")
+    """Gate evidence/generation only, without hashing files or locking a producer.
+
+    A match does not validate spec: fingerprint/append/search must do that before
+    any side effect, while the caller keeps the spec and producer fixed.
+    """
+    missing = []
     if snapshot.evidence not in {"loaded-content", "custom-attested"}:
         missing.append(f"acquisition: {snapshot.evidence}")
     if snapshot.generation != current_generation:

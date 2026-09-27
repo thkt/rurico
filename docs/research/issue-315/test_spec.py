@@ -110,6 +110,33 @@ class ContractExamples(unittest.TestCase):
         self.assertEqual(result.status, "different")
         self.assertTrue(result.missing)  # keep insufficiency alongside the known document change
 
+    def test_pair_owns_inputs_after_construction(self):
+        for side in ["document", "query"]:
+            with self.subTest(side=side):
+                doc, q = document(), query()
+                approved = spec.pair(doc, q)
+                identity = spec.fingerprint(approved)
+                self.assertEqual(spec.search(doc, q, approved).status, "match")
+                source = doc if side == "document" else q
+                source["operation"]["prefix"] += "changed"
+                result = spec.search(doc, q, approved)
+                self.assertEqual(result, spec.Comparison(
+                    "different", (f"{side}.operation.prefix",)))
+                self.assertEqual(spec.fingerprint(approved), identity)
+                self.assertEqual(spec.search(doc, q, spec.pair(doc, q)).status, "match")
+
+    def test_snapshot_owns_input_after_construction(self):
+        source = document()
+        snapshot = spec.Snapshot(source, "loaded-content", 4)
+        identity = spec.fingerprint(snapshot.spec)
+        self.assertEqual(spec.append(snapshot.spec, source).status, "match")
+        source["operation"]["prefix"] += "changed"
+        self.assertEqual(spec.append(snapshot.spec, source), spec.Comparison(
+            "different", ("operation.prefix",)))
+        self.assertEqual(spec.fingerprint(snapshot.spec), identity)
+        self.assertEqual(spec.acquire(snapshot, 4).status, "match")
+        self.assertEqual(spec.acquire(snapshot, 5).status, "unknown")
+
     def test_unknown_data_is_never_an_equal_legacy_default(self):
         value = document()
         for raw in ['{"kind":{}}', json.dumps({**value, "kind": {}})]:
@@ -137,25 +164,66 @@ class ContractExamples(unittest.TestCase):
             with self.assertRaises(ValueError):
                 spec.read(raw)
 
-    def test_each_call_validates_and_encodes_each_record_once(self):
-        doc, q = document(), query()
+    def test_acquisition_and_use_validate_and_encode_each_record_once(self):
+        doc = document()
+        now = spec.Snapshot(document(), "loaded-content", 4)
+        current = spec.Snapshot(query(), "loaded-content", 4)
         approved = spec.pair(document(), query())  # independent of current inputs
-        for name in ["_shape", "canonical"]:
-            with self.subTest(function=name):
-                with patch.object(spec, name, wraps=getattr(spec, name)) as calls:
-                    spec.fingerprint(doc)
-                self.assertEqual(sum(call.args[0] is doc for call in calls.call_args_list), 1)
-                with patch.object(spec, name, wraps=getattr(spec, name)) as calls:
-                    self.assertEqual(spec.search(doc, q, approved).status, "match")
-                for record in [approved, approved["document"], approved["query"], doc, q]:
-                    self.assertEqual(sum(call.args[0] is record for call in calls.call_args_list), 1)
+        for name in ["_shape", "canonical", "_semantics"]:
+            for route in ["create", "append", "search"]:
+                with self.subTest(function=name, route=route):
+                    snapshot = current if route == "search" else now
+                    with patch.object(spec, name, wraps=getattr(spec, name)) as calls:
+                        self.assertEqual(spec.acquire(snapshot, 4).status, "match")
+                        if route == "create":
+                            spec.fingerprint(snapshot.spec, expected_kind="embedding")
+                            records = [snapshot.spec]
+                        elif route == "append":
+                            self.assertEqual(spec.append(doc, snapshot.spec).status, "match")
+                            records = [doc, snapshot.spec]
+                        else:
+                            self.assertEqual(spec.search(doc, snapshot.spec, approved).status, "match")
+                            records = [approved, approved["document"], approved["query"], doc, snapshot.spec]
+                    for record in records:
+                        self.assertEqual(sum(call.args[0] is record for call in calls.call_args_list), 1)
         # Validation cannot survive a later call with mutated records.
         approved["query"]["schema"] = 2
-        self.assertEqual(spec.search(doc, q, approved), spec.Comparison(
+        self.assertEqual(spec.search(doc, current.spec, approved), spec.Comparison(
             "unknown", missing=("query.schema/kind: unsupported",)))
-        doc["common"]["dimensions"] = 0
+        now.spec["common"]["dimensions"] = 0
+        self.assertEqual(spec.acquire(now, 4).status, "match")
         with self.assertRaisesRegex(spec.Incomplete, "invalid range"):
-            spec.fingerprint(doc)
+            spec.fingerprint(now.spec)
+
+    def test_acquisition_does_not_authorize_incomplete_records(self):
+        # A valid acquisition alone cannot authorize creation, append or search.
+        mutations = [
+            ("operation", "prefix", None, "operation.prefix: wrong type"),
+            ("operation", "bos", -1, "unsupported canonical value"),
+            ("common", "dimensions", 0, "dimensions/max_tokens/overlap: invalid range"),
+        ]
+        for section, field, value, reason in mutations:
+            for role, source in [("document", document), ("query", query)]:
+                with self.subTest(role=role, field=field):
+                    record = source()
+                    record[section][field] = value
+                    snapshot = spec.Snapshot(record, "loaded-content", 4)
+                    self.assertEqual(spec.acquire(snapshot, 4).status, "match")
+                    with self.assertRaises(spec.Incomplete) as error:
+                        spec.fingerprint(snapshot.spec, expected_kind="embedding")
+                    self.assertEqual(str(error.exception), reason)
+                    if role == "document":
+                        result = spec.append(document(), snapshot.spec)
+                    else:
+                        result = spec.search(document(), snapshot.spec, spec.pair(document(), query()))
+                    self.assertEqual(result, spec.Comparison("unknown", missing=(f"current.{reason}",)))
+        # Generic IDs also support FTS/pairs; a new document index must not.
+        for other in [spec.read((HERE / "fts.json").read_text()), spec.pair(document(), query())]:
+            with self.subTest(kind=other["kind"]):
+                snapshot = spec.Snapshot(other, "loaded-content", 4)
+                self.assertEqual(spec.acquire(snapshot, 4).status, "match")
+                with self.assertRaisesRegex(spec.Incomplete, "^schema/kind: unsupported$"):
+                    spec.fingerprint(snapshot.spec, expected_kind="embedding")
 
     def test_search_keeps_validation_at_each_input_boundary(self):
         mutations = [
