@@ -22,7 +22,7 @@
 
 固定版の[embeddingカード](https://huggingface.co/cl-nagoya/ruri-v3-310m/blob/18b60fb8c2b9df296fb4212bb7d23ef94e579cd3/README.md)・[rerankerカード](https://huggingface.co/cl-nagoya/ruri-v3-reranker-310m/blob/bb46934ee9ed09f850b9fcff17501b3ef7ddb2b3/README.md)と実ファイルを確認した。embeddingはTransformer＋mean pooling、promptを含める設定、768次元、最大8192 token。カードが示すcosine比較に合わせ、出力を明示的にL2正規化した。rerankerはCrossEncoderのheadとsigmoidを使用した。モデルの学習時ライブラリ版と今回の参照実行版は同一ではない。
 
-重みの全tensorがF32であること、重み・tokenizer・config・カードのHF revision/ETagと内容を照合した。開始・終了時にsource、実行ファイル、モデルの不変性を確認した。全Python依存は[requirements.txt](requirements.txt)、内容hashは[models.json](results/numerical-rechecked/models.json)、sourceと環境は[environment.json](results/numerical-rechecked/environment.json)に記録した。再測定時の`reference.py`のSHA-256は`a4cded073a48ebd3fd63261321515d86c911f4b4b6833889fa1434dbbc13ccad`で、後述するrerankerの重複推論修正前の版である。保存済み数値はその版の証拠として保持した。その後、変更した公式reranker参照だけを現行コードで追加実測し、生出力・比較結果の完全一致を確認した（[追加実測](results/reranker-reference-refresh/complete.json)）。再測定後には報告書・手順を更新し、結果ファイルを追加した。初回の数値実測と検索実測は、それぞれのmanifestが示す版に対応する。
+重みの全tensorがF32であること、重み・tokenizer・config・カードのHF revision/ETagと内容を照合した。開始・終了時にsource、実行ファイル、モデルの不変性を確認した。測定時の全Python依存は[保存済み環境のpython_packages](results/numerical-rechecked/environment.json)（現在のrequirementsとは区別）、内容hashは[models.json](results/numerical-rechecked/models.json)、sourceと環境は[environment.json](results/numerical-rechecked/environment.json)に記録した。再測定時の`reference.py`のSHA-256は`a4cded073a48ebd3fd63261321515d86c911f4b4b6833889fa1434dbbc13ccad`で、後述するrerankerの重複推論修正前の版である。保存済み数値はその版の証拠として保持した。その後、変更した公式reranker参照だけを現行コードで追加実測し、生出力・比較結果の完全一致を確認した（[追加実測](results/reranker-reference-refresh/complete.json)）。再測定後には報告書・手順を更新し、結果ファイルを追加した。初回の数値実測と検索実測は、それぞれのmanifestが示す版に対応する。
 
 ## 同一tokenでの数値比較
 
