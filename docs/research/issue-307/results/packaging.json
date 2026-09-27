@@ -1,0 +1,59 @@
+{
+  "encoding": "gzip; decompressed bytes retain complete.json hashes",
+  "files": [
+    {
+      "stored": "numerical/reference-embedding.json.gz",
+      "original": "numerical/reference-embedding.json",
+      "original_sha256": "dd4befc8d7afdfc72174851690ebc8192c2ea43b2e8f38a199e89a1437164cbf",
+      "stored_sha256": "917ad30ea11cc51f2e275bef6853b272b40433fd60b35aa2e5056ef749c589aa"
+    },
+    {
+      "stored": "numerical/rurico-reranker.json.gz",
+      "original": "numerical/rurico-reranker.json",
+      "original_sha256": "a14129ac5dd8e6b32714cd8d32bac5d3160a12eacb3476d94f1c95d8a860bdbc",
+      "stored_sha256": "73496ebd78daea389261680e402531344b66949c2bd08d770274a218cb0d992b"
+    },
+    {
+      "stored": "numerical/rurico-embedding.json.gz",
+      "original": "numerical/rurico-embedding.json",
+      "original_sha256": "ea2616f80f6ed4aa3c21721301106121c8991e89fe969899012f62915f167f99",
+      "stored_sha256": "799c57da2376bf73426de3ef698a72798a01164a3c9af8eb1718ee8d88afa272"
+    },
+    {
+      "stored": "numerical/reference-reranker.json.gz",
+      "original": "numerical/reference-reranker.json",
+      "original_sha256": "bcd76405b600e5b07a553801852cc8c6731f563b02b68bac7af24b1cd3238aaf",
+      "stored_sha256": "aa6b9381a632261423e67408100e022b745d51f50293d538e00c43d3db09e3dd"
+    },
+    {
+      "stored": "numerical-rechecked/reference-embedding.json.gz",
+      "original": "numerical-rechecked/reference-embedding.json",
+      "original_sha256": "2521328543d056fd82a073c4e8683d5971fdb0f11c29ab829fb12c991c878e08",
+      "stored_sha256": "a43814b8dc08b249680471f2298c73e05bb560bfa9066777dbad8ac52cc08805"
+    },
+    {
+      "stored": "numerical-rechecked/rurico-reranker.json.gz",
+      "original": "numerical-rechecked/rurico-reranker.json",
+      "original_sha256": "269f4ca064cce74577d95f41a34b66a37976493275bce1d8b435ba088566535e",
+      "stored_sha256": "e434b212390e1e31c6dd99345123a1a41e897c136e19b94c536342214ea1b83c"
+    },
+    {
+      "stored": "numerical-rechecked/rurico-embedding.json.gz",
+      "original": "numerical-rechecked/rurico-embedding.json",
+      "original_sha256": "3d4eb20f726b00c0f5f99a7c52df3d942ca312c6e7e337b8dd17191660472f5d",
+      "stored_sha256": "2711ba181b3524a1fef026ab4f063da8d370d94e757de1f722fe1fc7a0a92378"
+    },
+    {
+      "stored": "numerical-rechecked/reference-reranker.json.gz",
+      "original": "numerical-rechecked/reference-reranker.json",
+      "original_sha256": "32c448d260dc7e2d91c9687144da4c3bfe860011be1805225a4a7ecab69b8844",
+      "stored_sha256": "aacb9587e4bc70f344bb60dbaf3f8032b4a6ddc75816362558399cbed719721e"
+    },
+    {
+      "stored": "reranker-reference-refresh/reference-reranker.json.gz",
+      "original": "reranker-reference-refresh/reference-reranker.json",
+      "original_sha256": "32c448d260dc7e2d91c9687144da4c3bfe860011be1805225a4a7ecab69b8844",
+      "stored_sha256": "aacb9587e4bc70f344bb60dbaf3f8032b4a6ddc75816362558399cbed719721e"
+    }
+  ]
+}

@@ -1,0 +1,634 @@
+{
+  "kind": "reranker",
+  "tokenization": [
+    {
+      "id": "library",
+      "raw_equal": true,
+      "wrapper_equal": true,
+      "raw_lengths": [
+        14,
+        14
+      ],
+      "model_lengths": [
+        14,
+        14
+      ]
+    },
+    {
+      "id": "library-copy",
+      "raw_equal": true,
+      "wrapper_equal": true,
+      "raw_lengths": [
+        14,
+        14
+      ],
+      "model_lengths": [
+        14,
+        14
+      ]
+    },
+    {
+      "id": "shop",
+      "raw_equal": true,
+      "wrapper_equal": true,
+      "raw_lengths": [
+        13,
+        13
+      ],
+      "model_lengths": [
+        13,
+        13
+      ]
+    },
+    {
+      "id": "code",
+      "raw_equal": true,
+      "wrapper_equal": true,
+      "raw_lengths": [
+        27,
+        27
+      ],
+      "model_lengths": [
+        27,
+        27
+      ]
+    },
+    {
+      "id": "local-after",
+      "raw_equal": true,
+      "wrapper_equal": true,
+      "raw_lengths": [
+        136,
+        136
+      ],
+      "model_lengths": [
+        136,
+        136
+      ]
+    },
+    {
+      "id": "limit-after",
+      "raw_equal": true,
+      "wrapper_equal": true,
+      "raw_lengths": [
+        8198,
+        8198
+      ],
+      "model_lengths": [
+        8192,
+        8192
+      ]
+    }
+  ],
+  "same_tokens": [
+    {
+      "batch": "library/text/exact",
+      "shape": [
+        1,
+        14
+      ],
+      "rows": [
+        {
+          "key": "library/text",
+          "logit_abs": 3.933906555175781e-06,
+          "score_abs": 7.152557373046875e-07,
+          "within_criteria": true
+        }
+      ]
+    },
+    {
+      "batch": "library/text/bucket",
+      "shape": [
+        1,
+        128
+      ],
+      "rows": [
+        {
+          "key": "library/text",
+          "logit_abs": 3.337860107421875e-06,
+          "score_abs": 5.960464477539062e-07,
+          "within_criteria": true
+        }
+      ]
+    },
+    {
+      "batch": "library-copy/text/exact",
+      "shape": [
+        1,
+        14
+      ],
+      "rows": [
+        {
+          "key": "library-copy/text",
+          "logit_abs": 3.933906555175781e-06,
+          "score_abs": 7.152557373046875e-07,
+          "within_criteria": true
+        }
+      ]
+    },
+    {
+      "batch": "library-copy/text/bucket",
+      "shape": [
+        1,
+        128
+      ],
+      "rows": [
+        {
+          "key": "library-copy/text",
+          "logit_abs": 3.337860107421875e-06,
+          "score_abs": 5.960464477539062e-07,
+          "within_criteria": true
+        }
+      ]
+    },
+    {
+      "batch": "shop/text/exact",
+      "shape": [
+        1,
+        13
+      ],
+      "rows": [
+        {
+          "key": "shop/text",
+          "logit_abs": 2.86102294921875e-06,
+          "score_abs": 2.421438694000244e-08,
+          "within_criteria": true
+        }
+      ]
+    },
+    {
+      "batch": "shop/text/bucket",
+      "shape": [
+        1,
+        128
+      ],
+      "rows": [
+        {
+          "key": "shop/text",
+          "logit_abs": 3.814697265625e-06,
+          "score_abs": 3.166496753692627e-08,
+          "within_criteria": true
+        }
+      ]
+    },
+    {
+      "batch": "code/text/exact",
+      "shape": [
+        1,
+        27
+      ],
+      "rows": [
+        {
+          "key": "code/text",
+          "logit_abs": 1.9073486328125e-06,
+          "score_abs": 1.5133991837501526e-09,
+          "within_criteria": true
+        }
+      ]
+    },
+    {
+      "batch": "code/text/bucket",
+      "shape": [
+        1,
+        128
+      ],
+      "rows": [
+        {
+          "key": "code/text",
+          "logit_abs": 4.76837158203125e-07,
+          "score_abs": 4.0745362639427185e-10,
+          "within_criteria": true
+        }
+      ]
+    },
+    {
+      "batch": "local-after/text/exact",
+      "shape": [
+        1,
+        136
+      ],
+      "rows": [
+        {
+          "key": "local-after/text",
+          "logit_abs": 3.993511199951172e-06,
+          "score_abs": 9.5367431640625e-07,
+          "within_criteria": true
+        }
+      ]
+    },
+    {
+      "batch": "local-after/text/bucket",
+      "shape": [
+        1,
+        512
+      ],
+      "rows": [
+        {
+          "key": "local-after/text",
+          "logit_abs": 5.960464477539062e-07,
+          "score_abs": 1.1920928955078125e-07,
+          "within_criteria": true
+        }
+      ]
+    },
+    {
+      "batch": "limit-after/text/exact",
+      "shape": [
+        1,
+        8192
+      ],
+      "rows": [
+        {
+          "key": "limit-after/text",
+          "logit_abs": 1.4901161193847656e-05,
+          "score_abs": 2.2649765014648438e-06,
+          "within_criteria": true
+        }
+      ]
+    },
+    {
+      "batch": "mixed/bucket",
+      "shape": [
+        5,
+        512
+      ],
+      "rows": [
+        {
+          "key": "library/text",
+          "logit_abs": 4.76837158203125e-06,
+          "score_abs": 8.344650268554688e-07,
+          "within_criteria": true
+        },
+        {
+          "key": "library-copy/text",
+          "logit_abs": 4.76837158203125e-06,
+          "score_abs": 8.344650268554688e-07,
+          "within_criteria": true
+        },
+        {
+          "key": "shop/text",
+          "logit_abs": 9.5367431640625e-07,
+          "score_abs": 8.381903171539307e-09,
+          "within_criteria": true
+        },
+        {
+          "key": "code/text",
+          "logit_abs": 1.430511474609375e-06,
+          "score_abs": 1.1059455573558807e-09,
+          "within_criteria": true
+        },
+        {
+          "key": "local-after/text",
+          "logit_abs": 7.748603820800781e-07,
+          "score_abs": 1.7881393432617188e-07,
+          "within_criteria": true
+        }
+      ]
+    }
+  ],
+  "padding": [
+    {
+      "key": "library/text",
+      "rurico": {
+        "logit_abs": 1.5497207641601562e-06,
+        "score_abs": 2.980232238769531e-07,
+        "within_criteria": true
+      },
+      "reference": {
+        "logit_abs": 9.5367431640625e-07,
+        "score_abs": 1.7881393432617188e-07,
+        "within_criteria": true
+      },
+      "observations": {
+        "exact": "library/text/exact",
+        "bucket": "library/text/bucket"
+      },
+      "same_observation": false
+    },
+    {
+      "key": "library-copy/text",
+      "rurico": {
+        "logit_abs": 1.5497207641601562e-06,
+        "score_abs": 2.980232238769531e-07,
+        "within_criteria": true
+      },
+      "reference": {
+        "logit_abs": 9.5367431640625e-07,
+        "score_abs": 1.7881393432617188e-07,
+        "within_criteria": true
+      },
+      "observations": {
+        "exact": "library-copy/text/exact",
+        "bucket": "library-copy/text/bucket"
+      },
+      "same_observation": false
+    },
+    {
+      "key": "shop/text",
+      "rurico": {
+        "logit_abs": 9.5367431640625e-07,
+        "score_abs": 7.450580596923828e-09,
+        "within_criteria": true
+      },
+      "reference": {
+        "logit_abs": 0.0,
+        "score_abs": 0.0,
+        "within_criteria": true
+      },
+      "observations": {
+        "exact": "shop/text/exact",
+        "bucket": "shop/text/bucket"
+      },
+      "same_observation": false
+    },
+    {
+      "key": "code/text",
+      "rurico": {
+        "logit_abs": 1.430511474609375e-06,
+        "score_abs": 1.1059455573558807e-09,
+        "within_criteria": true
+      },
+      "reference": {
+        "logit_abs": 0.0,
+        "score_abs": 0.0,
+        "within_criteria": true
+      },
+      "observations": {
+        "exact": "code/text/exact",
+        "bucket": "code/text/bucket"
+      },
+      "same_observation": false
+    },
+    {
+      "key": "local-after/text",
+      "rurico": {
+        "logit_abs": 4.589557647705078e-06,
+        "score_abs": 1.0728836059570312e-06,
+        "within_criteria": true
+      },
+      "reference": {
+        "logit_abs": 0.0,
+        "score_abs": 0.0,
+        "within_criteria": true
+      },
+      "observations": {
+        "exact": "local-after/text/exact",
+        "bucket": "local-after/text/bucket"
+      },
+      "same_observation": false
+    },
+    {
+      "key": "limit-after/text",
+      "rurico": {
+        "logit_abs": 0.0,
+        "score_abs": 0.0,
+        "within_criteria": true
+      },
+      "reference": {
+        "logit_abs": 0.0,
+        "score_abs": 0.0,
+        "within_criteria": true
+      },
+      "observations": {
+        "exact": "limit-after/text/exact",
+        "bucket": "limit-after/text/exact"
+      },
+      "same_observation": true
+    }
+  ],
+  "wrapper_and_chunks": [
+    {
+      "id": "library",
+      "tokens_equal": true,
+      "native_score_abs": 4.172325134277344e-07,
+      "native_vs_controlled": {
+        "logit_abs": 3.933906555175781e-06,
+        "score_abs": 7.152557373046875e-07,
+        "within_criteria": true
+      },
+      "public_vs_direct_score_abs": 0.0
+    },
+    {
+      "id": "library-copy",
+      "tokens_equal": true,
+      "native_score_abs": 4.172325134277344e-07,
+      "native_vs_controlled": {
+        "logit_abs": 3.933906555175781e-06,
+        "score_abs": 7.152557373046875e-07,
+        "within_criteria": true
+      },
+      "public_vs_direct_score_abs": 0.0
+    },
+    {
+      "id": "shop",
+      "tokens_equal": true,
+      "native_score_abs": 3.166496753692627e-08,
+      "native_vs_controlled": {
+        "logit_abs": 2.86102294921875e-06,
+        "score_abs": 2.421438694000244e-08,
+        "within_criteria": true
+      },
+      "public_vs_direct_score_abs": 0.0
+    },
+    {
+      "id": "code",
+      "tokens_equal": true,
+      "native_score_abs": 4.0745362639427185e-10,
+      "native_vs_controlled": {
+        "logit_abs": 1.9073486328125e-06,
+        "score_abs": 1.5133991837501526e-09,
+        "within_criteria": true
+      },
+      "public_vs_direct_score_abs": 0.0
+    },
+    {
+      "id": "local-after",
+      "tokens_equal": true,
+      "native_score_abs": 1.1920928955078125e-07,
+      "native_vs_controlled": {
+        "logit_abs": 3.993511199951172e-06,
+        "score_abs": 9.5367431640625e-07,
+        "within_criteria": true
+      },
+      "public_vs_direct_score_abs": 0.0
+    },
+    {
+      "id": "limit-after",
+      "tokens_equal": true,
+      "native_score_abs": 2.2649765014648438e-06,
+      "native_vs_controlled": {
+        "logit_abs": 1.4901161193847656e-05,
+        "score_abs": 2.2649765014648438e-06,
+        "within_criteria": true
+      },
+      "public_vs_direct_score_abs": 0.0
+    },
+    {
+      "id": "mixed",
+      "public_vs_direct_score_abs": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  ],
+  "ranking": [
+    {
+      "mode": "exact",
+      "query": "本を借りる場所は？",
+      "reference_order": [
+        "library/text",
+        "library-copy/text",
+        "shop/text",
+        "code/text"
+      ],
+      "actual_order": [
+        "library/text",
+        "library-copy/text",
+        "shop/text",
+        "code/text"
+      ],
+      "near_pairs": [
+        {
+          "keys": [
+            "library/text",
+            "library-copy/text"
+          ],
+          "reference_gap": 0.0,
+          "reversed": false
+        }
+      ],
+      "discordant_pairs": [],
+      "within_criteria": true
+    },
+    {
+      "mode": "exact",
+      "query": "猫について",
+      "reference_order": [
+        "limit-after/text",
+        "local-after/text"
+      ],
+      "actual_order": [
+        "limit-after/text",
+        "local-after/text"
+      ],
+      "near_pairs": [],
+      "discordant_pairs": [],
+      "within_criteria": true
+    },
+    {
+      "mode": "bucket",
+      "query": "本を借りる場所は？",
+      "reference_order": [
+        "library/text",
+        "library-copy/text",
+        "shop/text",
+        "code/text"
+      ],
+      "actual_order": [
+        "library/text",
+        "library-copy/text",
+        "shop/text",
+        "code/text"
+      ],
+      "near_pairs": [
+        {
+          "keys": [
+            "library/text",
+            "library-copy/text"
+          ],
+          "reference_gap": 0.0,
+          "reversed": false
+        }
+      ],
+      "discordant_pairs": [],
+      "within_criteria": true
+    },
+    {
+      "mode": "bucket",
+      "query": "猫について",
+      "reference_order": [
+        "limit-after/text",
+        "local-after/text"
+      ],
+      "actual_order": [
+        "limit-after/text",
+        "local-after/text"
+      ],
+      "near_pairs": [],
+      "discordant_pairs": [],
+      "within_criteria": true
+    },
+    {
+      "mode": "mixed",
+      "query": "本を借りる場所は？",
+      "reference_order": [
+        "library/text",
+        "library-copy/text",
+        "shop/text",
+        "code/text"
+      ],
+      "actual_order": [
+        "library/text",
+        "library-copy/text",
+        "shop/text",
+        "code/text"
+      ],
+      "near_pairs": [
+        {
+          "keys": [
+            "library/text",
+            "library-copy/text"
+          ],
+          "reference_gap": 0.0,
+          "reversed": false
+        }
+      ],
+      "discordant_pairs": [],
+      "within_criteria": true
+    },
+    {
+      "mode": "public_vs_native",
+      "reference_order": [
+        "library",
+        "library-copy",
+        "shop",
+        "code"
+      ],
+      "actual_order": [
+        "library",
+        "library-copy",
+        "shop",
+        "code"
+      ],
+      "near_pairs": [
+        {
+          "keys": [
+            "library",
+            "library-copy"
+          ],
+          "reference_gap": 0.0,
+          "reversed": false
+        }
+      ],
+      "discordant_pairs": [],
+      "within_criteria": true,
+      "public_rerank_order": [
+        "library",
+        "library-copy",
+        "shop",
+        "code"
+      ],
+      "score_abs": [
+        7.748603820800781e-07,
+        7.748603820800781e-07,
+        3.725290298461914e-09,
+        1.5133991837501526e-09
+      ]
+    }
+  ],
+  "same_token_numerics_within_criteria": true,
+  "interpretation": "Threshold crossings are observations. Hidden probes sample three positions, not all tensors. No product tolerance adopted."
+}

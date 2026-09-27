@@ -379,3 +379,6 @@ fn probe_via_subprocess(artifacts: &Artifacts) -> Result<ProbeStatus, ModelInitE
     )
     .map_err(Into::into)
 }
+
+#[cfg(all(test, feature = "smoke"))]
+pub(crate) use mlx::research::capture as capture_research;

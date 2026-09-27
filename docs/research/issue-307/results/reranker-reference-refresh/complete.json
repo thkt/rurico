@@ -1,0 +1,14 @@
+{
+  "execution": "complete",
+  "scope": "official reranker reference refresh only; Rust observation reused from numerical-rechecked with identical Rust source and verified raw hash",
+  "finished_utc": "2026-09-27T10:44:38.129535+00:00",
+  "reference_equals_previous": true,
+  "comparison_equals_previous": true,
+  "same_token_numerics_within_criteria": true,
+  "artifacts": {
+    "comparison-reranker.json": "c65feea5c7193ec69b808e0676cb4b499aa616d438665d04ffdad780516cfaac",
+    "models.json": "a8f42281674207fc199549da4515867e3e03c41d8c57db02dbac81021d60506f",
+    "reference-reranker.json": "32c448d260dc7e2d91c9687144da4c3bfe860011be1805225a4a7ecab69b8844",
+    "environment.json": "308fd4d4143eb5d6f816d427a48989970d8e931d9df7a1d067f8201388d5679f"
+  }
+}

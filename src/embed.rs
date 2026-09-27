@@ -485,3 +485,6 @@ pub fn tokenize_with_prefix(
         seq_len,
     })
 }
+
+#[cfg(all(test, feature = "smoke"))]
+pub(crate) mod research;

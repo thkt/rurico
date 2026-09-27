@@ -37,3 +37,6 @@ pub(crate) mod test_support;
 pub mod text;
 
 pub use dispatch::{handle_probe_if_needed, handle_probe_if_needed_with};
+
+#[cfg(all(test, feature = "smoke"))]
+mod research;

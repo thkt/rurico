@@ -1,0 +1,21 @@
+{
+  "execution": "complete",
+  "artifacts": {
+    "resolve.json": "7f85413834833b3e9e2e4eaa046d24c97f129f1fce12737addef9d070cb5f92c",
+    "models.json": "a8f42281674207fc199549da4515867e3e03c41d8c57db02dbac81021d60506f",
+    "search-comparison.json": "4c9ca1e4c039ca18e99452227a8c4f664f05a4b64cd167e1800e89455fae74ab",
+    "amici-measured.json": "0dd24277c712100ae7f198755b72ac24a2d0d259a791991fbeb7dee17fa19395",
+    "amici-lock.patch": "ee716d1936a13286988fa4e1fd49c9e3a53a0b6e02dc88a2c45271ab440e8fd2",
+    "measure.json": "a1cd176afb052210d8a22ac90bc8d32534b642e7e12df482d1e3de1514a60b7a",
+    "amici-dependency.patch": "5e5f937c53f3171a3d520955c8b8a83128e000d3c203bbec0850b8c333c78508",
+    "amici-existing-baseline.json": "4073f14f3e889dff6dda03bd2a93db153d78e41dc63560f3d5466c42cb9240dd",
+    "resolved-packages.json": "85ca9c0ea67a5a274de58234d72c6e9b3d5743f08a755f934fe81ad292c6106d",
+    "verify-existing.json": "4a8b68c2c7da043059ee2fee0cbf76e50dd1b4fdeed911133f402f2ef04e1918",
+    "amici-resolved.lock": "d1cba580cc7f2a0b694874b2a6768fcf108188eea2570d80ea4141b83a94deb1",
+    "amici-original.lock": "239bb6c7a65edb8c542c7d029e10f7434aaff4b7e1e31662cd79abf4fa7b3c73",
+    "amici-source.json": "d019320c0cd423c636c41a8e0e2ec35f60e1ca37e233ad82023c52c1dc781667",
+    "environment.json": "c41adfee1acd184333a075c169fc361696c330f2db62aabac024deea18d58b6f",
+    "build.json": "14145b2ec52445ff41824b829cb505ae9a34e0319954be5956adb1fead547845"
+  },
+  "note": "Execution complete is separate from baseline agreement. Read search-comparison.json."
+}

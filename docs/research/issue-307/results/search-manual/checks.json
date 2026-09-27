@@ -1,0 +1,17 @@
+[
+  {
+    "mode": "verify-existing",
+    "exit_code": 0,
+    "elapsed_seconds": 238.532781124115
+  },
+  {
+    "mode": "identity",
+    "exit_code": 0,
+    "elapsed_seconds": 3.3647079467773438
+  },
+  {
+    "mode": "single-doc",
+    "exit_code": 0,
+    "elapsed_seconds": 1.4302818775177002
+  }
+]

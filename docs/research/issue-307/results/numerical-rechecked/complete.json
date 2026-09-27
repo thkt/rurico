@@ -1,0 +1,17 @@
+{
+  "execution": "complete",
+  "finished_utc": "2026-09-27T10:28:14.686275+00:00",
+  "artifacts": {
+    "comparison-reranker.json": "c65feea5c7193ec69b808e0676cb4b499aa616d438665d04ffdad780516cfaac",
+    "models.json": "a8f42281674207fc199549da4515867e3e03c41d8c57db02dbac81021d60506f",
+    "reference-embedding.json": "2521328543d056fd82a073c4e8683d5971fdb0f11c29ab829fb12c991c878e08",
+    "comparison-embedding.json": "38bf811bfd172a06975691bd206ce1968f6793d367c77c5e88310bd3384a7778",
+    "rurico-reranker.json": "269f4ca064cce74577d95f41a34b66a37976493275bce1d8b435ba088566535e",
+    "build-attempt.json": "a602710a72bac685cd84af78b620964e8e44fbbf57dd82688be4dc28ac7c32f6",
+    "rurico-embedding.json": "3d4eb20f726b00c0f5f99a7c52df3d942ca312c6e7e337b8dd17191660472f5d",
+    "reference-reranker.json": "32c448d260dc7e2d91c9687144da4c3bfe860011be1805225a4a7ecab69b8844",
+    "environment.json": "9126578e6ab3829963eb31651deec9c618e05819e135e2beeaa1942d8f6ce714",
+    "build.json": "07f3fe6d7365c2ef2388aed75db947b25d6fa45ba5ea8e593ab9dbbf754607b7"
+  },
+  "note": "Execution complete does not mean numerical agreement; read both comparisons. Search quality is separate."
+}

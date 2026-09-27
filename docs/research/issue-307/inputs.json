@@ -1,0 +1,22 @@
+{
+  "embedding": [
+    {"id":"short","text":"猫。","prefix":"検索文書: ","repeat":1},
+    {"id":"japanese","text":"図書館では日本語の本を借りられます。","prefix":"検索文書: ","repeat":1},
+    {"id":"code","text":"fn square(x: i32) -> i32 { x * x }\nassert_eq!(square(3), 9);","prefix":"検索文書: ","repeat":1},
+    {"id":"local-before","text":"猫 ","prefix":"検索文書: ","repeat":60},
+    {"id":"local-after","text":"猫 ","prefix":"検索文書: ","repeat":62},
+    {"id":"limit-before","text":"猫 ","prefix":"検索文書: ","repeat":4092},
+    {"id":"limit-after","text":"猫 ","prefix":"検索文書: ","repeat":4094},
+    {"id":"query-prefix","text":"図書館では日本語の本を借りられます。","prefix":"検索クエリ: ","repeat":1},
+    {"id":"topic-prefix","text":"図書館では日本語の本を借りられます。","prefix":"トピック: ","repeat":1},
+    {"id":"no-prefix","text":"図書館では日本語の本を借りられます。","prefix":"","repeat":1}
+  ],
+  "reranker": [
+    {"id":"library","query":"本を借りる場所は？","text":"図書館で本を借ります。","repeat":1},
+    {"id":"library-copy","query":"本を借りる場所は？","text":"図書館で本を借ります。","repeat":1},
+    {"id":"shop","query":"本を借りる場所は？","text":"書店では本を購入できます。","repeat":1},
+    {"id":"code","query":"本を借りる場所は？","text":"fn square(x: i32) -> i32 { x * x }","repeat":1},
+    {"id":"local-after","query":"猫について","text":"猫 ","repeat":65},
+    {"id":"limit-after","query":"猫について","text":"猫 ","repeat":4096}
+  ]
+}
