@@ -99,6 +99,23 @@ for chunk_vec in doc.chunks() {
 
 `embed_documents_batch` は入力件数と同数の `Vec<ChunkedEmbedding>` を返し、入力順を保持する。
 
+custom producerやmockで内容を検証して構築するには、
+`ChunkedEmbedding::try_new_validated(chunks)` を使う。chunksと各vectorが非空で、
+単一結果内の次元が同じ、全要素が有限という条件を検査する。
+`EmbeddingValidationError` は空chunks・空vector・次元不一致・非有限値を区別し、
+該当するchunkと要素の位置を0始まりで返す。値と順序、`c0`からのIDを保ち、
+ゼロvector・非単位長・負値・有限の大きな値も受理する。正規化や補正は行わない。
+既存の `try_new` と `EmptyChunksError` は引き続き利用でき、保証はchunksの非空性に限る。
+
+[ADR-0011](docs/decisions/0011-adopt-uniform-vector-length-contract-for-the-embed-trait.md)の
+別document・query・呼出し間でも同じモデル次元を返す契約は、引き続き `Embed` 実装の責任となる。
+内容検証だけではモデルの識別や保存索引との互換性を保証しない。
+fixtureの `load` は同じ検証をdocumentごとに使い、不正内容を `InvalidData` として拒否する。
+形式は維持し、document間の次元照合・生成構成の識別・総byte上限は保証しない。
+`save` は従来どおり値をそのまま保存するため、新しいfixtureの生成には検証付きconstructorを使う。
+MLXは [ADR-0002](docs/decisions/0002-gpu-side-pooling-embed.md) の境界に従い、
+readback済みbufferの既存走査で共通の有限性検査を行う。構築時の再走査は追加しない。
+
 `dyn Embed`でも `embed_documents_batch_with_options_and_metrics(&texts, &options)` を使うと、
 一度の推論の結果（`embeddings`）と利用可能な計測（`metrics: Option<InferenceMetrics>`）を受け取れる。
 MLXでは `Duration` の精度でhost側の区間時間、forwardごとのshape、pause回数を返す。
