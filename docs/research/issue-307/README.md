@@ -4,6 +4,28 @@
 このディレクトリのコードは調査用であり、製品の許容差や既存fixtureを書き換えない。
 実測結果・確認した相違・限界は [report.md](report.md) に置く。
 
+## Python依存の固定と更新
+
+[requirements.txt](requirements.txt) は参照計算の条件を固定するための依存一覧である。
+[Issue #349](https://github.com/thkt/rurico/issues/349) の合意に従い、
+`sympy==1.14.0` が要求する `mpmath>=1.1.0,<1.4` に適合する `mpmath==1.3.0` と、
+`reference.py` の `PINS` および保存済み測定と一致する `sentence-transformers==5.1.1` を使う。
+Python 3.12.13、Torch 2.8.0、Transformers 4.56.2 と、`environment()` の厳密検査を維持する。
+SentencePiece 0.2.2 と protobuf 6.33.6 も下記の環境検証に含める。
+この2依存は[保存済み環境](results/reranker-reference-refresh/environment.json)の
+0.2.1 / 6.32.1 から更新されているため、現在のrequirements全体を過去の測定環境と同一とは扱わない。
+
+[renovate.json](../../../renovate.json) は、公式仕様の
+[`packageRules.matchFileNames`](https://docs.renovatebot.com/configuration-options/#packageRules.matchFileNames)
+でこのrequirementsだけを指定し、`enabled: false` で自動更新を止める。
+共有presetと既定の除外設定は維持する。設定のローカル検証と、運用中Renovateの次回実行は別に確認する。
+
+依存を更新するときは、新しい隔離環境で通常の依存解決付きインストール、`pip check`、
+既存Pythonテスト、参照コード・README・保存済み環境に記録された測定条件との整合を確認する。
+`--no-deps` や厳密検査の緩和で不整合を迂回しない。
+参照ライブラリや測定条件を変える場合は、別条件での再測定を合意してから進める。
+環境検証の成功だけでは実モデル数値・検索品質の再測定を意味しない。
+
 ## ホストで実行する
 
 Apple Silicon、対応Metal Toolchain、Rust 1.96以上を用意する。
@@ -12,15 +34,32 @@ Apple Silicon、対応Metal Toolchain、Rust 1.96以上を用意する。
 本調査はignored testを明示実行するため、標準checkだけでは完了しない。
 CIのtest・coverage・security・zizmorも、公開担当が同じPR headで確認する。
 
-Python **3.12.13** の隔離環境をcheckout外に作る。以下の `/tmp` は新しい保存先の例。
+Python **3.12.13** の隔離環境をcheckout外に新規作成する。
+以下はリポジトリrootから実行し、既存の研究環境を再利用・上書きしない。
 Python依存は参照計算専用で、ruricoのCargo依存・CPU backendを変更しない。
 
 ```sh
-python3.12 -m venv /tmp/rurico-307-reference-env
-/tmp/rurico-307-reference-env/bin/python -m pip install -r docs/research/issue-307/requirements.txt
-/tmp/rurico-307-reference-env/bin/python -m unittest discover -s docs/research/issue-307 -p 'test_*.py'
-/tmp/rurico-307-reference-env/bin/python docs/research/issue-307/run.py numerical /tmp/rurico-307-numerical
-/tmp/rurico-307-reference-env/bin/python docs/research/issue-307/run.py amici /tmp/rurico-307-search
+(
+set -eu
+python3.12 -c 'import platform; assert platform.python_version() == "3.12.13", "use Python 3.12.13"'
+reference_env=$(mktemp -d /tmp/rurico-307-reference-env.XXXXXX)
+python3.12 -m venv "$reference_env"
+"$reference_env/bin/python" -m pip install -r docs/research/issue-307/requirements.txt
+"$reference_env/bin/python" -m pip check
+"$reference_env/bin/python" -c 'import sys; sys.path.insert(0, "docs/research/issue-307"); import reference; reference.environment()'
+"$reference_env/bin/python" -m unittest discover -s docs/research/issue-307 -p 'test_*.py'
+printf 'Reference environment: %s\n' "$reference_env"
+)
+```
+
+Issue #349 のPython検証はここまでとし、実モデル数値・検索品質を再測定しない。
+別途、Issue #307 の測定全体を再実行する場合は、上で表示された環境pathを指定する。
+結果の保存先も新規pathを使う。
+
+```sh
+reference_env=/tmp/rurico-307-reference-env.XXXXXX # 上で作成した実際のpathへ置換
+"$reference_env/bin/python" docs/research/issue-307/run.py numerical /tmp/rurico-307-numerical
+"$reference_env/bin/python" docs/research/issue-307/run.py amici /tmp/rurico-307-search
 ```
 
 HF/GitHub/Cargoへの接続が必要。sandboxでは実行しない。サーバー・ブラウザー・画面撮影は使わない。

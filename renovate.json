@@ -1,4 +1,11 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["github>thkt/renovate-config"]
+  "extends": ["github>thkt/renovate-config"],
+  "packageRules": [
+    {
+      "description": "Keep the Issue #307 reference environment fixed; update with manual validation",
+      "matchFileNames": ["docs/research/issue-307/requirements.txt"],
+      "enabled": false
+    }
+  ]
 }
