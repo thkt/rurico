@@ -1,0 +1,50 @@
+{
+  "schema": 1,
+  "recorded_utc": "2026-09-27T18:14:29.060156+00:00",
+  "status": "passed",
+  "fresh_environment": {
+    "python": "3.12.13",
+    "created_utc": "2026-09-27T17:57:38.321333+00:00",
+    "creation": "uv venv --python <existing Python 3.12.13 interpreter> --seed <new environment>",
+    "creation_exit_code": 0,
+    "install": "python -m pip install -r docs/research/issue-307/requirements.txt",
+    "install_exit_code": 0,
+    "requirements_sha256": "b303c0bc5817f621d80e1521a61024493cc15a95130e891c15b5ddb643e16251",
+    "install_log_sha256": "cd8a7f6f883624afb362a3eb5d0834418f72e6f598cd87d610734afe9089f546",
+    "scope": "A new environment was installed from the checkout requirements. It was not an upgrade of a historical research environment. The test fixture changed after installation; requirements and runtime code did not. Checks below reran after the R1-2 test repair."
+  },
+  "after_R1_2_checks": [
+    {
+      "command": "pip check",
+      "exit_code": 0,
+      "log_sha256": "9261363b733079a641c2e4cc9bc46ffa1d8336945a87f807b6cf68847dbc9b09"
+    },
+    {
+      "command": "reference.environment()",
+      "exit_code": 0,
+      "log_sha256": "b4e4695ca7c0c91bbfbb08162932ec1c96e6700aa775084aa9598752ef573bb6"
+    },
+    {
+      "command": "python -m unittest discover -s docs/research/issue-307 -p test_*.py",
+      "exit_code": 0,
+      "log_sha256": "12a33c5ec7e4260ddd0edda0ebc0987443bc801690abd7a2b6d4c9df8f80f100"
+    }
+  ],
+  "python_test_count": 15,
+  "source": {
+    "docs/research/issue-307/test_reference.py": "ea8a8c170beab07342171cb2f0553193995000e1ebff1898153df2b6e6b1a1e2",
+    "docs/research/issue-307/run.py": "f392efc6ce7356da6979669f3f22facf587b0344ebcae4b75c9bd2f65cdc61a3",
+    "docs/research/issue-307/search_quality.py": "ad2f06921d18e07c766c659d37e4bea6bb71cb665feb46e0e64f3f183eac68bd",
+    "docs/research/issue-307/test_capture.py": "a47da34d9d654214df5acf94dcfcf238d59824cfc100e760ca9d3402c86e5522",
+    "docs/research/issue-307/reference.py": "6a8d7677330bc77ac30a0bc4d64df1c66737970432935b65523cb825704e6d49",
+    "docs/research/issue-307/test_compare.py": "67fdb11275a71105963f7e15a8c36e563e76f241dd12539783aa4c7997407de7",
+    "docs/research/issue-307/compare.py": "a9ee60d66954b4a74e0d22830ee2a858e20dfb03814425b83bde723d02b540b4",
+    "docs/research/issue-307/test_environment.py": "84349f535050f276e1d4e8c7126c111f222593161bbf6e47eb8717df98bd13d0"
+  },
+  "measurement_load_isolation": {
+    "numerical_started_utc": "2026-09-27T17:54:43.647331+00:00",
+    "numerical_finished_utc": "2026-09-27T18:00:34.549584+00:00",
+    "record": "The host held its development controller before the standard Rust check could start, ran numerical in the frozen checkout, and resumed the controller only after the numerical subprocess exited. Process inspection during observation found no concurrent Cargo/rustc build or other rurico model test. No model cache/source/binary mutation was made during observation; numerical completed its own immutability checks."
+  },
+  "private_logs": "Host command and install logs are retained outside the repository; they are not published because they contain local paths."
+}

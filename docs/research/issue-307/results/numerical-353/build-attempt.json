@@ -1,0 +1,13 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "--lib",
+    "--features",
+    "smoke",
+    "--no-run",
+    "--message-format=json"
+  ],
+  "exit_code": 0
+}

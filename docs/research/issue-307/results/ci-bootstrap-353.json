@@ -1,0 +1,102 @@
+{
+  "schema": 1,
+  "scope": "Host verification of the proposed CI Python bootstrap; GitHub execution remains to be checked on the updated head.",
+  "started_utc": "2026-09-27T18:34:50.406356+00:00",
+  "finished_utc": "2026-09-27T18:35:29.100794+00:00",
+  "status": "passed",
+  "platform": {
+    "system": "Darwin",
+    "architecture": "arm64",
+    "macos": "27.0"
+  },
+  "uv_version": "uv 0.12.19 (bea138450 2026-09-24 aarch64-apple-darwin)",
+  "managed_python_directory_initially_absent": true,
+  "isolation": "UV_PYTHON_INSTALL_DIR pointed to a verified absent task-specific directory; UV_CACHE_DIR used a separate task-specific directory. --managed-python required the managed installation. The logs confirm a download rather than reuse of the existing reference interpreter.",
+  "download_observed": "Downloaded cpython-3.12.13-macos-aarch64-none (download)",
+  "requirements_sha256": "b303c0bc5817f621d80e1521a61024493cc15a95130e891c15b5ddb643e16251",
+  "commands": [
+    {
+      "command": [
+        "uv",
+        "python",
+        "list",
+        "3.12.13",
+        "--only-downloads",
+        "--show-urls"
+      ],
+      "exit_code": 0,
+      "private_log_sha256": "d59a437951b981e88cf3bddb8b49ecf8c222f592a886be243056997900ff6093"
+    },
+    {
+      "command": [
+        "uv",
+        "venv",
+        "--python",
+        "3.12.13",
+        "--managed-python",
+        "--seed",
+        "--no-project",
+        "<new-env>"
+      ],
+      "exit_code": 0,
+      "private_log_sha256": "eea6acc024497a0c2f2ada70bc9ba02d654e316a7832f5d288b39a0f73ff9b70"
+    },
+    {
+      "command": [
+        "<new-env>/bin/python",
+        "-m",
+        "pip",
+        "install",
+        "-r",
+        "docs/research/issue-307/requirements.txt"
+      ],
+      "exit_code": 0,
+      "private_log_sha256": "cd8a7f6f883624afb362a3eb5d0834418f72e6f598cd87d610734afe9089f546"
+    },
+    {
+      "command": [
+        "<new-env>/bin/python",
+        "-m",
+        "pip",
+        "check"
+      ],
+      "exit_code": 0,
+      "private_log_sha256": "9261363b733079a641c2e4cc9bc46ffa1d8336945a87f807b6cf68847dbc9b09"
+    },
+    {
+      "command": [
+        "<new-env>/bin/python",
+        "-c",
+        "import sys;sys.path.insert(0,\"docs/research/issue-307\");import reference;print(reference.environment())"
+      ],
+      "exit_code": 0,
+      "private_log_sha256": "b4e4695ca7c0c91bbfbb08162932ec1c96e6700aa775084aa9598752ef573bb6"
+    },
+    {
+      "command": [
+        "<new-env>/bin/python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "docs/research/issue-307",
+        "-p",
+        "test_*.py"
+      ],
+      "exit_code": 0,
+      "private_log_sha256": "fb15a05fb1d65ed565d3958f1b092dd4806b8229f9fe476c4b4503ae016f0c63"
+    }
+  ],
+  "python_tests": 15,
+  "source": {
+    "docs/research/issue-307/test_reference.py": "ea8a8c170beab07342171cb2f0553193995000e1ebff1898153df2b6e6b1a1e2",
+    "docs/research/issue-307/run.py": "f392efc6ce7356da6979669f3f22facf587b0344ebcae4b75c9bd2f65cdc61a3",
+    "docs/research/issue-307/search_quality.py": "ad2f06921d18e07c766c659d37e4bea6bb71cb665feb46e0e64f3f183eac68bd",
+    "docs/research/issue-307/test_capture.py": "a47da34d9d654214df5acf94dcfcf238d59824cfc100e760ca9d3402c86e5522",
+    "docs/research/issue-307/reference.py": "6a8d7677330bc77ac30a0bc4d64df1c66737970432935b65523cb825704e6d49",
+    "docs/research/issue-307/test_compare.py": "67fdb11275a71105963f7e15a8c36e563e76f241dd12539783aa4c7997407de7",
+    "docs/research/issue-307/compare.py": "a9ee60d66954b4a74e0d22830ee2a858e20dfb03814425b83bde723d02b540b4",
+    "docs/research/issue-307/test_environment.py": "84349f535050f276e1d4e8c7126c111f222593161bbf6e47eb8717df98bd13d0"
+  },
+  "notes": "The 47 pinned runtime packages, strict Python 3.12.13 check and existing Python tests are unchanged. Private command logs are retained outside the checkout; successful host verification is not a substitute for updated-head CI."
+}

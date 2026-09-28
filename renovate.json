@@ -3,9 +3,27 @@
   "extends": ["github>thkt/renovate-config"],
   "packageRules": [
     {
-      "description": "Keep the Issue #307 reference environment fixed; update with manual validation",
+      "description": "Update the Python reference environment together; require install, consistency, tests and host numerical review (#353)",
       "matchFileNames": ["docs/research/issue-307/requirements.txt"],
-      "enabled": false
+      "matchManagers": ["pip_requirements"],
+      "enabled": true,
+      "groupName": "Python reference environment",
+      "groupSlug": "python-reference",
+      "separateMajorMinor": false,
+      "separateMinorPatch": false,
+      "automerge": false
+    },
+    {
+      "description": "Transformers 5.17 and Sentence Transformers 6.1 require hub <2; revisit on either upstream update (#353)",
+      "matchFileNames": ["docs/research/issue-307/requirements.txt"],
+      "matchPackageNames": ["huggingface-hub"],
+      "allowedVersions": "<2.0"
+    },
+    {
+      "description": "SymPy 1.14 requires mpmath <1.4; revisit when SymPy supports newer mpmath (#353)",
+      "matchFileNames": ["docs/research/issue-307/requirements.txt"],
+      "matchPackageNames": ["mpmath"],
+      "allowedVersions": "<1.4"
     }
   ]
 }
