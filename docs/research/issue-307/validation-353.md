@@ -325,3 +325,34 @@ Python 3.12.13を実ダウンロードした。通常install・pip check・厳�
 全47依存の公開最新版と共有preset全体の独立再照合未完了、生出力の非同梱、模擬reranker forwardと
 実重みの区別、負荷隔離記録の観測限界は引き続き適用される。
 同じheadのCIと公開本文を確認してからreadyへ進み、人の承認・マージは代行しない。
+
+## PR #354のmain取り込み（2026-09-28 JST）
+
+競合解消の合意に従い、ホストがmain `4e1cb585a6a4cc56abbca3126883f69a4e70389d`をmerge準備した。
+actorはHEADが公開済み`1ba80ddbc4a7c50a06c7303179e497aff70323a0`、MERGE_HEADとorigin/mainが
+上記main、未解決競合なし、追跡ファイル・indexが公開済みHEADと同一であることを照合した。
+旧main `99510691a564182d4af13485988a686d5f0a6893`からの変更はrequirementsのhub 0.36.2→1.32.0と
+Transformers 4.56.2→4.57.6だけだった。検証済みのhub 1.33.0・Transformers 5.17.0を含む47 pinを保持した。
+本節の追記以外は変更せず、merge commitの作成はホストへ引き継ぐ。
+
+[ホストPython記録](results/numerical-353/host-python-validation.json)の8 sourceとrequirementsのhash、
+[測定環境](results/numerical-353/environment.json)のRust source・Cargo設定・入力・requirements・run/compareを再照合した。
+測定版referenceを[保存差分](results/numerical-353/reference-update.patch)の逆適用で復元し、測定時hash、
+requirements以外のAST、実際の47 pinとenvironmentの戻り値の一致も確認した。
+モデルrevisionは[models.json](results/numerical-353/models.json)と一致し、FP32・eager・4 threads・seed 0の実装も不変。
+同梱6生成物はcomplete.jsonのhashに一致した。上記embedding 27行・reranker 16行の観測だけを引き続き参照し、
+実モデル再測定や現在のcache内容の検証とはしない。非同梱の生出力、負荷隔離・hidden probe・順位の観測限界も維持する。
+
+指定の既存隔離Python 3.12.13環境で、`PYTHONDONTWRITEBYTECODE=1`、`HF_HUB_OFFLINE=1`、
+`HF_HUB_DISABLE_PROGRESS_BARS=1`を設定し、`pip check`、`reference.environment()`（47 pinと集合一致）、
+`unittest discover -s docs/research/issue-307 -p 'test_*.py'`（15件）がすべて終了0だった。
+pipは書込み不可のcacheを無効化した旨を警告したが整合検査は成功した。新規installは今回headのCIで確認する。
+競合の原因は同じpinへの並行更新であり、既存READMEのグループ更新・非ダウングレード検査の方針を維持する。
+追加の検出価値がない固定文字列テストや新規規則は設けず、既存テストの検出条件も変更していない。
+
+旧runはcold build中の540秒制限で`check_unavailable`となり、公開未試行で停止した。
+ホストの別途ビルド準備記録は同じ`bash scripts/check.sh`・540秒制限で234.836秒・終了0を示すが、
+今回の標準check・変更文書を含むPR全体の独立評価の代用にはしない。旧run・過去記録は変更していない。
+45/47依存が最新という確認は前回2026-09-28時点のPR報告を参照し、今回は最新調査を行っていない。
+Renovateの実PR生成・共有preset全体のvalidator確認は引き続き未実施。速度・検索品質の向上は主張しない。
+新headの全CI・GitHub mergeable・公開本文・ready復帰はホストの後続工程で確認し、前回acceptedを流用しない。
