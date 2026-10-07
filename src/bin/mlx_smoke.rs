@@ -22,12 +22,16 @@
 //! - `measure-overhead`: the same API/options comparisons on the first three W2
 //!   documents, for short measurements with controlled background load.
 //! - `summarize-records FILE`: replay JSONL summaries without loading a model.
+//! - `compare-records BASE CURRENT`: refuse incompatible conditions and report
+//!   revision latency separately from batch/sequential efficiency, offline.
 //! - `verify-fixture`: run W1/W2/W3, load the committed fixtures, and assert
 //!   numerical equivalence within Spec NFR-001 tolerances
 //!   (`cosine_similarity ≥ 0.99999 AND max_abs_diff ≤ 1e-5`). Fails non-zero
 //!   when any workload diverges; used by `tests/mlx_smoke.rs::smoke_verify_fixture`
 //!   to drive T-BIT-001〜003.
 
+#[path = "mlx_smoke/comparison.rs"]
+mod comparison;
 #[path = "mlx_smoke/records.rs"]
 mod records;
 
@@ -66,6 +70,13 @@ fn init_tracing_subscriber() {
 
 fn main() {
     let mode = env::args().nth(1).unwrap_or_default();
+    if mode == "compare-records" {
+        comparison::compare_files(
+            &env::args().nth(2).expect("compare-records BASE CURRENT"),
+            &env::args().nth(3).expect("compare-records BASE CURRENT"),
+        );
+        return;
+    }
     if mode == "summarize-records" {
         records::summarize_file(&env::args().nth(2).expect("summarize-records JSONL"));
         return;
@@ -110,7 +121,7 @@ fn main() {
         unknown => {
             eprintln!(
                 "mlx_smoke: unknown mode {unknown:?} \
-                 (known: capture-fixture, measure-baseline, measure-records, measure-overhead, summarize-records, verify-fixture); \
+                 (known: capture-fixture, measure-baseline, measure-records, measure-overhead, summarize-records, compare-records, verify-fixture); \
                  running default assertions"
             );
             run_assertions(&embedder);
@@ -254,21 +265,19 @@ fn run_verify_fixture(embedder: &embed::Embedder) {
 
 // ── measure-baseline mode ────────────────────────────────────────────────────
 
-/// Single definition of the `batch_ms / sequential_ms` workload ratio so the
-/// stderr `baseline[wN]` line and the `check_thresholds` gate always read the
-/// same value. `sequential_ms == 0` maps to `0.0` — the no-violation side —
-/// instead of `inf`, which would turn an unmeasurable baseline into a
-/// spurious primary SLA failure.
+/// Batch/sequential efficiency, not revision regression or an absolute SLA.
+/// Zero-resolution timings are indeterminate and must never imply achievement.
 fn workload_ratio(batch_ms: u128, sequential_ms: u128) -> f64 {
-    if sequential_ms > 0 {
+    if batch_ms > 0 && sequential_ms > 0 {
         batch_ms as f64 / sequential_ms as f64
     } else {
-        0.0
+        f64::NAN
     }
 }
 
 fn run_measure_baseline(embedder: &embed::Embedder, context: &serde_json::Value) {
-    let records = records::run(embedder, context, records::Mode::Baseline);
+    let run = records::run(embedder, context, records::Mode::Baseline);
+    let records = &run.records;
     let mut results = Vec::new();
     let mut forward_medians = Vec::new();
     for name in ["w1", "w2", "w3"] {
@@ -284,14 +293,48 @@ fn run_measure_baseline(embedder: &embed::Embedder, context: &serde_json::Value)
                 r.workload == name && r.state == "warm" && r.method == records::Method::Sequential
             })
             .collect();
-        let batch_time = records::distribution(batch.iter().map(|r| r.wall).collect());
-        let sequential_time = records::distribution(sequential.iter().map(|r| r.wall).collect());
+        // Use the very same warm wall distributions already emitted as summaries.
+        let batch_time = &run
+            .summaries
+            .iter()
+            .find(|s| s.matches(batch[0]))
+            .expect("batch warm summary")
+            .wall;
+        let sequential_time = &run
+            .summaries
+            .iter()
+            .find(|s| s.matches(sequential[0]))
+            .expect("sequential warm summary")
+            .wall;
         let forward = records::distribution(
             batch
                 .iter()
                 .map(|r| r.calls[0].as_ref().unwrap().forward_eval)
                 .collect(),
         );
+        for record in batch.iter().chain(&sequential) {
+            assert!(
+                !record.wall.is_zero(),
+                "measurement indeterminate[{name}]: zero-resolution wall"
+            );
+            assert!(
+                !record.calls.is_empty(),
+                "measurement indeterminate[{name}]: missing calls"
+            );
+            for call in &record.calls {
+                let m = call
+                    .as_ref()
+                    .expect("measurement indeterminate: missing MLX telemetry");
+                assert!(
+                    !m.forward_eval.is_zero(),
+                    "measurement indeterminate[{name}]: zero-resolution forward_eval"
+                );
+                assert!(
+                    m.real_tokens > 0,
+                    "measurement indeterminate[{name}]: missing real tokens"
+                );
+            }
+        }
         let m = batch[0].calls[0].as_ref().unwrap();
         let ratio = workload_ratio(
             batch_time.median.as_nanos(),
@@ -315,10 +358,22 @@ fn run_measure_baseline(embedder: &embed::Embedder, context: &serde_json::Value)
             m.num_chunks, m.bucket_hist
         );
         let hs = embedder.embedding_dims();
+        for (trial, record) in batch.iter().enumerate() {
+            let measured = record.calls[0].as_ref().unwrap();
+            let accesses = measured.readback_elements.as_ref().unwrap();
+            eprintln!(
+                "readback_shape[{name}]: trial={trial} hidden_size={hs} total_rows={} total_flat={} readback_count={} expected_count={} expected_flat={}",
+                measured.num_chunks,
+                accesses.iter().sum::<usize>(),
+                accesses.len(),
+                measured.forwards.len(),
+                measured.num_chunks * hs
+            );
+        }
         eprintln!(
-            "readback_shape[{name}]: hidden_size={hs} total_rows={} total_flat={}",
-            m.num_chunks,
-            m.num_chunks * hs
+            "scope[{name}] batch_sequential_efficiency_primary={} padding_primary={} absolute_latency_sla=not_defined revision_regression=unmeasured (use compare-records BASE CURRENT)",
+            is_sla_amenable(&m.bucket_hist),
+            !is_bucket_saturated(&m.bucket_hist)
         );
         // Shape-only data for existing threshold checks. Timing aggregates stay
         // separate from per-invocation snapshots in the immutable raw records.
@@ -343,8 +398,10 @@ fn run_measure_baseline(embedder: &embed::Embedder, context: &serde_json::Value)
         .map(|r| r.metrics.real_tokens as f64)
         .collect();
     let ys = forward_medians;
-    let (slope, intercept) = linear_regression(&xs, &ys);
-    let r2 = r_squared(&xs, &ys, slope, intercept);
+    let (slope, intercept, r2) = fit(&xs, &ys);
+    eprintln!(
+        "linearity scope=scale_fit_only speed_guarantee=false; non-finite/constant/zero-resolution fit is indeterminate"
+    );
     eprintln!("linearity slope={slope:.6} intercept={intercept:.3} r_squared={r2:.4}");
     for (r, (x, y)) in results.iter().zip(xs.iter().zip(ys.iter())) {
         let predicted = slope * x + intercept;
@@ -379,10 +436,23 @@ fn run_measure_baseline(embedder: &embed::Embedder, context: &serde_json::Value)
     }
     eprintln!(
         "measure-baseline: primary thresholds passed ({} aspirational diagnostic(s), \
-         {} saturated diagnostic(s))",
+         {} saturated diagnostic(s)); scope=eligible_efficiency_padding_and_scale_fit; W1/W3_speed=not_guaranteed; all_workload_targets=not_guaranteed",
         report.aspirational_diagnostics.len(),
         report.saturated_informational.len(),
     );
+}
+
+fn fit(xs: &[f64], ys: &[f64]) -> (f64, f64, f64) {
+    if xs.len() < 2
+        || xs.len() != ys.len()
+        || xs.iter().chain(ys).any(|v| !v.is_finite() || *v <= 0.0)
+        || xs.iter().all(|x| *x == xs[0])
+        || ys.iter().all(|y| *y == ys[0])
+    {
+        return (f64::NAN, f64::NAN, f64::NAN);
+    }
+    let (slope, intercept) = linear_regression(xs, ys);
+    (slope, intercept, r_squared(xs, ys, slope, intercept))
 }
 
 // ── Phase 2E: threshold checking (SLA + padding + R²) ────────────────────────
@@ -407,6 +477,11 @@ enum Violation {
         workload: &'static str,
         actual: f32,
         threshold: f32,
+    },
+    Indeterminate {
+        workload: &'static str,
+        metric: &'static str,
+        reason: &'static str,
     },
     RSquared {
         actual: f64,
@@ -530,7 +605,26 @@ fn push_tier(report: &mut ThresholdReport, tier: Tier, v: Violation) {
 
 fn check_thresholds(results: &[WorkloadResult], r2: f64) -> ThresholdReport {
     let mut report = ThresholdReport::default();
+    if results.is_empty() {
+        report.primary_violations.push(Violation::Indeterminate {
+            workload: "all",
+            metric: "measurements",
+            reason: "missing workloads",
+        });
+    }
     for r in results {
+        if !r.ratio.is_finite()
+            || r.ratio <= 0.0
+            || !r.metrics.padding_ratio.is_finite()
+            || r.metrics.padding_ratio < 1.0
+        {
+            report.primary_violations.push(Violation::Indeterminate {
+                workload: r.name,
+                metric: "ratio/padding",
+                reason: "non-finite, zero-resolution or missing measurement",
+            });
+            continue;
+        }
         let saturated = is_bucket_saturated(&r.metrics.bucket_hist);
         let sla_amenable = is_sla_amenable(&r.metrics.bucket_hist);
         let ratio = r.ratio;
@@ -571,7 +665,13 @@ fn check_thresholds(results: &[WorkloadResult], r2: f64) -> ThresholdReport {
             );
         }
     }
-    if r2 < R_SQUARED_THRESHOLD {
+    if !r2.is_finite() {
+        report.primary_violations.push(Violation::Indeterminate {
+            workload: "all",
+            metric: "r_squared",
+            reason: "non-finite or missing fit",
+        });
+    } else if r2 < R_SQUARED_THRESHOLD {
         report.primary_violations.push(Violation::RSquared {
             actual: r2,
             threshold: R_SQUARED_THRESHOLD,
@@ -939,23 +1039,93 @@ mod tests {
     }
 
     #[test]
-    fn workload_ratio_returns_zero_when_sequential_is_zero() {
-        assert!((workload_ratio(500, 0) - 0.0).abs() < FLOAT_EPS);
-        assert!((workload_ratio(0, 0) - 0.0).abs() < FLOAT_EPS);
+    fn workload_ratio_rejects_zero_resolution() {
+        for (batch, sequential) in [(500, 0), (0, 0), (0, 500)] {
+            assert!(workload_ratio(batch, sequential).is_nan());
+        }
     }
 
-    // Issue #230 regression: the gate used to re-derive the ratio without the
-    // zero guard, so `sequential_ms == 0` displayed `ratio=0.000` while
-    // `check_thresholds` saw `inf` and panicked with a primary SLA violation.
-    // The shared `workload_ratio` maps it to 0.0 on both sides — no violation.
+    // A zero denominator used to appear as achieved ratio=0. It now fails
+    // with an indeterminate diagnostic, independently of the numeric SLA tier.
     #[test]
-    fn check_thresholds_zero_sequential_is_not_an_sla_violation() {
+    fn check_thresholds_zero_sequential_is_indeterminate() {
         let results = [
             mk_result("w1", 500, 1000, 1.05, BUCKET_SATURATED),
             mk_result("w2", 500, 0, 1.05, BUCKET_SHORT_ONLY),
             mk_result("w3", 500, 1000, 1.05, BUCKET_MIXED),
         ];
         let report = check_thresholds(&results, 0.98);
-        assert!(report.is_clean(), "expected clean report, got {report:?}");
+        assert!(matches!(
+            report.primary_violations.as_slice(),
+            [Violation::Indeterminate { workload: "w2", .. }]
+        ));
+    }
+
+    #[test]
+    fn invalid_measurements_fail_even_outside_primary_speed_scope() {
+        for (invalid, invalid_padding) in [
+            (f64::NAN, f32::NAN),
+            (f64::INFINITY, f32::INFINITY),
+            (f64::NEG_INFINITY, f32::NEG_INFINITY),
+        ] {
+            for hist in [BUCKET_SATURATED, BUCKET_SHORT_ONLY, BUCKET_MIXED] {
+                let mut r = mk_result("w1", 500, 1000, 1.05, hist);
+                r.ratio = invalid;
+                assert!(!check_thresholds(&[r], 0.98).primary_violations.is_empty());
+                let r = mk_result("w1", 500, 1000, invalid_padding, hist);
+                assert!(!check_thresholds(&[r], 0.98).primary_violations.is_empty());
+            }
+            assert!(
+                !check_thresholds(
+                    &[mk_result("w2", 500, 1000, 1.05, BUCKET_SHORT_ONLY)],
+                    invalid
+                )
+                .primary_violations
+                .is_empty()
+            );
+        }
+        assert!(!check_thresholds(&[], 0.98).primary_violations.is_empty());
+    }
+
+    #[test]
+    fn scale_fit_cannot_turn_missing_zero_or_constant_measurements_into_success() {
+        for (xs, ys) in [
+            (vec![], vec![]),
+            (vec![1.0, 2.0], vec![0.0, 0.0]),
+            (vec![1.0, 2.0], vec![5.0, 5.0]),
+            (vec![1.0, 1.0], vec![5.0, 6.0]),
+            (vec![1.0, 2.0], vec![5.0, f64::NAN]),
+            (vec![1.0, 2.0], vec![5.0, f64::INFINITY]),
+        ] {
+            assert!(fit(&xs, &ys).2.is_nan());
+        }
+        assert!((fit(&[1.0, 2.0, 3.0], &[5.0, 10.0, 15.0]).2 - 1.0).abs() < FLOAT_EPS);
+    }
+
+    #[test]
+    fn w1_and_w3_hundredfold_slowdown_is_outside_primary_speed_guarantee() {
+        let results = [
+            mk_result("w1", 100_000, 1000, 1.05, BUCKET_SATURATED),
+            mk_result("w2", 500, 1000, 1.05, BUCKET_SHORT_ONLY),
+            mk_result("w3", 100_000, 1000, 1.05, BUCKET_MIXED),
+        ];
+        let report = check_thresholds(&results, 0.98);
+        assert!(report.primary_violations.is_empty());
+        assert!(matches!(
+            report.saturated_informational.as_slice(),
+            [Violation::Sla {
+                workload: "w1",
+                actual: 100.0,
+                ..
+            }]
+        ));
+        assert!(matches!(
+            report.aspirational_diagnostics.as_slice(),
+            [Violation::Sla {
+                workload: "w3",
+                actual: 100.0,
+                ..
+            }]
+        ));
     }
 }

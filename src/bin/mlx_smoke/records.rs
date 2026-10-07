@@ -54,6 +54,37 @@ pub struct Distribution {
     pub max: Duration,
 }
 
+/// A warm group's wall statistics, shared by JSON output and baseline decisions.
+#[derive(Debug, Serialize)]
+pub struct Summary {
+    schema: u32,
+    event: &'static str,
+    context: Value,
+    workload: String,
+    input_sha256: Option<String>,
+    options: EmbedOptions,
+    method: Method,
+    measured: bool,
+    sequences: Vec<usize>,
+    pub wall: Distribution,
+}
+
+impl Summary {
+    pub fn matches(&self, record: &Record) -> bool {
+        self.context == record.context
+            && self.workload == record.workload
+            && self.input_sha256 == record.input_sha256
+            && self.options == record.options
+            && self.method == record.method
+            && self.measured == record.measured
+    }
+}
+
+pub struct Run {
+    pub records: Vec<Record>,
+    pub summaries: Vec<Summary>,
+}
+
 pub fn distribution(mut values: Vec<Duration>) -> Distribution {
     assert!(!values.is_empty());
     values.sort_unstable();
@@ -148,7 +179,8 @@ pub fn context() -> Value {
         "xcode": command_text("xcodebuild", &["-version"]),
         "metal": command_text("xcrun", &["metal", "--version"]).and_then(|s| metal_version(&s)),
         "debug_assertions": cfg!(debug_assertions),
-        "build_flags": null,
+        "build_flags": env!("RURICO_BUILD_FLAGS"),
+        "build_invocation": option_env!("RURICO_BUILD_INVOCATION"),
         "toolchain_scope": "commands available at measurement time; rebuild before measuring",
         "os_cache_cleared": false,
         "inference_cache_policy": "buffer and current-thread compile cache cleanup after every forward, including warm-up",
@@ -157,7 +189,7 @@ pub fn context() -> Value {
     })
 }
 
-fn emit(value: &impl Serialize) {
+pub fn emit(value: &impl Serialize) {
     let mut stdout = io::stdout().lock();
     serde_json::to_writer(&mut stdout, value).expect("write JSON record");
     writeln!(stdout).expect("write record newline");
@@ -171,7 +203,8 @@ pub fn emit_load(context: &Value, elapsed: Duration) {
     );
 }
 
-fn verify_metrics(m: &InferenceMetrics, options: &EmbedOptions, chunks: usize) {
+fn verify_metrics(m: &InferenceMetrics, options: &EmbedOptions, chunks: usize, dims: usize) {
+    validate_readback(m, dims).expect("actual readback differs from pooled expectation");
     assert_eq!(
         m.pause_count,
         if options.forward_pause.is_some() {
@@ -208,6 +241,25 @@ fn verify_metrics(m: &InferenceMetrics, options: &EmbedOptions, chunks: usize) {
         let count = u32::try_from(m.pause_count).expect("pause count fits u32");
         assert!(m.pause >= requested * count);
     }
+}
+
+pub fn validate_readback(m: &InferenceMetrics, dims: usize) -> Result<(), String> {
+    let actual = m
+        .readback_elements
+        .as_ref()
+        .ok_or("readback measurement unavailable")?;
+    let expected: Option<Vec<_>> = m
+        .forwards
+        .iter()
+        .map(|s| s.batch_size.checked_mul(dims))
+        .collect();
+    let expected = expected.ok_or("pooled element count overflow")?;
+    if actual != &expected {
+        return Err(format!(
+            "observed {actual:?}; expected one pooled readback per forward {expected:?}"
+        ));
+    }
+    Ok(())
 }
 
 fn invoke(
@@ -279,6 +331,7 @@ impl Trial<'_> {
                     calls[0].as_ref().expect("MLX metrics"),
                     &self.options,
                     output.iter().map(|d| d.chunks().len()).sum(),
+                    self.expected[0].chunks()[0].len(),
                 ),
                 Method::Sequential => {
                     for (m, d) in calls.iter().zip(&output) {
@@ -286,6 +339,7 @@ impl Trial<'_> {
                             m.as_ref().expect("MLX metrics"),
                             &self.options,
                             d.chunks().len(),
+                            self.expected[0].chunks()[0].len(),
                         );
                     }
                 }
@@ -318,7 +372,7 @@ pub enum Mode {
 
 /// Run one process: model load is emitted by main; first inference and warm-up
 /// records are retained but excluded from warm summary groups.
-pub fn run(provider: &dyn Embed, context: &Value, mode: Mode) -> Vec<Record> {
+pub fn run(provider: &dyn Embed, context: &Value, mode: Mode) -> Run {
     let include_options_and_overhead = mode != Mode::Baseline;
     let mut records = Vec::new();
     let mut profiles = vec![EmbedOptions::default()];
@@ -415,6 +469,7 @@ pub fn run(provider: &dyn Embed, context: &Value, mode: Mode) -> Vec<Record> {
         empty.metrics.as_ref().expect("empty MLX metrics"),
         &EmbedOptions::default(),
         0,
+        0,
     );
     let empty_record = Record {
         schema: 1,
@@ -432,17 +487,19 @@ pub fn run(provider: &dyn Embed, context: &Value, mode: Mode) -> Vec<Record> {
     };
     emit(&empty_record);
     records.push(empty_record);
-    emit_summary(&records);
-    records
+    let summaries = emit_summary(&records);
+    Run { records, summaries }
 }
 
-pub fn emit_summary(records: &[Record]) {
-    for summary in summaries(records) {
-        emit(&summary);
+pub fn emit_summary(records: &[Record]) -> Vec<Summary> {
+    let summaries = summaries(records);
+    for summary in &summaries {
+        emit(summary);
     }
+    summaries
 }
 
-fn summaries(records: &[Record]) -> Vec<Value> {
+fn summaries(records: &[Record]) -> Vec<Summary> {
     let mut groups: Vec<Vec<&Record>> = Vec::new();
     for r in records.iter().filter(|r| r.state == "warm") {
         if let Some(group) = groups.iter_mut().find(|g| {
@@ -463,27 +520,46 @@ fn summaries(records: &[Record]) -> Vec<Value> {
         .into_iter()
         .map(|group| {
             let r = group[0];
-            json!({"schema": 1, "event": "summary", "context": r.context,
-            "workload": r.workload, "input_sha256": r.input_sha256, "options": r.options,
-            "method": r.method, "measured": r.measured,
-            "sequences": group.iter().map(|r| r.sequence).collect::<Vec<_>>(),
-            "wall": distribution(group.iter().map(|r| r.wall).collect())})
+            Summary {
+                schema: 1,
+                event: "summary",
+                context: r.context.clone(),
+                workload: r.workload.clone(),
+                input_sha256: r.input_sha256.clone(),
+                options: r.options,
+                method: r.method,
+                measured: r.measured,
+                sequences: group.iter().map(|r| r.sequence).collect(),
+                wall: distribution(group.iter().map(|r| r.wall).collect()),
+            }
         })
         .collect()
 }
 
-pub fn summarize_file(path: &str) {
-    let input = io::BufReader::new(File::open(path).expect("open JSONL"));
+pub fn read_file(path: &str) -> Result<Vec<Record>, String> {
+    let input = io::BufReader::new(File::open(path).map_err(|e| format!("open {path}: {e}"))?);
     let mut records = Vec::new();
     for line in input.lines() {
-        let value: Value = serde_json::from_str(&line.expect("read JSONL")).expect("parse JSONL");
-        assert_eq!(value["schema"], 1, "unsupported record schema");
+        let line = line.map_err(|e| e.to_string())?;
+        let value: Value = serde_json::from_str(&line).map_err(|e| format!("parse JSONL: {e}"))?;
+        if value["schema"] != 1 {
+            return Err("unsupported record schema".to_owned());
+        }
         if value.get("event").is_none() {
-            records.push(serde_json::from_value::<Record>(value).expect("inference record"));
+            records.push(
+                serde_json::from_value::<Record>(value)
+                    .map_err(|e| format!("inference record: {e}"))?,
+            );
         }
     }
-    assert!(!records.is_empty(), "no inference records");
-    emit_summary(&records);
+    if records.is_empty() {
+        return Err("no inference records".to_owned());
+    }
+    Ok(records)
+}
+
+pub fn summarize_file(path: &str) {
+    emit_summary(&read_file(path).expect("read raw records"));
 }
 
 #[cfg(test)]
@@ -531,9 +607,8 @@ mod tests {
         let read: Vec<Record> = serde_json::from_str(&encoded).unwrap();
         let summaries = summaries(&read);
         assert_eq!(summaries.len(), 4);
-        let stats: Distribution = serde_json::from_value(summaries[0]["wall"].clone()).unwrap();
         assert_eq!(
-            stats,
+            summaries[0].wall,
             Distribution {
                 n: 3,
                 min: Duration::from_nanos(100),
@@ -541,7 +616,25 @@ mod tests {
                 max: Duration::from_nanos(900)
             }
         );
-        assert_eq!(summaries[0]["sequences"], json!([0, 1, 2]));
+        assert_eq!(summaries[0].sequences, vec![0, 1, 2]);
+        let serialized = serde_json::to_value(&summaries[0]).unwrap();
+        assert_eq!(
+            serialized,
+            json!({
+                "schema": 1, "event": "summary", "context": read[0].context,
+                "workload": read[0].workload, "input_sha256": read[0].input_sha256,
+                "options": read[0].options, "method": read[0].method,
+                "measured": read[0].measured, "sequences": [0, 1, 2],
+                "wall": summaries[0].wall
+            })
+        );
+        for (summary, first) in summaries.iter().zip([0, 4, 5, 6]) {
+            assert!(summary.matches(&read[first]));
+            assert_eq!(
+                summaries.iter().filter(|s| s.matches(&read[first])).count(),
+                1
+            );
+        }
         // Aggregation never overwrites a raw phase with another trial's median.
         assert_eq!(serde_json::to_string(&read).unwrap(), encoded);
         assert_eq!(
@@ -553,6 +646,35 @@ mod tests {
         assert_eq!(
             distribution(vec![Duration::from_nanos(100), Duration::from_nanos(300)]).median,
             Duration::from_nanos(200)
+        );
+    }
+
+    #[test]
+    fn readback_verification_rejects_extra_accesses_expanded_elements_and_missing_data() {
+        use rurico::embed::ForwardShape;
+        let mut m = InferenceMetrics {
+            forwards: vec![ForwardShape {
+                batch_size: 3,
+                sequence_length: 128,
+            }],
+            readback_elements: Some(vec![12]),
+            ..InferenceMetrics::default()
+        };
+        assert!(validate_readback(&m, 4).is_ok());
+        for invalid in [Some(vec![12, 12]), Some(vec![1536]), Some(vec![]), None] {
+            m.readback_elements = invalid;
+            assert!(validate_readback(&m, 4).is_err());
+        }
+        m.forwards.clear();
+        m.readback_elements = Some(vec![]);
+        assert!(validate_readback(&m, 4).is_ok());
+        let mut legacy = serde_json::to_value(&m).unwrap();
+        legacy.as_object_mut().unwrap().remove("readback_elements");
+        let legacy: InferenceMetrics = serde_json::from_value(legacy).unwrap();
+        assert!(
+            validate_readback(&legacy, 4)
+                .unwrap_err()
+                .contains("unavailable")
         );
     }
 

@@ -92,7 +92,7 @@ impl EmbedderInner {
                 metrics.forward_eval = t_forward.elapsed();
 
                 let t_readback = Instant::now();
-                let flat: &[f32] = pooled.as_slice();
+                let flat = readback(&pooled, &mut metrics.readback_elements, false);
                 #[cfg(test)]
                 checkpoint(Stage::Readback).map_err(EmbedError::inference)?;
                 let pooled_vec = split_pooled(flat, 1, hidden_size, EmbedKind::Query)?
@@ -300,7 +300,7 @@ impl EmbedderInner {
                 metrics.forward_eval += t_forward.elapsed();
 
                 let t_readback = Instant::now();
-                let flat: &[f32] = pooled.as_slice();
+                let flat = readback(&pooled, &mut metrics.readback_elements, detailed);
                 #[cfg(test)]
                 checkpoint(Stage::Readback).map_err(EmbedError::inference)?;
                 let unpacked = split_pooled(flat, batch_size, hidden_size, EmbedKind::Batch)?;
@@ -361,4 +361,36 @@ pub(super) fn pool_output(
     #[cfg(test)]
     checkpoint(Stage::Eval).map_err(EmbedError::inference)?;
     Ok(pooled)
+}
+
+// All embedding host accesses pass this boundary. Count the returned slice,
+// including extra accesses; inference shape is only the independent expectation.
+fn readback<'a>(array: &'a Array, elements: &mut Vec<usize>, observe: bool) -> &'a [f32] {
+    let flat = array.as_slice();
+    if observe {
+        elements.push(flat.len());
+    }
+    flat
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sandbox::require_unsandboxed_mlx_runtime;
+
+    #[test]
+    fn readback_metrics_observe_host_accesses_and_slice_lengths() {
+        require_unsandboxed_mlx_runtime();
+        let array = Array::from_slice(&[1.0_f32, 2.0, 3.0], &[3]);
+        let expanded = Array::from_slice(&[1.0_f32; 6], &[2, 3]);
+        let mut metrics = PhaseMetrics::new(EmbedKind::Batch);
+        assert_eq!(
+            readback(&array, &mut metrics.readback_elements, true),
+            &[1.0, 2.0, 3.0]
+        );
+        readback(&array, &mut metrics.readback_elements, true);
+        readback(&expanded, &mut metrics.readback_elements, true);
+        let snapshot = super::super::metrics::InferenceMetrics::from(metrics);
+        assert_eq!(snapshot.readback_elements, Some(vec![3, 3, 6]));
+    }
 }

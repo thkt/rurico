@@ -69,6 +69,11 @@ pub struct InferenceMetrics {
     pub real_tokens: usize,
     /// All token positions across forwards, including padding.
     pub padded_tokens: usize,
+    /// Element count at each actual host slice access, in execution order.
+    /// `None` denotes legacy/unavailable telemetry; `Some([])` means no access.
+    /// Counts are observed before output validation, never inferred from shape.
+    #[serde(default)]
+    pub readback_elements: Option<Vec<usize>>,
     /// Total number of output chunks.
     pub num_chunks: usize,
     /// Chunk counts in the fixed 128/512/2048/8192 buckets.
@@ -86,6 +91,7 @@ impl From<PhaseMetrics> for InferenceMetrics {
             pause: m.pause,
             pause_count: m.pause_count,
             forwards: m.forwards,
+            readback_elements: Some(m.readback_elements),
             real_tokens: m.real_tokens,
             padded_tokens: m.padded_tokens,
             num_chunks: m.num_chunks,
@@ -173,6 +179,7 @@ pub(super) struct PhaseMetrics {
     pub chunk_plan: Duration,
     pub forward_eval: Duration,
     pub readback_pool: Duration,
+    pub readback_elements: Vec<usize>,
     pub cache_clear: Duration,
     /// Number of tokens whose attention mask is non-zero (real work).
     pub real_tokens: usize,
