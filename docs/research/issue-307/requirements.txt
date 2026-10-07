@@ -4,10 +4,10 @@
 annotated-doc==0.0.5
 anyio==4.15.1
 certifi==2026.7.22
-charset-normalizer==3.5.1
+charset-normalizer==3.5.2
 click==8.5.0
 cloudpickle==3.1.2
-filelock==4.0.4
+filelock==4.0.7
 fsspec==2026.9.0
 h11==0.16.0
 hf-xet==1.6.0
@@ -29,7 +29,7 @@ pillow==12.3.0
 protobuf==7.36.2
 pygments==2.21.0
 pyyaml==6.0.3
-regex==2026.9.10
+regex==2026.9.29
 requests==2.34.2
 rich==15.0.0
 safetensors==0.8.0
