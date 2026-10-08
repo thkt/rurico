@@ -6,7 +6,13 @@ fn run(text: &str) -> String {
 
 #[test]
 fn pre_phase_5_disabled_matches_disabled() {
-    assert_eq!(pre_phase_5_disabled(), QueryNormalizationConfig::disabled());
+    let expected = QueryNormalizationConfig {
+        nfkc: false,
+        ascii_lowercase: false,
+        collapse_whitespace: false,
+    };
+    assert_eq!(pre_phase_5_disabled(), expected);
+    assert_eq!(QueryNormalizationConfig::disabled(), expected);
 }
 
 #[test]
