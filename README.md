@@ -52,14 +52,12 @@ use rurico::embed::{Embed, Embedder, ModelId, download_model};
 use rurico::handle_probe_if_needed;
 use rurico::model_probe::ProbeStatus;
 
-// probe 子プロセスのハンドラ登録（main() の冒頭で呼ぶ）
-// crate root の re-export。実体は `rurico::dispatch` で embed と reranker をまとめて wire する。
+// main() の冒頭でprobeハンドラを登録
 handle_probe_if_needed();
 
-// モデルをダウンロード（初回のみ、HF Hub にキャッシュ）
+// 未キャッシュならHF Hubからダウンロード
 let paths = download_model(ModelId::DEFAULT)?;
 
-// probe でモデルのロード可否を事前検証
 match Embedder::probe(&paths)? {
     ProbeStatus::Available => {}
     ProbeStatus::BackendUnavailable => {
@@ -68,17 +66,14 @@ match Embedder::probe(&paths)? {
     }
 }
 
-// Embedder を作成して embedding を生成
 let embedder = Embedder::new(&paths)?;
 
-// クエリ: Vec<f32> (次元数はモデルにより異なる。デフォルト 768)。MAX_SEQ_LEN 超過時は自動 truncate。
+// 次元数はモデル依存。MAX_SEQ_LEN超過時は自動truncate。
 let query_vec = embedder.embed_query("検索クエリ")?;
 
-// ドキュメント: ChunkedEmbedding。短文は chunks().len()==1、
-// 長文は overlapping chunks に分割される。
+// 長文はoverlapping chunksに分割される。
 let doc = embedder.embed_document("長いドキュメント...")?;
 for chunk_vec in doc.chunks() {
-    // chunk_vec: &Vec<f32> (次元数はモデルにより異なる)
 }
 ```
 
@@ -143,9 +138,9 @@ let semantic_vec = embedder.embed_text("任意テキスト", SEMANTIC_PREFIX)?;
 use rurico::embed::{ModelId, cached_artifacts};
 
 if let Some(artifacts) = cached_artifacts(ModelId::DEFAULT)? {
-    // キャッシュ済み — そのまま Embedder::new に渡せる
+    // Embedder::newに渡せる
 } else {
-    // 未ダウンロード
+    // ダウンロードが必要
 }
 ```
 
@@ -171,7 +166,6 @@ use rusqlite::Connection;
 
 ensure_sqlite_vec().expect("sqlite-vec initialization failed");
 let conn = Connection::open("my.db")?;
-// conn で vec0 仮想テーブルが利用可能
 ```
 
 ### FTS クエリパイプライン
@@ -189,7 +183,6 @@ match prepare_match_query(&conn, user_input, "fts_chunks_vocab", &normalization)
         stmt.query_map([matched.as_str()], |row| { /* ... */ })?;
     }
     Err(SanitizeError::EmptyInput) => {
-        // 空のクエリ
     }
     Err(SanitizeError::NoSearchableTerms) => {
         // NEAR() グループのみ等、検索可能な語がない
@@ -199,7 +192,6 @@ match prepare_match_query(&conn, user_input, "fts_chunks_vocab", &normalization)
         eprintln!("invalid vocab table: {name}");
     }
     Err(SanitizeError::VocabLookupFailed(reason)) => {
-        // vocab テーブル参照中の想定外 SQLite 障害
         eprintln!("fts vocab lookup failed: {reason}");
     }
 }
@@ -224,7 +216,6 @@ let config = QueryNormalizationConfig::default();
 let folded = normalize_for_fts("ＡＢＣ\u{3000}DEF", &config);
 assert_eq!(folded, "abc def");
 
-// step 単位の選択（NFKC のみ ON など）も可
 let nfkc_only = QueryNormalizationConfig {
     nfkc: true,
     ascii_lowercase: false,
@@ -273,7 +264,6 @@ use rurico::retrieval::{
 // Stage 1: 呼び出し側が FTS / vector の各 source から Candidate を集める
 let candidates: Vec<Candidate> = /* ... */;
 
-// Stage 2: weighted RRF（default は FTS / Vector が等しい重み、rrf_k = 60）
 let mut weights = HashMap::new();
 weights.insert(CandidateSource::Fts, 0.6);
 weights.insert(CandidateSource::Vector, 1.4);
@@ -283,7 +273,7 @@ let merger = WeightedRrf::new(HybridSearchConfig {
 });
 let merged = merger.merge(&candidates);
 
-// 任意: recency boost を畳み込む（age_lookup は呼び出し側の corpus schema 依存）
+// age_lookupは呼び出し側のcorpus schemaに依存
 let recency = RecencyConfig { weight: 0.3, half_life_days: 30.0 };
 let merged_with_recency = merger.merge_with_recency(
     &candidates,
@@ -295,8 +285,6 @@ let merged_with_recency = merger.merge_with_recency(
 let aggregator = MaxChunkAggregator;
 let aggregated = aggregator.aggregate(&merged);
 
-// Stage 4: 既存の Rerank trait を呼んで並べ替え
-// Stage 5: top_k cutoff
 ```
 
 #### Aggregator の使い分け
@@ -497,8 +485,8 @@ This installs a pre-commit hook that runs `cargo fmt --all -- --check` and `carg
 
 ```sh
 bash scripts/test.sh                                                   # 通常テスト（smokeのモデル不要テストを含む、doctestを除く）
-cargo test --locked --doc --workspace --features test-support,test-mlx,smoke # doctest (nextest は doctest を走らせない)
-cargo clippy --workspace --all-targets --all-features -- -D warnings    # lint (matches CI)
+cargo test --locked --doc --workspace --features test-support,test-mlx,smoke # nextest対象外のdoctest
+cargo clippy --workspace --all-targets --all-features -- -D warnings    # lint
 cargo fmt --all -- --check                                              # format check
 ```
 

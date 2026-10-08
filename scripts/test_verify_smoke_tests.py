@@ -160,6 +160,5 @@ sys.exit(int(os.environ["SMOKE_RUN_EXIT"]))
                             self.assertFalse(Path(paths[0]).parent.exists())
 
 
-
 if __name__ == "__main__":
     unittest.main()

@@ -87,7 +87,7 @@ cargo nextest run --run-ignored=ignored-only g_001_real_tokenizer_extract_prefix
 `mlx_smoke` 統合テスト (`tests/mlx_smoke.rs`) と同名 binary (`src/bin/mlx_smoke.rs`) は `smoke` feature の背後にある。実推論モードとignoredの統合テストは、キャッシュ済みのruri-v3モデルとApple SiliconのMLX runtimeを要する。記録の単体テストと `summarize-records` はモデルをロードしない。標準CIとcheckは `smoke` featureを含め、閾値・record/集計・mode・比較器の単体テストとモデル不要のCLI統合テストを実行する。実モデル検証はホストで別に実行する。ignoredの統合テストを実行する場合は、事前に対象モデルをキャッシュしてから:
 
 ```sh
-# ruri-v3 系モデルがローカル HF cache にあることを前提に走らせる
+# ローカルHF cacheにruri-v3モデルが必要
 cargo nextest run --workspace --features smoke --test mlx_smoke --run-ignored=ignored-only
 ```
 
@@ -170,10 +170,10 @@ cargo test --locked --features smoke --test mlx_smoke summarize_records
 cargo test --locked --lib measured_trait_fallback
 cargo test --locked --lib precise_metrics_keep
 cargo build --locked --release --features smoke --bin mlx_smoke
-# /tmp/rurico-306-evidence は新しい記録用ディレクトリの例
+# 新しい記録用ディレクトリを使う
 mkdir /tmp/rurico-306-evidence
 RUST_LOG=off target/release/mlx_smoke measure-records > /tmp/rurico-306-evidence/raw.jsonl
-# モデルをロードせず、生recordだけから同じ集計を再生成
+# 生recordから集計を再生成（モデル不要）
 target/release/mlx_smoke summarize-records /tmp/rurico-306-evidence/raw.jsonl > /tmp/rurico-306-evidence/summary.jsonl
 ```
 

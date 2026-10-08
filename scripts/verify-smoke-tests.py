@@ -4,7 +4,7 @@ import json
 import sys
 
 
-# These are the existing cached-model/Metal tests, not the model-free lane.
+# Cached-model tests must remain ignored in the normal lane.
 MODEL_TESTS = {
     "smoke_full",
     "smoke_verify_fixture",
