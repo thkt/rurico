@@ -46,6 +46,29 @@ clippyの `--all-targets --all-features` はコンパイル検査であり、テ
 coverageも同じfeatureを使う。既存の除外regex・95%の閾値は維持し、
 追加対象を通すための除外は設けない。
 
+### vector byte-bindの実SQL検証（Issue #368）
+
+`src/storage/tests.rs` は本番の `ensure_sqlite_vec` を使い、登録後に開いた2つの
+in-memory connectionで、合成f32 vectorを `bytemuck::cast_slice` によりBLOBとして挿入・検索する。
+明示したL2 metricで、query `[1, -2, 0.5]` に対する距離が2・3・5・10となる候補を使い、
+上位3件のID・順序・距離と保存されたlittle-endian bytesを固定する。
+sqlite-vecが拒否する不正BLOB長・空BLOB・次元不一致は挿入と検索の両方で確認し、
+空の検索対象は空結果として確認する。製品のvalidationやconsumerのschemaは追加しない。
+既存の登録idempotence・CREATE検証をこの通し検証へ統合し、FFIのversion検証は維持する。
+
+標準checkで実行されるモデル不要テストであり、個別の再実行は次のコマンドを使う。
+ビルドは引き続きMLX-only構成で行う。
+
+```sh
+cargo test --locked --lib --features test-support,test-mlx,smoke storage::tests
+```
+
+検出力を確認する場合は一時コピーで、挿入側の各f32の4 bytesを逆順にした版と、
+取得したneighborの順序を逆転した版をそれぞれ実行する。前者は保存bytesのassertion、
+後者はID・順序・距離のassertionで失敗し、両変更を戻した版で成功することを確認する。
+対象差分・Cargo.lockのhash、コマンド、終了コード、stdout/stderrをcheckout外に保存する。
+この検査は実モデルの意味表現、consumerのCandidate pipeline、migration、検索品質を保証しない。
+
 ### CIキャッシュの検証
 
 macOSのtest・coverageジョブは、Cargoのビルド成果物とmlx-sysが生成する
