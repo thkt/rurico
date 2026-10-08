@@ -1,14 +1,8 @@
 //! Phase timing and batch shape counters for the embed pipeline.
 //!
-//! One `tracing::debug!` line per `embed_*` call so that bottlenecks can be read
-//! from a run log without extra infrastructure.
-//!
-//! [`PhaseMetrics`] is the internal accumulator, `pub(super)` so only the
-//! `embed` module tree mutates it. [`BatchMetrics`] is the public
-//! downstream-facing snapshot returned by
-//! [`Embedder::embed_documents_batch_with_metrics`](super::Embedder::embed_documents_batch_with_metrics)
-//! — it carries the same numbers in millisecond integers so consumers avoid
-//! coupling to `std::time::Duration` and the internal `kind` tag.
+//! [`InferenceMetrics`] preserves host durations and readback observations;
+//! [`BatchMetrics`] is the legacy millisecond snapshot. Internal accumulation
+//! also emits one structured debug record per `embed_*` call.
 
 use std::time::Duration;
 
@@ -67,11 +61,16 @@ pub struct InferenceMetrics {
     pub forwards: Vec<ForwardShape>,
     /// Non-padding token positions across forwards.
     pub real_tokens: usize,
-    /// All token positions across forwards, including padding.
+    /// Sum of `batch_size × sequence_length` across forwards, including padding.
     pub padded_tokens: usize,
+    /// Element count at each actual host slice access, in execution order.
+    /// `None` denotes legacy/unavailable telemetry; `Some([])` means no access.
+    /// Counts are observed before output validation, never inferred from shape.
+    #[serde(default)]
+    pub readback_elements: Option<Vec<usize>>,
     /// Total number of output chunks.
     pub num_chunks: usize,
-    /// Chunk counts in the fixed 128/512/2048/8192 buckets.
+    /// Chunk counts in the fixed 128/512/2048/8192 buckets; sum equals `num_chunks`.
     pub bucket_hist: [usize; 4],
 }
 
@@ -86,6 +85,7 @@ impl From<PhaseMetrics> for InferenceMetrics {
             pause: m.pause,
             pause_count: m.pause_count,
             forwards: m.forwards,
+            readback_elements: Some(m.readback_elements),
             real_tokens: m.real_tokens,
             padded_tokens: m.padded_tokens,
             num_chunks: m.num_chunks,
@@ -95,7 +95,6 @@ impl From<PhaseMetrics> for InferenceMetrics {
     }
 }
 
-/// Identifies which embed entry point a phase record or warn emit came from.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(super) enum EmbedKind {
     #[default]
@@ -112,11 +111,9 @@ impl EmbedKind {
     }
 }
 
-/// Public batch-level metrics snapshot mirroring the `"batch"` `PhaseMetrics`
-/// record. Returned alongside embeddings by
-/// [`Embedder::embed_documents_batch_with_metrics`](super::Embedder::embed_documents_batch_with_metrics)
-/// so callers (smoke harness, downstream indexers) can observe padding,
-/// linearity, and bucket distribution without parsing a debug-log line.
+/// Legacy batch snapshot returned by
+/// [`Embedder::embed_documents_batch_with_metrics`](super::Embedder::embed_documents_batch_with_metrics).
+/// Durations are truncated to milliseconds; use [`InferenceMetrics`] for sub-ms precision.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct BatchMetrics {
     /// `padded_tokens / real_tokens` — 1.0 means zero padding overhead.
@@ -162,30 +159,22 @@ impl From<&PhaseMetrics> for BatchMetrics {
 /// Phase timings and batch counters for one `embed_*` call.
 #[derive(Debug, Clone, Default)]
 pub(super) struct PhaseMetrics {
-    /// Identifies which entry point produced this record.
     pub kind: EmbedKind,
     pub preprocessing: Duration,
     pub pause: Duration,
-    /// Number of requested sleeps executed (including zero-duration requests).
     pub pause_count: usize,
     pub forwards: Vec<ForwardShape>,
     pub tokenize: Duration,
     pub chunk_plan: Duration,
     pub forward_eval: Duration,
     pub readback_pool: Duration,
+    pub readback_elements: Vec<usize>,
     pub cache_clear: Duration,
-    /// Number of tokens whose attention mask is non-zero (real work).
     pub real_tokens: usize,
-    /// Total positions processed, including padding. Equals the sum of
-    /// `batch_size × max_seq_len` across all sub-batches.
     pub padded_tokens: usize,
     pub num_chunks: usize,
-    /// Largest sub-batch size observed in this call.
     pub batch_size: usize,
-    /// Largest `max_seq_len` observed in this call.
     pub max_seq_len: usize,
-    /// Chunk count per length bucket, indexed by `assign_bucket`. The sum
-    /// equals `num_chunks`; exposes length distribution from a single log line.
     pub bucket_hist: [usize; 4],
 }
 
@@ -197,15 +186,10 @@ impl PhaseMetrics {
         }
     }
 
-    /// `padded_tokens / real_tokens` — a value of 1.0 means no padding.
     pub(super) fn padding_ratio(&self) -> f32 {
         padding_ratio(self.real_tokens, self.padded_tokens)
     }
 
-    /// Emit one structured debug record summarising this call.
-    ///
-    /// Each phase timing and counter is a named field so subscribers can
-    /// filter or aggregate without parsing a format string.
     pub(super) fn log(&self) {
         tracing::debug!(
             kind = self.kind.as_str(),
@@ -231,9 +215,7 @@ impl PhaseMetrics {
 
 /// `padded / real`. Returns `0.0` when `real == 0` to avoid division by zero.
 ///
-/// Computed in f64 to preserve precision when token counts exceed 2^24
-/// (production batches at MAX_SEQ_LEN × TOKEN_BUDGET approach this range);
-/// the f64→f32 narrowing is safe because the ratio is bounded near 1.0–10.0.
+/// Divide in f64 before narrowing to f32 to reduce rounding of large token counts.
 #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
 pub(super) fn padding_ratio(real: usize, padded: usize) -> f32 {
     if real == 0 {

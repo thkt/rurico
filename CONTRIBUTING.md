@@ -158,7 +158,9 @@ rawと再生成summaryに加え、負荷条件・観測、model/tokenizer内容�
 同じ実行の証拠として保存する。再生成summaryとraw内のsummaryはJSON値として一致を確認し、
 全組合せのサンプル数・中央値・最小最大と制約を報告する。記録は確認後に`docs/benchmarks/`へ置く。
 Rust/Cargo/Xcode/Metalは実行時に取得した版で、binaryのビルドに使った版を証明するものではない。
-取得不能な値・未計測のRSS/Metalメモリ・追加build flagsは`null`で、推定しない。
+取得不能な値・未計測のRSS/Metalメモリは`null`で、推定しない。
+現行の`build_flags`はbuild時にprofile・flags・features・compiler・manifest/config hashを保存する。
+旧recordの`build_flags=null`はbuild条件が未記録であり、現行の版間比較では拒否する。
 model/tokenizer revisionは実際のcache lookupに使う固定revisionだが、キャッシュ内容の改変までは検出しない。
 入力本文・token列・個人のpath・認証情報はJSONに含めない。stderrはローカルpathを含む既存logがあり得るため、そのまま公開しない。
 
@@ -187,6 +189,82 @@ Phase 2閾値検査を続ける。stderrの `baseline` / `mdrow` は集計表示
 通常checkだけではsmoke feature・実モデルの検証は完了しない。フルcheckとCIを同じheadで確認し、
 公開可能な小さなraw record・summary・build条件・未確認事項を `docs/benchmarks/` に保存する。
 今回の実測結果と制約は [Issue #306の検証記録](docs/benchmarks/issue-306-metrics.md) を参照。
+
+### 性能判定と基準rev比較（Issue #359）
+
+[Issue #359](https://github.com/thkt/rurico/issues/359) の性能判定は、既存の#306のrecordと交互反復を使う。
+`calls[].readback_elements` は本番のhost slice取得ごとの実要素数で、配列の長さがreadback回数。
+各callでforwardごとの `batch_size × hidden_size` と照合する。追加readback、未poolingの大きなslice、
+欠損した観測値は検証失敗となる。空入力の実測は `[]`、旧recordの欠落は `null` として読み、ゼロ回と混同しない。
+`readback_shape` は各warm batch試行の実測回数・要素数と期待値をstderrへ表示する。
+実forward・readback・cleanup・pauseの順序、stdoutの1試行1record、sub-ms精度は従来どおり。
+
+`measure-baseline` はbatch/sequential効率、padding、規模に対するforward時間のR²を検査する。
+ゼロ分解能のwall/forward時間、欠損metrics、NaN/±Inf、当てはめ不能な一定系列は達成として受理せず、
+理由を伴う判定不能として失敗する。tokenize/chunk_planの未分離時間は引き続き `unmeasured`。
+R²は規模への当てはまりであり、速度や絶対遅延を保証しない。
+
+既存の閾値と適用条件は変更しない。短いbucketのみのworkloadに効率のprimaryを適用し、
+W1の飽和bucketとW3の混合bucketの速度はprimaryの保証対象外と明示する。
+W1/W3のbatch/sequential比が100でも、paddingとR²が適用条件を満たせばprimary違反はない。
+未達時だけ出るsaturated/aspirational診断が0件でも成功できる。tier振分けは合成入力で検証し、
+実機テストに診断の存在を要求しない。primary成功を全workloadの性能目標達成とは読まない。
+絶対SLAが必要な用途では、対象機種・負荷・許容値をユーザーが決める後続判断が必要になる。
+
+同じ条件の基準revとの遅延変化は、効率とは別にraw recordから比較する。
+比較用binaryは `bash scripts/build-smoke.sh` でbuildする。引数を転送しない固定の
+`cargo build --locked --release --features smoke --bin mlx_smoke` を使い、buildscriptから見えない
+inline `--config` の追加を受け付けない。環境変数でのrustc wrapperも拒否する。
+直接のCargo buildは従来どおり推論・計測・テストに使えるが、比較対応入口を通していない
+`build_invocation=null` のrecordは比較を拒否する。次のモード自体はモデルやMetalを初期化しない。
+
+```sh
+target/release/mlx_smoke compare-records /tmp/base-raw.jsonl /tmp/current-raw.jsonl > /tmp/comparison.jsonl
+```
+
+`revision_latency` はmethodごとに両版のwall分布、対応sequence、context、
+`current_over_baseline` と中央値の増加有無を出す。`batch_sequential_efficiency` は各版の方式比を別に出す。
+両方式がともに100倍遅くなれば、方式比が変わらなくても遅延増加は表示される。
+中央値の増加有無は観測であり、新しい許容差や統計的な速度保証ではない。
+
+入力hash・workload・options・通常/計測・methodのgroupを対応付け、model/tokenizer revision、
+machine/chip、OS、Rust/Cargo、Xcode/Metal、lockfile、build条件、cache方針の不一致や欠落を拒否する。
+比較する各版は同じ条件で再buildしてから記録する。build条件はCargo build時のprofile、opt level、
+debug、target、encoded Rust flags、features/target cfg、profile override、build時のrustc版を
+`build_flags` に保存し、profileのLTO/codegen設定を含むCargo.tomlと探索対象Cargo configの内容hashも含める。
+recordは信頼する標準Cargoと上記の比較用build入口で生成する。手編集した記録や独自ツールによる改変を証明する仕組みではない。
+commit・差分・実行ファイルhashは版の識別に使い、
+異なる値でよい。group内でのcontext混在、対応する方式やgroupの欠落、ゼロ時間も拒否する。
+旧recordの `build_flags=null` を同条件と仮定して比較しない。記録を補完・書換えず、必要なら両版を再測定する。
+model/tokenizerのrevisionはcache lookup時の識別で、ファイル内容のhash照合や測定中の背景負荷の不在は
+raw recordだけでは証明しない。#306のモデル内容照合・負荷監視手順も併用し、ばらつきと未確認条件を残す。
+
+標準checkはsmoke featureのテストを実行せず、clippyはビルド確認に限る。
+同じ変更版と固定Cargo.lockでホストが次を追加実行する。実機ではキャッシュ済みdefaultモデルと対応Metalが必要。
+
+```sh
+cargo test --locked --features smoke --bin mlx_smoke
+cargo test --locked --features smoke --test mlx_smoke summarize_records
+cargo test --locked --features smoke --test mlx_smoke compare_records
+cargo test --locked --features smoke --test mlx_smoke smoke_measure_overhead -- --ignored
+cargo test --locked --features smoke --test mlx_smoke smoke_measure_baseline -- --ignored
+```
+
+短時間の `smoke_measure_overhead` は既存W2の先頭3文書とfixtureを再利用し、
+default/nondefault、batch/sequentialの本番readbackと空入力の観測を検証する。
+全W1/W2/W3は `smoke_measure_baseline` で確認する。既存のprimary未達も検出するため、
+失敗時はreadback・欠損等の新しい不具合と、既存閾値の未達を診断から区別する。
+#306で記録されたpadding/R²の未達は[過去の実測](docs/benchmarks/issue-306-metrics.md#テストと既存報告の訂正)として残し、
+今回の成功とは扱わない。fixture・baselineを再生成して失敗を消さない。
+検出力のホスト確認では、一時コピーで `src/embed/mlx.rs::forward_sub_batch` のreadback呼出しを2回にした版と、
+`pooled` を `mlx_rs::ops::concatenate_axis(&[&pooled, &pooled], 0)` で倍の要素数にした版をそれぞれ実行し、追加readbackは期待回数の診断、倍のsliceは製品のpooled shape検証で失敗することを確認する。
+元版を戻した同じテストの結果、対象差分hash・Cargo.lock hash・ツールチェーン・終了コード・stdout/stderrを
+checkout外へ保存する。算出値だけの検査やテスト側のカウンターを本番観測の代用にしない。
+
+開始版 `4a029333c3b2a64c9483c410d4d722377ae93bea` は開始時のローカル `origin/main` と一致した。
+Issueが固定参照する `c8f250d60a5afb9944b9008d22ad6f4dda2d7103` の5ファイルは開始版で変更されていなかった。
+旧性能結果は旧版・旧条件の証拠として維持する。新しい速度改善や実機成功はこの説明だけでは主張しない。
+今回のreadback照合・故障注入・性能gate未達は[ホスト検証記録](docs/benchmarks/issue-359-verification.md)を参照。
 
 ### 推論失敗時のcleanupとメモリ観測
 

@@ -1,29 +1,11 @@
 //! Integration tests that run smoke binaries in subprocesses.
 //!
-//! All MLX-dependent verification is isolated here. A SIGABRT from MLX FFI
-//! kills only the subprocess, not the test runner.
-//!
-//! - `smoke_full`: embed model functionality end-to-end (via `mlx_smoke`)
-//! - `smoke_verify_fixture`: Phase 2 numerical equivalence (T-BIT-001〜003)
-//!   — invokes `mlx_smoke verify-fixture` which compares W1/W2/W3 output
-//!   against `tests/fixtures/phase2_baseline/w{1,2,3}.bin` at Spec NFR-001
-//!   tolerances.
-//! - `smoke_measure_baseline`: shape check for `mlx_smoke measure-baseline`
-//!   output that PR #6's SLA + linearity parser will consume.
-//! - `probe_embed_smoke_binary`: embed subprocess probe contract (via `probe_embed_smoke`)
-//! - `probe_reranker_smoke_binary`: reranker subprocess probe contract (via `probe_reranker_smoke`)
+//! A SIGABRT from MLX FFI kills only the subprocess, not the test runner.
 
 use std::process::{Command, Output};
 
 use rurico::sandbox::SEATBELT_SKIP_EXIT;
 
-/// Run the embed smoke binary and check it succeeds.
-///
-/// Covers: query embedding, document embedding (short + long + batch),
-/// consistency, prefix-merge texts.
-///
-/// The smoke binary loads the model via `cached_artifacts` internally,
-/// so the model must be downloaded before running this test.
 #[test]
 #[ignore] // requires ruri-v3-310m cached + MLX (Apple Silicon)
 fn smoke_full() {
@@ -33,14 +15,6 @@ fn smoke_full() {
     assert_smoke_success(&output);
 }
 
-/// T-BIT-001〜003: Phase 2 numerical equivalence check.
-///
-/// Runs the bucket-batched `embed_documents_batch` on W1/W2/W3, loads the
-/// committed Phase 1 fixtures, and verifies `cosine_similarity ≥ 0.99999`
-/// AND `max_abs_diff ≤ 1e-5` on every chunk pair (Spec NFR-001).
-///
-/// Re-generate the fixtures via `mlx_smoke capture-fixture` when the expected
-/// output genuinely changes (model upgrade, intentional algorithm change).
 #[test]
 #[ignore] // requires ruri-v3-310m cached + MLX (Apple Silicon)
 fn smoke_verify_fixture() {
@@ -51,18 +25,9 @@ fn smoke_verify_fixture() {
     assert_smoke_success(&output);
 }
 
-/// End-to-end Phase 2E gate: T-WLD-001..006 SLA + padding + T-MET-003 R²
-/// linearity are all enforced inside `mlx_smoke measure-baseline`, which
-/// panics (non-zero exit) on any violation. This integration test therefore:
-///
-/// 1. Asserts the binary completed successfully (→ every threshold passed).
-/// 2. Guards the stderr shape so downstream consumers (`phase2_result.md`
-///    paste, future parsers) catch format drift before number drift.
-///
-/// Run time is ~4 minutes on Apple Silicon because each workload is timed
-/// three times after warm-up to harden the median against single-run noise.
+/// Success requires valid measurements and applicable primary gates, not diagnostic misses.
 #[test]
-#[ignore] // requires ruri-v3-310m cached + MLX (Apple Silicon); ~4 minute runtime
+#[ignore] // requires ruri-v3-310m cached + MLX (Apple Silicon)
 fn smoke_measure_baseline() {
     let output = Command::new(env!("CARGO_BIN_EXE_mlx_smoke"))
         .arg("measure-baseline")
@@ -111,50 +76,31 @@ fn smoke_measure_baseline() {
             "measure-baseline must emit per-workload {res} line (got: {stderr})"
         );
     }
-    // T-006 / FR-002 / NFR-002 / AC-1
-    //
-    // [T-006] Phase 3b GPU pool emits per-workload `readback_shape[wN]:`
-    // banner so this integration test confirms readback volume reduced
-    // from `O(seq * hidden)` to `O(batch * hidden)`. Two-stage check:
-    // (a) banner exists per workload (presence guard, mirrors the
-    // `baseline[wN]` / `mdrow[wN]` / `residual[wN]` style), then
-    // (b) the banner's `total_flat == total_rows * hidden_size` arithmetic
-    // identity holds — this is the actual NFR-002 guarantee. The arithmetic
-    // check survives format reordering and would catch a regression that
-    // the prefix-only check would miss.
+    // Observe production readback telemetry, not a copy of output-shape arithmetic.
     for name in ["w1", "w2", "w3"] {
         let prefix = format!("readback_shape[{name}]:");
-        let line = stderr
+        let lines: Vec<_> = stderr
             .lines()
-            .find(|l| l.contains(&prefix))
-            .unwrap_or_else(|| {
-                panic!("[T-006] missing {prefix} banner in measure-baseline stderr: {stderr}")
-            });
-        let parse_field = |key: &str| -> usize {
-            line.split_whitespace()
-                .find_map(|tok| tok.strip_prefix(key)?.parse::<usize>().ok())
-                .unwrap_or_else(|| panic!("[T-006] {prefix} banner missing field '{key}': {line}"))
-        };
-        let hidden_size = parse_field("hidden_size=");
-        let total_rows = parse_field("total_rows=");
-        let total_flat = parse_field("total_flat=");
+            .filter(|line| line.starts_with(&prefix))
+            .collect();
         assert_eq!(
-            total_flat,
-            total_rows * hidden_size,
-            "[T-006] {prefix} NFR-002 invariant: total_flat must equal total_rows * hidden_size \
-             (got total_flat={total_flat}, total_rows={total_rows}, hidden_size={hidden_size})"
+            lines.len(),
+            3,
+            "each warm trial must report readback: {stderr}"
         );
+        for line in lines {
+            let field = |key: &str| -> usize {
+                line.split_whitespace()
+                    .find_map(|token| token.strip_prefix(key)?.parse().ok())
+                    .unwrap()
+            };
+            assert_eq!(field("total_flat="), field("expected_flat="), "{line}");
+            assert_eq!(field("readback_count="), field("expected_count="), "{line}");
+        }
     }
-    assert!(
-        stderr.contains("saturated:"),
-        "measure-baseline should surface W1 bucket-saturated diagnostics \
-         per spec NFR-bucket-saturated; got: {stderr}"
-    );
-    assert!(
-        stderr.contains("aspirational:"),
-        "measure-baseline should surface aspirational-target diagnostics \
-         (spec NFR-003/004-aspirational, Phase 3/5a gap); got: {stderr}"
-    );
+    // Diagnostics are conditional: an improvement meeting all goals must pass.
+    // Synthetic binary tests cover tier routing without requiring a real miss.
+    assert!(stderr.contains("W1/W3_speed=not_guaranteed"));
     assert!(
         stderr.contains("measure-baseline: primary thresholds passed"),
         "measure-baseline should end with the primary-thresholds-passed \
@@ -162,12 +108,7 @@ fn smoke_measure_baseline() {
     );
 }
 
-/// Validate the embed subprocess probe contract end-to-end.
-///
-/// Spawns `probe_embed_smoke`, which has `handle_probe_if_needed()` wired in
-/// its `main()`. When `Embedder::probe()` re-execs `current_exe()`, it
-/// re-execs `probe_embed_smoke` — so the full probe cycle is exercised rather
-/// than a test harness that ignores probe env vars.
+/// Re-exec the probe binary so probe environment handling is exercised.
 #[test]
 #[ignore] // requires ruri-v3-310m cached + MLX (Apple Silicon)
 fn probe_embed_smoke_binary() {
@@ -177,12 +118,7 @@ fn probe_embed_smoke_binary() {
     assert_smoke_success(&output);
 }
 
-/// Validate the reranker subprocess probe contract end-to-end.
-///
-/// Spawns `probe_reranker_smoke`, which has `handle_probe_if_needed()` wired
-/// in its `main()`. When `Reranker::probe()` re-execs `current_exe()`, it
-/// re-execs `probe_reranker_smoke` — so the full probe cycle is exercised
-/// rather than a test harness that ignores probe env vars.
+/// Re-exec the probe binary so probe environment handling is exercised.
 #[test]
 #[ignore] // requires ruri-v3-reranker-310m cached + MLX (Apple Silicon)
 fn probe_reranker_smoke_binary() {
@@ -252,11 +188,118 @@ fn summarize_records_cli_preserves_sub_ms_and_excludes_warmup() {
     assert_eq!(summary["wall"]["n"], 2);
     assert_eq!(summary["wall"]["median"]["nanos"], 200);
     assert_eq!(summary["sequences"], json!([1, 2]));
-    // A missing input cannot be reported as successful empty verification.
     let bad = Command::new(env!("CARGO_BIN_EXE_mlx_smoke"))
         .arg("summarize-records")
         .arg(dir.path().join("absent.jsonl"))
         .output()
         .unwrap();
     assert!(!bad.status.success());
+}
+
+/// Reuse the short workload, options, parity and alternating order.
+/// Production checks reject extra host accesses without a new fixture or latency target.
+#[test]
+#[ignore] // cached default model and unsandboxed Metal
+fn smoke_measure_overhead_observes_readbacks() {
+    use serde_json::Value;
+    let output = Command::new(env!("CARGO_BIN_EXE_mlx_smoke"))
+        .arg("measure-overhead")
+        .output()
+        .expect("spawn measure-overhead");
+    assert_smoke_success(&output);
+    let records: Vec<Value> = String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .filter(|value: &Value| value.get("event").is_none())
+        .collect();
+    let measured: Vec<_> = records
+        .iter()
+        .filter(|r| r["measured"] == true && r["state"] == "warm")
+        .collect();
+    assert!(!measured.is_empty());
+    for r in measured {
+        for call in r["calls"].as_array().unwrap() {
+            assert_eq!(
+                call["readback_elements"].as_array().unwrap().len(),
+                call["forwards"].as_array().unwrap().len()
+            );
+        }
+    }
+    let empty = records.iter().find(|r| r["workload"] == "empty").unwrap();
+    assert_eq!(
+        empty["calls"][0]["readback_elements"],
+        serde_json::json!([])
+    );
+}
+
+/// Exercise the offline dispatch and refusal without model lookup or a Metal
+/// device. Numerical comparison cases stay in the smaller pure unit layer.
+#[test]
+fn compare_records_cli_reports_latency_separately_and_refuses_unknown_build() {
+    use serde_json::{Value, json};
+    use std::fs;
+    use std::path::Path;
+    let dir = tempfile::tempdir().unwrap();
+    let base = dir.path().join("base.jsonl");
+    let current = dir.path().join("current.jsonl");
+    let mut context = json!({
+        "commit": "base", "executable_sha256": "base-executable", "tracked_diff_sha256": "diff",
+        "untracked_sha256": "untracked", "model": "model", "model_revision": "model-rev",
+        "tokenizer_revision": "model-rev", "machine": "machine", "chip": "chip", "os": "os",
+        "rustc": "rustc", "cargo": "cargo", "xcode": "xcode", "metal": "metal",
+        "debug_assertions": false, "build_flags": "actual-Cargo-build-conditions", "build_invocation": "locked-release-smoke-v1",
+        "lockfile_sha256": "lock", "os_cache_cleared": false, "inference_cache_policy": "cleanup"
+    });
+    let write = |path: &Path, context: &Value, scale: u64| {
+        let lines: Vec<_> = [("batch", 100), ("sequential", 200)]
+            .into_iter()
+            .enumerate()
+            .map(|(sequence, (method, ns))| {
+                json!({"schema": 1, "context": context, "sequence": sequence, "workload": "w1",
+                "input_sha256": "input", "options": {"token_budget": null, "forward_pause": null},
+                "method": method, "measured": false, "state": "warm", "repeat": 0,
+                "wall": {"secs": 0, "nanos": ns * scale}, "calls": [null]})
+                .to_string()
+            })
+            .collect();
+        fs::write(path, lines.join("\n")).unwrap();
+    };
+    write(&base, &context, 1);
+    context["commit"] = json!("current");
+    context["executable_sha256"] = json!("current-executable");
+    write(&current, &context, 100);
+    let run = || {
+        Command::new(env!("CARGO_BIN_EXE_mlx_smoke"))
+            .arg("compare-records")
+            .arg(&base)
+            .arg(&current)
+            .output()
+            .unwrap()
+    };
+    let output = run();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let values: Vec<Value> = String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(values[0]["event"], "revision_latency");
+    assert_eq!(values[0]["current_over_baseline"], 100.0);
+    assert_eq!(values[2]["event"], "batch_sequential_efficiency");
+    assert_eq!(values[2]["batch_over_sequential"], 0.5);
+    assert_eq!(values[3]["batch_over_sequential"], 0.5);
+    context["build_flags"] = Value::Null;
+    write(&current, &context, 100);
+    let output = run();
+    assert!(!output.status.success());
+    assert!(
+        output.stdout.is_empty(),
+        "refused comparison must emit no partial success"
+    );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("build_flags unavailable"));
 }

@@ -516,6 +516,10 @@ smoke binary は `sandbox::exit_if_seatbelt` 経由で `SEATBELT_SKIP_EXIT` (78)
 
 `mlx_smoke` binary は `smoke` Cargo feature でゲートされており、library として rurico を取り込む downstream には `tracing-subscriber` を持ち込まない。harness 用 just recipe（`just embed-verify` / `just embed-baseline` / `just probe-embed` / `just probe-reranker` 等）は `justfile` を参照。
 
+性能判定と基準rev比較は[CONTRIBUTING](CONTRIBUTING.md#性能判定と基準rev比較issue-359)を参照。
+`measure-baseline` のprimary成功はW1/W3の速度や全workloadの目標達成を保証しない。
+`compare-records BASE CURRENT` は同条件のraw recordから、batch/sequential効率と版間の遅延変化を別に表示する。
+
 検索品質の評価（Recall@k / MRR@k / nDCG@k）は [`amici`](https://github.com/thkt/amici) で行う。`CandidateSource` は `{ Fts, Vector }` の閉 enum に固定されている（prefix-ensemble は採用していない）。
 
 ## ライセンス

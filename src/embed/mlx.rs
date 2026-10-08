@@ -53,13 +53,9 @@ impl EmbedderInner {
 
     /// Embed a single query string, truncating to [`MAX_SEQ_LEN`] tokens.
     ///
-    /// Phase 3b GPU-pool path mirrors `forward_sub_batch` with `batch = 1`:
-    /// `pool_output` runs the GPU pool + `eval()` so the readback through
-    /// `pooled.as_slice()` reads only `hidden_size` f32s (NFR-002), then
-    /// `split_pooled` validates that shape and rejects non-finite values
-    /// before yielding the single row.
-    /// `run_inference` drops every temporary Array before cleanup, including
-    /// partial forward, pool, eval and readback failures.
+    /// GPU pooling limits host readback to one `hidden_size` row, validated
+    /// for shape and finite values. `run_inference` drops temporary Arrays
+    /// before cleanup on success and failure.
     pub(super) fn embed_query_truncated(
         &mut self,
         text: &str,
@@ -92,7 +88,7 @@ impl EmbedderInner {
                 metrics.forward_eval = t_forward.elapsed();
 
                 let t_readback = Instant::now();
-                let flat: &[f32] = pooled.as_slice();
+                let flat = readback(&pooled, &mut metrics.readback_elements, false);
                 #[cfg(test)]
                 checkpoint(Stage::Readback).map_err(EmbedError::inference)?;
                 let pooled_vec = split_pooled(flat, 1, hidden_size, EmbedKind::Query)?
@@ -109,8 +105,6 @@ impl EmbedderInner {
             },
         );
 
-        // Query has `seq_len` real tokens followed by `bucket_len - seq_len`
-        // zero-padding tokens added for bucket alignment.
         metrics.real_tokens = seq_len;
         metrics.padded_tokens = bucket_len;
         metrics.num_chunks = 1;
@@ -195,14 +189,11 @@ impl EmbedderInner {
             if bucket.is_empty() {
                 continue;
             }
-            // R-M02: cluster same-doc chunks inside each bucket so a sub_batch
-            // prefers to carry chunks from the same document. chunk_in_doc is
-            // the tie-breaker to preserve reading order within a doc.
+            // Prefer same-document chunks; break ties by their reading order.
             let t_sort = detailed.then(Instant::now);
             bucket.sort_by_key(IndexedChunk::doc_order_key);
-            // sub_batch_size against the bucket ceiling keeps every possible
-            // sub-batch under TOKEN_BUDGET even when every chunk is at the
-            // bucket_max boundary, matching the pre-bucketing OOM guarantee.
+            // Size against the bucket ceiling for conservative OOM protection;
+            // a chunk may occupy the entire bucket.
             let sub_batch_size =
                 compute_sub_batch_size(BUCKET_BOUNDS[bucket_idx], options.token_budget);
             if let Some(t) = t_sort {
@@ -225,9 +216,8 @@ impl EmbedderInner {
 
         metrics.log();
 
-        // Invariant: each global_idx was written exactly once across all bucket
-        // forwards. None here signals a distribution or unpack bug, not input —
-        // surfaced as `Inference` so a regression cannot panic in production.
+        // Missing output signals a routing/unpack bug; return an error rather
+        // than panic in production.
         let all_embeddings: Vec<Vec<f32>> = out
             .into_iter()
             .enumerate()
@@ -244,8 +234,7 @@ impl EmbedderInner {
         let mut iter = all_embeddings.into_iter();
         for &count in &chunks_per_doc {
             let chunks: Vec<_> = iter.by_ref().take(count).collect();
-            // split_pooled already checked model shape and finite values after
-            // readback. Only check chunk presence here; do not rescan vectors.
+            // Shape and finite values were checked at readback; avoid rescanning.
             results.push(ChunkedEmbedding::try_new(chunks)?);
         }
 
@@ -255,14 +244,9 @@ impl EmbedderInner {
     /// Forward one sub-batch of indexed chunks, write pooled embeddings into
     /// `out` at each chunk's `global_idx`, and accumulate metrics.
     ///
-    /// Phase 3b GPU-pool path: `pool_output` runs the GPU mask-weighted
-    /// mean + L2 normalize and `eval()` materialises the lazy graph; the
-    /// readback then reads only `batch_size * hidden_size` f32 elements
-    /// (NFR-002, ADR 0002 primary lever) instead of `batch * seq * hidden`.
-    /// `split_pooled` validates the readback shape per sub-batch (FR-002a)
-    /// and rejects non-finite values before splitting into per-chunk
-    /// vectors. `run_inference` drops all temporary Arrays before cleanup on
-    /// success and on forward, pool, eval or readback failure.
+    /// Read back only `batch_size * hidden_size` pooled elements and reject
+    /// invalid shape or non-finite values. Temporary Arrays drop before cleanup
+    /// on success and failure through `run_inference`.
     fn forward_sub_batch(
         &mut self,
         sub_batch: &[IndexedChunk],
@@ -300,7 +284,7 @@ impl EmbedderInner {
                 metrics.forward_eval += t_forward.elapsed();
 
                 let t_readback = Instant::now();
-                let flat: &[f32] = pooled.as_slice();
+                let flat = readback(&pooled, &mut metrics.readback_elements, detailed);
                 #[cfg(test)]
                 checkpoint(Stage::Readback).map_err(EmbedError::inference)?;
                 let unpacked = split_pooled(flat, batch_size, hidden_size, EmbedKind::Batch)?;
@@ -328,25 +312,12 @@ impl EmbedderInner {
     }
 }
 
-/// Build the attention-mask `Array`, run `gpu_pool_and_normalize`, and
-/// evaluate the lazy graph so the resulting `Array` is materialised on
-/// the GPU before the caller reads it back.
+/// Pool and normalize on the GPU, then evaluate before host readback.
+/// Consuming `output` leaves only the pooled Array for the caller to drop
+/// inside `run_inference` before cleanup.
 ///
-/// The `output: Array` consume-by-value signature carries the
-/// drop-before-clear contract of [`run_inference`] from this
-/// layer up to the caller. The returned
-/// pooled `Array` is the **only** Array the caller now owns from this
-/// forward pass — `output` was consumed by `gpu_pool_and_normalize`.
-///
-/// `attention_mask` is constructed with shape `[batch_size, seq_len]` by
-/// `Array::from_slice`; production callers (`pad_sequences`) guarantee
-/// `attention_mask.len() == batch_size * seq_len` and that mask values
-/// are `0` or `1` (validated upstream by
-/// `ModernBert::forward::validate_attention_mask`).
-///
-/// # Errors
-///
-/// Returns [`EmbedError::Inference`] if a pool op or `eval` fails.
+/// Callers supply a `[batch_size, seq_len]` binary mask; `ModernBert::forward`
+/// validates its values upstream. Pool or eval failures return `EmbedError::Inference`.
 pub(super) fn pool_output(
     output: Array,
     attention_mask: &[u32],
@@ -361,4 +332,36 @@ pub(super) fn pool_output(
     #[cfg(test)]
     checkpoint(Stage::Eval).map_err(EmbedError::inference)?;
     Ok(pooled)
+}
+
+// All embedding host accesses pass this boundary. Count the returned slice,
+// including extra accesses; inference shape is only the independent expectation.
+fn readback<'a>(array: &'a Array, elements: &mut Vec<usize>, observe: bool) -> &'a [f32] {
+    let flat = array.as_slice();
+    if observe {
+        elements.push(flat.len());
+    }
+    flat
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sandbox::require_unsandboxed_mlx_runtime;
+
+    #[test]
+    fn readback_metrics_observe_host_accesses_and_slice_lengths() {
+        require_unsandboxed_mlx_runtime();
+        let array = Array::from_slice(&[1.0_f32, 2.0, 3.0], &[3]);
+        let expanded = Array::from_slice(&[1.0_f32; 6], &[2, 3]);
+        let mut metrics = PhaseMetrics::new(EmbedKind::Batch);
+        assert_eq!(
+            readback(&array, &mut metrics.readback_elements, true),
+            &[1.0, 2.0, 3.0]
+        );
+        readback(&array, &mut metrics.readback_elements, true);
+        readback(&expanded, &mut metrics.readback_elements, true);
+        let snapshot = super::super::metrics::InferenceMetrics::from(metrics);
+        assert_eq!(snapshot.readback_elements, Some(vec![3, 3, 6]));
+    }
 }
