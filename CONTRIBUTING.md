@@ -174,6 +174,12 @@ Python参照環境の通常インストール・依存整合・厳密な導入�
 [Python環境の検証手順](docs/research/issue-307/README.md#ホストで実行する)を使い、実モデル比較とは区別する。
 [準備時点の記録](docs/research/issue-307/report.md)から測定状況と未確認範囲を確認できる。
 
+### 検索意味とquery planの設計比較（Issue #314）
+
+検索時のphrase・短語展開と構成識別の分担は[Issue #314の設計比較](docs/research/issue-314/README.md)を参照する。
+そのSQLite研究検証はPython標準ライブラリで実行できる。製品入口との照合は通常のRust searchテストに含まれるが、
+amiciの固定版parserとround-trip確認は標準checkの対象外なので、同ページのホスト手順で別途確認する。
+
 ### 構成識別の設計例（Issue #315）
 
 embedding・FTS構成の保存と照合の未採用案は、[設計報告と実行例](docs/research/issue-315/README.md)を参照する。

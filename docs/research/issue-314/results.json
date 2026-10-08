@@ -1,0 +1,1979 @@
+{
+  "schema": 1,
+  "python": "3.14.8",
+  "sqlite": "3.53.1",
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "normalization": "all-off on both sides",
+  "source_sha256": {
+    "Cargo.lock": "743d754ae4fb6f0f44d169feab408a1b80caa50d17c38b058ec156c66811bf30",
+    "src/storage/search.rs": "d8c10312b4fa9bbb59f159fac7a433866c95890a7b8f129b2a0e6fc239dbc7e7",
+    "src/storage/query_normalize.rs": "f11c06ff30711d6707581951c7682be3416d14a643bc76d907f1a7cf5b6f59e9",
+    "docs/research/issue-314/cases.json": "e8632e9573ae8098eae6326d81129ef56c44732a6f48ed90a505d6069ff73bdb",
+    "docs/research/issue-314/plan.py": "52919ac0c44b69193363c6ec388be6492c9a73fc10de08656b5d50eefea5d563",
+    "docs/research/issue-314/run.py": "fd597992aba97a0f2adc00a28f32d37e75bc652f54e37368fa718c94f6964669"
+  },
+  "cases": [
+    {
+      "case": "phrase",
+      "tokenizer": "unicode61",
+      "mode": "legacy",
+      "wire": "\"\"\"foo\" AND \"bar\"\"\"",
+      "hits": [
+        1,
+        2
+      ],
+      "quality": {
+        "true_positive": 1,
+        "false_positive": 1,
+        "false_negative": 0,
+        "precision": 0.5,
+        "recall": 1.0
+      },
+      "expansions": []
+    },
+    {
+      "case": "phrase",
+      "tokenizer": "unicode61",
+      "mode": "deterministic",
+      "wire": "\"\"\"foo\" AND \"bar\"\"\"",
+      "hits": [
+        1,
+        2
+      ],
+      "quality": {
+        "true_positive": 1,
+        "false_positive": 1,
+        "false_negative": 0,
+        "precision": 0.5,
+        "recall": 1.0
+      },
+      "expansions": []
+    },
+    {
+      "case": "phrase",
+      "tokenizer": "unicode61",
+      "mode": "missing-vocab",
+      "wire": "\"\"\"foo\" AND \"bar\"\"\"",
+      "hits": [
+        1,
+        2
+      ],
+      "quality": {
+        "true_positive": 1,
+        "false_positive": 1,
+        "false_negative": 0,
+        "precision": 0.5,
+        "recall": 1.0
+      },
+      "expansions": []
+    },
+    {
+      "case": "phrase",
+      "tokenizer": "unicode61",
+      "mode": "explicit-phrase",
+      "wire": "\"foo bar\"",
+      "hits": [
+        1
+      ],
+      "quality": {
+        "true_positive": 1,
+        "false_positive": 0,
+        "false_negative": 0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "expansions": []
+    },
+    {
+      "case": "operator",
+      "tokenizer": "unicode61",
+      "mode": "legacy",
+      "wire": "\"foo\" AND \"OR\" AND \"bar\"",
+      "hits": [
+        1
+      ],
+      "quality": {
+        "true_positive": 1,
+        "false_positive": 0,
+        "false_negative": 0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "expansions": []
+    },
+    {
+      "case": "operator",
+      "tokenizer": "unicode61",
+      "mode": "deterministic",
+      "wire": "\"foo\" AND \"OR\" AND \"bar\"",
+      "hits": [
+        1
+      ],
+      "quality": {
+        "true_positive": 1,
+        "false_positive": 0,
+        "false_negative": 0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "expansions": []
+    },
+    {
+      "case": "operator",
+      "tokenizer": "unicode61",
+      "mode": "missing-vocab",
+      "wire": "\"foo\" AND \"OR\" AND \"bar\"",
+      "hits": [
+        1
+      ],
+      "quality": {
+        "true_positive": 1,
+        "false_positive": 0,
+        "false_negative": 0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "expansions": []
+    },
+    {
+      "case": "wildcards",
+      "tokenizer": "unicode61",
+      "mode": "legacy",
+      "wire": "\"abc*def%_\"",
+      "hits": [
+        1,
+        2
+      ],
+      "quality": {
+        "true_positive": 1,
+        "false_positive": 1,
+        "false_negative": 0,
+        "precision": 0.5,
+        "recall": 1.0
+      },
+      "expansions": []
+    },
+    {
+      "case": "wildcards",
+      "tokenizer": "unicode61",
+      "mode": "deterministic",
+      "wire": "\"abc*def%_\"",
+      "hits": [
+        1,
+        2
+      ],
+      "quality": {
+        "true_positive": 1,
+        "false_positive": 1,
+        "false_negative": 0,
+        "precision": 0.5,
+        "recall": 1.0
+      },
+      "expansions": []
+    },
+    {
+      "case": "wildcards",
+      "tokenizer": "unicode61",
+      "mode": "missing-vocab",
+      "wire": "\"abc*def%_\"",
+      "hits": [
+        1,
+        2
+      ],
+      "quality": {
+        "true_positive": 1,
+        "false_positive": 1,
+        "false_negative": 0,
+        "precision": 0.5,
+        "recall": 1.0
+      },
+      "expansions": []
+    },
+    {
+      "case": "japanese-one",
+      "tokenizer": "unicode61",
+      "mode": "legacy",
+      "wire": "(\"日\" OR \"日本海\" OR \"日本語\")",
+      "hits": [
+        1,
+        2,
+        4
+      ],
+      "quality": {
+        "true_positive": 3,
+        "false_positive": 0,
+        "false_negative": 1,
+        "precision": 1.0,
+        "recall": 0.75
+      },
+      "expansions": [
+        {
+          "source": "日",
+          "selected": [
+            "日",
+            "日本海",
+            "日本語"
+          ],
+          "truncated": null,
+          "fallback": null
+        }
+      ]
+    },
+    {
+      "case": "japanese-one",
+      "tokenizer": "unicode61",
+      "mode": "deterministic",
+      "wire": "(\"日\" OR \"日本海\" OR \"日本語\")",
+      "hits": [
+        1,
+        2,
+        4
+      ],
+      "quality": {
+        "true_positive": 3,
+        "false_positive": 0,
+        "false_negative": 1,
+        "precision": 1.0,
+        "recall": 0.75
+      },
+      "expansions": [
+        {
+          "source": "日",
+          "selected": [
+            "日",
+            "日本海",
+            "日本語"
+          ],
+          "truncated": false,
+          "fallback": null
+        }
+      ]
+    },
+    {
+      "case": "japanese-one",
+      "tokenizer": "unicode61",
+      "mode": "missing-vocab",
+      "wire": "\"日\"",
+      "hits": [
+        4
+      ],
+      "quality": {
+        "true_positive": 1,
+        "false_positive": 0,
+        "false_negative": 3,
+        "precision": 1.0,
+        "recall": 0.25
+      },
+      "expansions": [
+        {
+          "source": "日",
+          "selected": [],
+          "truncated": false,
+          "fallback": "missing-vocab"
+        }
+      ]
+    },
+    {
+      "case": "japanese-two",
+      "tokenizer": "unicode61",
+      "mode": "legacy",
+      "wire": "(\"日本\" OR \"日本海\" OR \"日本語\")",
+      "hits": [
+        1,
+        2,
+        3
+      ],
+      "quality": {
+        "true_positive": 3,
+        "false_positive": 0,
+        "false_negative": 0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "expansions": [
+        {
+          "source": "日本",
+          "selected": [
+            "日本",
+            "日本海",
+            "日本語"
+          ],
+          "truncated": null,
+          "fallback": null
+        }
+      ]
+    },
+    {
+      "case": "japanese-two",
+      "tokenizer": "unicode61",
+      "mode": "deterministic",
+      "wire": "(\"日本\" OR \"日本海\" OR \"日本語\")",
+      "hits": [
+        1,
+        2,
+        3
+      ],
+      "quality": {
+        "true_positive": 3,
+        "false_positive": 0,
+        "false_negative": 0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "expansions": [
+        {
+          "source": "日本",
+          "selected": [
+            "日本",
+            "日本海",
+            "日本語"
+          ],
+          "truncated": false,
+          "fallback": null
+        }
+      ]
+    },
+    {
+      "case": "japanese-two",
+      "tokenizer": "unicode61",
+      "mode": "missing-vocab",
+      "wire": "\"日本\"",
+      "hits": [
+        3
+      ],
+      "quality": {
+        "true_positive": 1,
+        "false_positive": 0,
+        "false_negative": 2,
+        "precision": 1.0,
+        "recall": 0.3333333333333333
+      },
+      "expansions": [
+        {
+          "source": "日本",
+          "selected": [],
+          "truncated": false,
+          "fallback": "missing-vocab"
+        }
+      ]
+    },
+    {
+      "case": "rare",
+      "tokenizer": "unicode61",
+      "mode": "legacy",
+      "wire": "(\"珍語彙\")",
+      "hits": [
+        1
+      ],
+      "quality": {
+        "true_positive": 1,
+        "false_positive": 0,
+        "false_negative": 0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "expansions": [
+        {
+          "source": "珍",
+          "selected": [
+            "珍語彙"
+          ],
+          "truncated": null,
+          "fallback": null
+        }
+      ]
+    },
+    {
+      "case": "rare",
+      "tokenizer": "unicode61",
+      "mode": "deterministic",
+      "wire": "(\"珍語彙\")",
+      "hits": [
+        1
+      ],
+      "quality": {
+        "true_positive": 1,
+        "false_positive": 0,
+        "false_negative": 0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "expansions": [
+        {
+          "source": "珍",
+          "selected": [
+            "珍語彙"
+          ],
+          "truncated": false,
+          "fallback": null
+        }
+      ]
+    },
+    {
+      "case": "rare",
+      "tokenizer": "unicode61",
+      "mode": "missing-vocab",
+      "wire": "\"珍\"",
+      "hits": [],
+      "quality": {
+        "true_positive": 0,
+        "false_positive": 0,
+        "false_negative": 1,
+        "precision": null,
+        "recall": 0.0
+      },
+      "expansions": [
+        {
+          "source": "珍",
+          "selected": [],
+          "truncated": false,
+          "fallback": "missing-vocab"
+        }
+      ]
+    },
+    {
+      "case": "no-candidates",
+      "tokenizer": "unicode61",
+      "mode": "legacy",
+      "wire": "\"無\"",
+      "hits": [],
+      "quality": {
+        "true_positive": 0,
+        "false_positive": 0,
+        "false_negative": 0,
+        "precision": null,
+        "recall": null
+      },
+      "expansions": [
+        {
+          "source": "無",
+          "selected": [],
+          "truncated": null,
+          "fallback": "no-candidates"
+        }
+      ]
+    },
+    {
+      "case": "no-candidates",
+      "tokenizer": "unicode61",
+      "mode": "deterministic",
+      "wire": "\"無\"",
+      "hits": [],
+      "quality": {
+        "true_positive": 0,
+        "false_positive": 0,
+        "false_negative": 0,
+        "precision": null,
+        "recall": null
+      },
+      "expansions": [
+        {
+          "source": "無",
+          "selected": [],
+          "truncated": false,
+          "fallback": "no-candidates"
+        }
+      ]
+    },
+    {
+      "case": "no-candidates",
+      "tokenizer": "unicode61",
+      "mode": "missing-vocab",
+      "wire": "\"無\"",
+      "hits": [],
+      "quality": {
+        "true_positive": 0,
+        "false_positive": 0,
+        "false_negative": 0,
+        "precision": null,
+        "recall": null
+      },
+      "expansions": [
+        {
+          "source": "無",
+          "selected": [],
+          "truncated": false,
+          "fallback": "missing-vocab"
+        }
+      ]
+    },
+    {
+      "case": "percent",
+      "tokenizer": "unicode61",
+      "mode": "legacy",
+      "wire": "\"日%\"",
+      "hits": [
+        2,
+        3
+      ],
+      "quality": {
+        "true_positive": 1,
+        "false_positive": 1,
+        "false_negative": 0,
+        "precision": 0.5,
+        "recall": 1.0
+      },
+      "expansions": [
+        {
+          "source": "日%",
+          "selected": [],
+          "truncated": null,
+          "fallback": "no-candidates"
+        }
+      ]
+    },
+    {
+      "case": "percent",
+      "tokenizer": "unicode61",
+      "mode": "deterministic",
+      "wire": "\"日%\"",
+      "hits": [
+        2,
+        3
+      ],
+      "quality": {
+        "true_positive": 1,
+        "false_positive": 1,
+        "false_negative": 0,
+        "precision": 0.5,
+        "recall": 1.0
+      },
+      "expansions": [
+        {
+          "source": "日%",
+          "selected": [],
+          "truncated": false,
+          "fallback": "no-candidates"
+        }
+      ]
+    },
+    {
+      "case": "percent",
+      "tokenizer": "unicode61",
+      "mode": "missing-vocab",
+      "wire": "\"日%\"",
+      "hits": [
+        2,
+        3
+      ],
+      "quality": {
+        "true_positive": 1,
+        "false_positive": 1,
+        "false_negative": 0,
+        "precision": 0.5,
+        "recall": 1.0
+      },
+      "expansions": [
+        {
+          "source": "日%",
+          "selected": [],
+          "truncated": false,
+          "fallback": "missing-vocab"
+        }
+      ]
+    },
+    {
+      "case": "underscore",
+      "tokenizer": "unicode61",
+      "mode": "legacy",
+      "wire": "\"日_\"",
+      "hits": [
+        2,
+        3
+      ],
+      "quality": {
+        "true_positive": 1,
+        "false_positive": 1,
+        "false_negative": 0,
+        "precision": 0.5,
+        "recall": 1.0
+      },
+      "expansions": [
+        {
+          "source": "日_",
+          "selected": [],
+          "truncated": null,
+          "fallback": "no-candidates"
+        }
+      ]
+    },
+    {
+      "case": "underscore",
+      "tokenizer": "unicode61",
+      "mode": "deterministic",
+      "wire": "\"日_\"",
+      "hits": [
+        2,
+        3
+      ],
+      "quality": {
+        "true_positive": 1,
+        "false_positive": 1,
+        "false_negative": 0,
+        "precision": 0.5,
+        "recall": 1.0
+      },
+      "expansions": [
+        {
+          "source": "日_",
+          "selected": [],
+          "truncated": false,
+          "fallback": "no-candidates"
+        }
+      ]
+    },
+    {
+      "case": "underscore",
+      "tokenizer": "unicode61",
+      "mode": "missing-vocab",
+      "wire": "\"日_\"",
+      "hits": [
+        2,
+        3
+      ],
+      "quality": {
+        "true_positive": 1,
+        "false_positive": 1,
+        "false_negative": 0,
+        "precision": 0.5,
+        "recall": 1.0
+      },
+      "expansions": [
+        {
+          "source": "日_",
+          "selected": [],
+          "truncated": false,
+          "fallback": "missing-vocab"
+        }
+      ]
+    },
+    {
+      "case": "backslash",
+      "tokenizer": "unicode61",
+      "mode": "legacy",
+      "wire": "\"日\\\"",
+      "hits": [
+        2
+      ],
+      "quality": {
+        "true_positive": 1,
+        "false_positive": 0,
+        "false_negative": 0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "expansions": [
+        {
+          "source": "日\\",
+          "selected": [],
+          "truncated": null,
+          "fallback": "no-candidates"
+        }
+      ]
+    },
+    {
+      "case": "backslash",
+      "tokenizer": "unicode61",
+      "mode": "deterministic",
+      "wire": "\"日\\\"",
+      "hits": [
+        2
+      ],
+      "quality": {
+        "true_positive": 1,
+        "false_positive": 0,
+        "false_negative": 0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "expansions": [
+        {
+          "source": "日\\",
+          "selected": [],
+          "truncated": false,
+          "fallback": "no-candidates"
+        }
+      ]
+    },
+    {
+      "case": "backslash",
+      "tokenizer": "unicode61",
+      "mode": "missing-vocab",
+      "wire": "\"日\\\"",
+      "hits": [
+        2
+      ],
+      "quality": {
+        "true_positive": 1,
+        "false_positive": 0,
+        "false_negative": 0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "expansions": [
+        {
+          "source": "日\\",
+          "selected": [],
+          "truncated": false,
+          "fallback": "missing-vocab"
+        }
+      ]
+    },
+    {
+      "case": "cap-ties",
+      "tokenizer": "unicode61",
+      "mode": "legacy",
+      "wire": "(\"日一語\" OR \"日丁語\" OR \"日丂語\" OR \"日七語\" OR \"日丄語\" OR \"日丅語\" OR \"日丆語\" OR \"日万語\" OR \"日丈語\" OR \"日三語\" OR \"日上語\" OR \"日下語\" OR \"日丌語\" OR \"日不語\" OR \"日与語\" OR \"日丏語\" OR \"日丐語\" OR \"日丑語\" OR \"日丒語\" OR \"日专語\" OR \"日且語\" OR \"日丕語\" OR \"日世語\" OR \"日丗語\" OR \"日丘語\")",
+      "hits": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55
+      ],
+      "quality": {
+        "true_positive": 50,
+        "false_positive": 0,
+        "false_negative": 11,
+        "precision": 1.0,
+        "recall": 0.819672131147541
+      },
+      "expansions": [
+        {
+          "source": "日",
+          "selected": [
+            "日一語",
+            "日丁語",
+            "日丂語",
+            "日七語",
+            "日丄語",
+            "日丅語",
+            "日丆語",
+            "日万語",
+            "日丈語",
+            "日三語",
+            "日上語",
+            "日下語",
+            "日丌語",
+            "日不語",
+            "日与語",
+            "日丏語",
+            "日丐語",
+            "日丑語",
+            "日丒語",
+            "日专語",
+            "日且語",
+            "日丕語",
+            "日世語",
+            "日丗語",
+            "日丘語"
+          ],
+          "truncated": null,
+          "fallback": null
+        }
+      ]
+    },
+    {
+      "case": "cap-ties",
+      "tokenizer": "unicode61",
+      "mode": "deterministic",
+      "wire": "(\"日一語\" OR \"日丁語\" OR \"日丂語\" OR \"日七語\" OR \"日丄語\" OR \"日丅語\" OR \"日丆語\" OR \"日万語\" OR \"日丈語\" OR \"日三語\" OR \"日上語\" OR \"日下語\" OR \"日丌語\" OR \"日不語\" OR \"日与語\" OR \"日丏語\" OR \"日丐語\" OR \"日丑語\" OR \"日丒語\" OR \"日专語\" OR \"日且語\" OR \"日丕語\" OR \"日世語\" OR \"日丗語\" OR \"日丘語\")",
+      "hits": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55
+      ],
+      "quality": {
+        "true_positive": 50,
+        "false_positive": 0,
+        "false_negative": 11,
+        "precision": 1.0,
+        "recall": 0.819672131147541
+      },
+      "expansions": [
+        {
+          "source": "日",
+          "selected": [
+            "日一語",
+            "日丁語",
+            "日丂語",
+            "日七語",
+            "日丄語",
+            "日丅語",
+            "日丆語",
+            "日万語",
+            "日丈語",
+            "日三語",
+            "日上語",
+            "日下語",
+            "日丌語",
+            "日不語",
+            "日与語",
+            "日丏語",
+            "日丐語",
+            "日丑語",
+            "日丒語",
+            "日专語",
+            "日且語",
+            "日丕語",
+            "日世語",
+            "日丗語",
+            "日丘語"
+          ],
+          "truncated": true,
+          "fallback": null
+        }
+      ]
+    },
+    {
+      "case": "cap-ties",
+      "tokenizer": "unicode61",
+      "mode": "missing-vocab",
+      "wire": "\"日\"",
+      "hits": [],
+      "quality": {
+        "true_positive": 0,
+        "false_positive": 0,
+        "false_negative": 61,
+        "precision": null,
+        "recall": 0.0
+      },
+      "expansions": [
+        {
+          "source": "日",
+          "selected": [],
+          "truncated": false,
+          "fallback": "missing-vocab"
+        }
+      ]
+    },
+    {
+      "case": "phrase",
+      "tokenizer": "trigram",
+      "mode": "legacy",
+      "wire": "\"\"\"foo\" AND \"bar\"\"\"",
+      "hits": [],
+      "quality": {
+        "true_positive": 0,
+        "false_positive": 0,
+        "false_negative": 1,
+        "precision": null,
+        "recall": 0.0
+      },
+      "expansions": []
+    },
+    {
+      "case": "phrase",
+      "tokenizer": "trigram",
+      "mode": "deterministic",
+      "wire": "\"\"\"foo\" AND \"bar\"\"\"",
+      "hits": [],
+      "quality": {
+        "true_positive": 0,
+        "false_positive": 0,
+        "false_negative": 1,
+        "precision": null,
+        "recall": 0.0
+      },
+      "expansions": []
+    },
+    {
+      "case": "phrase",
+      "tokenizer": "trigram",
+      "mode": "missing-vocab",
+      "wire": "\"\"\"foo\" AND \"bar\"\"\"",
+      "hits": [],
+      "quality": {
+        "true_positive": 0,
+        "false_positive": 0,
+        "false_negative": 1,
+        "precision": null,
+        "recall": 0.0
+      },
+      "expansions": []
+    },
+    {
+      "case": "phrase",
+      "tokenizer": "trigram",
+      "mode": "explicit-phrase",
+      "wire": "\"foo bar\"",
+      "hits": [
+        1
+      ],
+      "quality": {
+        "true_positive": 1,
+        "false_positive": 0,
+        "false_negative": 0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "expansions": []
+    },
+    {
+      "case": "operator",
+      "tokenizer": "trigram",
+      "mode": "legacy",
+      "wire": "\"foo\" AND \"OR\" AND \"bar\"",
+      "hits": [],
+      "quality": {
+        "true_positive": 0,
+        "false_positive": 0,
+        "false_negative": 1,
+        "precision": null,
+        "recall": 0.0
+      },
+      "expansions": []
+    },
+    {
+      "case": "operator",
+      "tokenizer": "trigram",
+      "mode": "deterministic",
+      "wire": "\"foo\" AND \"OR\" AND \"bar\"",
+      "hits": [],
+      "quality": {
+        "true_positive": 0,
+        "false_positive": 0,
+        "false_negative": 1,
+        "precision": null,
+        "recall": 0.0
+      },
+      "expansions": []
+    },
+    {
+      "case": "operator",
+      "tokenizer": "trigram",
+      "mode": "missing-vocab",
+      "wire": "\"foo\" AND \"OR\" AND \"bar\"",
+      "hits": [],
+      "quality": {
+        "true_positive": 0,
+        "false_positive": 0,
+        "false_negative": 1,
+        "precision": null,
+        "recall": 0.0
+      },
+      "expansions": []
+    },
+    {
+      "case": "wildcards",
+      "tokenizer": "trigram",
+      "mode": "legacy",
+      "wire": "\"abc*def%_\"",
+      "hits": [
+        1
+      ],
+      "quality": {
+        "true_positive": 1,
+        "false_positive": 0,
+        "false_negative": 0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "expansions": []
+    },
+    {
+      "case": "wildcards",
+      "tokenizer": "trigram",
+      "mode": "deterministic",
+      "wire": "\"abc*def%_\"",
+      "hits": [
+        1
+      ],
+      "quality": {
+        "true_positive": 1,
+        "false_positive": 0,
+        "false_negative": 0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "expansions": []
+    },
+    {
+      "case": "wildcards",
+      "tokenizer": "trigram",
+      "mode": "missing-vocab",
+      "wire": "\"abc*def%_\"",
+      "hits": [
+        1
+      ],
+      "quality": {
+        "true_positive": 1,
+        "false_positive": 0,
+        "false_negative": 0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "expansions": []
+    },
+    {
+      "case": "japanese-one",
+      "tokenizer": "trigram",
+      "mode": "legacy",
+      "wire": "(\"日本海\" OR \"日本語\")",
+      "hits": [
+        1,
+        2
+      ],
+      "quality": {
+        "true_positive": 2,
+        "false_positive": 0,
+        "false_negative": 2,
+        "precision": 1.0,
+        "recall": 0.5
+      },
+      "expansions": [
+        {
+          "source": "日",
+          "selected": [
+            "日本海",
+            "日本語"
+          ],
+          "truncated": null,
+          "fallback": null
+        }
+      ]
+    },
+    {
+      "case": "japanese-one",
+      "tokenizer": "trigram",
+      "mode": "deterministic",
+      "wire": "(\"日本海\" OR \"日本語\")",
+      "hits": [
+        1,
+        2
+      ],
+      "quality": {
+        "true_positive": 2,
+        "false_positive": 0,
+        "false_negative": 2,
+        "precision": 1.0,
+        "recall": 0.5
+      },
+      "expansions": [
+        {
+          "source": "日",
+          "selected": [
+            "日本海",
+            "日本語"
+          ],
+          "truncated": false,
+          "fallback": null
+        }
+      ]
+    },
+    {
+      "case": "japanese-one",
+      "tokenizer": "trigram",
+      "mode": "missing-vocab",
+      "wire": "\"日\"",
+      "hits": [],
+      "quality": {
+        "true_positive": 0,
+        "false_positive": 0,
+        "false_negative": 4,
+        "precision": null,
+        "recall": 0.0
+      },
+      "expansions": [
+        {
+          "source": "日",
+          "selected": [],
+          "truncated": false,
+          "fallback": "missing-vocab"
+        }
+      ]
+    },
+    {
+      "case": "japanese-two",
+      "tokenizer": "trigram",
+      "mode": "legacy",
+      "wire": "(\"日本海\" OR \"日本語\")",
+      "hits": [
+        1,
+        2
+      ],
+      "quality": {
+        "true_positive": 2,
+        "false_positive": 0,
+        "false_negative": 1,
+        "precision": 1.0,
+        "recall": 0.6666666666666666
+      },
+      "expansions": [
+        {
+          "source": "日本",
+          "selected": [
+            "日本海",
+            "日本語"
+          ],
+          "truncated": null,
+          "fallback": null
+        }
+      ]
+    },
+    {
+      "case": "japanese-two",
+      "tokenizer": "trigram",
+      "mode": "deterministic",
+      "wire": "(\"日本海\" OR \"日本語\")",
+      "hits": [
+        1,
+        2
+      ],
+      "quality": {
+        "true_positive": 2,
+        "false_positive": 0,
+        "false_negative": 1,
+        "precision": 1.0,
+        "recall": 0.6666666666666666
+      },
+      "expansions": [
+        {
+          "source": "日本",
+          "selected": [
+            "日本海",
+            "日本語"
+          ],
+          "truncated": false,
+          "fallback": null
+        }
+      ]
+    },
+    {
+      "case": "japanese-two",
+      "tokenizer": "trigram",
+      "mode": "missing-vocab",
+      "wire": "\"日本\"",
+      "hits": [],
+      "quality": {
+        "true_positive": 0,
+        "false_positive": 0,
+        "false_negative": 3,
+        "precision": null,
+        "recall": 0.0
+      },
+      "expansions": [
+        {
+          "source": "日本",
+          "selected": [],
+          "truncated": false,
+          "fallback": "missing-vocab"
+        }
+      ]
+    },
+    {
+      "case": "rare",
+      "tokenizer": "trigram",
+      "mode": "legacy",
+      "wire": "(\"珍語彙\")",
+      "hits": [
+        1
+      ],
+      "quality": {
+        "true_positive": 1,
+        "false_positive": 0,
+        "false_negative": 0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "expansions": [
+        {
+          "source": "珍",
+          "selected": [
+            "珍語彙"
+          ],
+          "truncated": null,
+          "fallback": null
+        }
+      ]
+    },
+    {
+      "case": "rare",
+      "tokenizer": "trigram",
+      "mode": "deterministic",
+      "wire": "(\"珍語彙\")",
+      "hits": [
+        1
+      ],
+      "quality": {
+        "true_positive": 1,
+        "false_positive": 0,
+        "false_negative": 0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "expansions": [
+        {
+          "source": "珍",
+          "selected": [
+            "珍語彙"
+          ],
+          "truncated": false,
+          "fallback": null
+        }
+      ]
+    },
+    {
+      "case": "rare",
+      "tokenizer": "trigram",
+      "mode": "missing-vocab",
+      "wire": "\"珍\"",
+      "hits": [],
+      "quality": {
+        "true_positive": 0,
+        "false_positive": 0,
+        "false_negative": 1,
+        "precision": null,
+        "recall": 0.0
+      },
+      "expansions": [
+        {
+          "source": "珍",
+          "selected": [],
+          "truncated": false,
+          "fallback": "missing-vocab"
+        }
+      ]
+    },
+    {
+      "case": "no-candidates",
+      "tokenizer": "trigram",
+      "mode": "legacy",
+      "wire": "\"無\"",
+      "hits": [],
+      "quality": {
+        "true_positive": 0,
+        "false_positive": 0,
+        "false_negative": 0,
+        "precision": null,
+        "recall": null
+      },
+      "expansions": [
+        {
+          "source": "無",
+          "selected": [],
+          "truncated": null,
+          "fallback": "no-candidates"
+        }
+      ]
+    },
+    {
+      "case": "no-candidates",
+      "tokenizer": "trigram",
+      "mode": "deterministic",
+      "wire": "\"無\"",
+      "hits": [],
+      "quality": {
+        "true_positive": 0,
+        "false_positive": 0,
+        "false_negative": 0,
+        "precision": null,
+        "recall": null
+      },
+      "expansions": [
+        {
+          "source": "無",
+          "selected": [],
+          "truncated": false,
+          "fallback": "no-candidates"
+        }
+      ]
+    },
+    {
+      "case": "no-candidates",
+      "tokenizer": "trigram",
+      "mode": "missing-vocab",
+      "wire": "\"無\"",
+      "hits": [],
+      "quality": {
+        "true_positive": 0,
+        "false_positive": 0,
+        "false_negative": 0,
+        "precision": null,
+        "recall": null
+      },
+      "expansions": [
+        {
+          "source": "無",
+          "selected": [],
+          "truncated": false,
+          "fallback": "missing-vocab"
+        }
+      ]
+    },
+    {
+      "case": "percent",
+      "tokenizer": "trigram",
+      "mode": "legacy",
+      "wire": "(\"日%本\")",
+      "hits": [
+        2
+      ],
+      "quality": {
+        "true_positive": 1,
+        "false_positive": 0,
+        "false_negative": 0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "expansions": [
+        {
+          "source": "日%",
+          "selected": [
+            "日%本"
+          ],
+          "truncated": null,
+          "fallback": null
+        }
+      ]
+    },
+    {
+      "case": "percent",
+      "tokenizer": "trigram",
+      "mode": "deterministic",
+      "wire": "(\"日%本\")",
+      "hits": [
+        2
+      ],
+      "quality": {
+        "true_positive": 1,
+        "false_positive": 0,
+        "false_negative": 0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "expansions": [
+        {
+          "source": "日%",
+          "selected": [
+            "日%本"
+          ],
+          "truncated": false,
+          "fallback": null
+        }
+      ]
+    },
+    {
+      "case": "percent",
+      "tokenizer": "trigram",
+      "mode": "missing-vocab",
+      "wire": "\"日%\"",
+      "hits": [],
+      "quality": {
+        "true_positive": 0,
+        "false_positive": 0,
+        "false_negative": 1,
+        "precision": null,
+        "recall": 0.0
+      },
+      "expansions": [
+        {
+          "source": "日%",
+          "selected": [],
+          "truncated": false,
+          "fallback": "missing-vocab"
+        }
+      ]
+    },
+    {
+      "case": "underscore",
+      "tokenizer": "trigram",
+      "mode": "legacy",
+      "wire": "(\"日_本\")",
+      "hits": [
+        3
+      ],
+      "quality": {
+        "true_positive": 1,
+        "false_positive": 0,
+        "false_negative": 0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "expansions": [
+        {
+          "source": "日_",
+          "selected": [
+            "日_本"
+          ],
+          "truncated": null,
+          "fallback": null
+        }
+      ]
+    },
+    {
+      "case": "underscore",
+      "tokenizer": "trigram",
+      "mode": "deterministic",
+      "wire": "(\"日_本\")",
+      "hits": [
+        3
+      ],
+      "quality": {
+        "true_positive": 1,
+        "false_positive": 0,
+        "false_negative": 0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "expansions": [
+        {
+          "source": "日_",
+          "selected": [
+            "日_本"
+          ],
+          "truncated": false,
+          "fallback": null
+        }
+      ]
+    },
+    {
+      "case": "underscore",
+      "tokenizer": "trigram",
+      "mode": "missing-vocab",
+      "wire": "\"日_\"",
+      "hits": [],
+      "quality": {
+        "true_positive": 0,
+        "false_positive": 0,
+        "false_negative": 1,
+        "precision": null,
+        "recall": 0.0
+      },
+      "expansions": [
+        {
+          "source": "日_",
+          "selected": [],
+          "truncated": false,
+          "fallback": "missing-vocab"
+        }
+      ]
+    },
+    {
+      "case": "backslash",
+      "tokenizer": "trigram",
+      "mode": "legacy",
+      "wire": "(\"日\\本\")",
+      "hits": [
+        2
+      ],
+      "quality": {
+        "true_positive": 1,
+        "false_positive": 0,
+        "false_negative": 0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "expansions": [
+        {
+          "source": "日\\",
+          "selected": [
+            "日\\本"
+          ],
+          "truncated": null,
+          "fallback": null
+        }
+      ]
+    },
+    {
+      "case": "backslash",
+      "tokenizer": "trigram",
+      "mode": "deterministic",
+      "wire": "(\"日\\本\")",
+      "hits": [
+        2
+      ],
+      "quality": {
+        "true_positive": 1,
+        "false_positive": 0,
+        "false_negative": 0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "expansions": [
+        {
+          "source": "日\\",
+          "selected": [
+            "日\\本"
+          ],
+          "truncated": false,
+          "fallback": null
+        }
+      ]
+    },
+    {
+      "case": "backslash",
+      "tokenizer": "trigram",
+      "mode": "missing-vocab",
+      "wire": "\"日\\\"",
+      "hits": [],
+      "quality": {
+        "true_positive": 0,
+        "false_positive": 0,
+        "false_negative": 1,
+        "precision": null,
+        "recall": 0.0
+      },
+      "expansions": [
+        {
+          "source": "日\\",
+          "selected": [],
+          "truncated": false,
+          "fallback": "missing-vocab"
+        }
+      ]
+    },
+    {
+      "case": "cap-ties",
+      "tokenizer": "trigram",
+      "mode": "legacy",
+      "wire": "(\"日一語\" OR \"日丁語\" OR \"日丂語\" OR \"日七語\" OR \"日丄語\" OR \"日丅語\" OR \"日丆語\" OR \"日万語\" OR \"日丈語\" OR \"日三語\" OR \"日上語\" OR \"日下語\" OR \"日丌語\" OR \"日不語\" OR \"日与語\" OR \"日丏語\" OR \"日丐語\" OR \"日丑語\" OR \"日丒語\" OR \"日专語\" OR \"日且語\" OR \"日丕語\" OR \"日世語\" OR \"日丗語\" OR \"日丘語\")",
+      "hits": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55
+      ],
+      "quality": {
+        "true_positive": 50,
+        "false_positive": 0,
+        "false_negative": 11,
+        "precision": 1.0,
+        "recall": 0.819672131147541
+      },
+      "expansions": [
+        {
+          "source": "日",
+          "selected": [
+            "日一語",
+            "日丁語",
+            "日丂語",
+            "日七語",
+            "日丄語",
+            "日丅語",
+            "日丆語",
+            "日万語",
+            "日丈語",
+            "日三語",
+            "日上語",
+            "日下語",
+            "日丌語",
+            "日不語",
+            "日与語",
+            "日丏語",
+            "日丐語",
+            "日丑語",
+            "日丒語",
+            "日专語",
+            "日且語",
+            "日丕語",
+            "日世語",
+            "日丗語",
+            "日丘語"
+          ],
+          "truncated": null,
+          "fallback": null
+        }
+      ]
+    },
+    {
+      "case": "cap-ties",
+      "tokenizer": "trigram",
+      "mode": "deterministic",
+      "wire": "(\"日一語\" OR \"日丁語\" OR \"日丂語\" OR \"日七語\" OR \"日丄語\" OR \"日丅語\" OR \"日丆語\" OR \"日万語\" OR \"日丈語\" OR \"日三語\" OR \"日上語\" OR \"日下語\" OR \"日丌語\" OR \"日不語\" OR \"日与語\" OR \"日丏語\" OR \"日丐語\" OR \"日丑語\" OR \"日丒語\" OR \"日专語\" OR \"日且語\" OR \"日丕語\" OR \"日世語\" OR \"日丗語\" OR \"日丘語\")",
+      "hits": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55
+      ],
+      "quality": {
+        "true_positive": 50,
+        "false_positive": 0,
+        "false_negative": 11,
+        "precision": 1.0,
+        "recall": 0.819672131147541
+      },
+      "expansions": [
+        {
+          "source": "日",
+          "selected": [
+            "日一語",
+            "日丁語",
+            "日丂語",
+            "日七語",
+            "日丄語",
+            "日丅語",
+            "日丆語",
+            "日万語",
+            "日丈語",
+            "日三語",
+            "日上語",
+            "日下語",
+            "日丌語",
+            "日不語",
+            "日与語",
+            "日丏語",
+            "日丐語",
+            "日丑語",
+            "日丒語",
+            "日专語",
+            "日且語",
+            "日丕語",
+            "日世語",
+            "日丗語",
+            "日丘語"
+          ],
+          "truncated": true,
+          "fallback": null
+        }
+      ]
+    },
+    {
+      "case": "cap-ties",
+      "tokenizer": "trigram",
+      "mode": "missing-vocab",
+      "wire": "\"日\"",
+      "hits": [],
+      "quality": {
+        "true_positive": 0,
+        "false_positive": 0,
+        "false_negative": 61,
+        "precision": null,
+        "recall": 0.0
+      },
+      "expansions": [
+        {
+          "source": "日",
+          "selected": [],
+          "truncated": false,
+          "fallback": "missing-vocab"
+        }
+      ]
+    }
+  ],
+  "ngrams": [
+    {
+      "ngram": 3,
+      "implementation": "builtin-trigram",
+      "documents": 1536,
+      "page_size": 4096,
+      "pages_before": 6,
+      "pages_after": 19,
+      "insert_seconds": 0.0012280000373721123,
+      "update_seconds": 0.004281290923245251,
+      "token_occurrences": 768,
+      "evaluations": [
+        {
+          "query": "日",
+          "wire": "\"日\"",
+          "quality": {
+            "true_positive": 0,
+            "false_positive": 0,
+            "false_negative": 1536,
+            "precision": null,
+            "recall": 0.0
+          }
+        },
+        {
+          "query": "日本",
+          "wire": "\"日本\"",
+          "quality": {
+            "true_positive": 0,
+            "false_positive": 0,
+            "false_negative": 512,
+            "precision": null,
+            "recall": 0.0
+          }
+        },
+        {
+          "query": "休日",
+          "wire": "\"休日\"",
+          "quality": {
+            "true_positive": 0,
+            "false_positive": 0,
+            "false_negative": 256,
+            "precision": null,
+            "recall": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "ngram": 2,
+      "implementation": "pretokenized-unicode61-example",
+      "documents": 1536,
+      "page_size": 4096,
+      "pages_before": 6,
+      "pages_after": 24,
+      "insert_seconds": 0.0012439999263733625,
+      "update_seconds": 0.003204124979674816,
+      "token_occurrences": 2048,
+      "evaluations": [
+        {
+          "query": "日",
+          "wire": null,
+          "quality": {
+            "true_positive": 0,
+            "false_positive": 0,
+            "false_negative": 1536,
+            "precision": null,
+            "recall": 0.0
+          }
+        },
+        {
+          "query": "日本",
+          "wire": "\"日本\"",
+          "quality": {
+            "true_positive": 512,
+            "false_positive": 0,
+            "false_negative": 0,
+            "precision": 1.0,
+            "recall": 1.0
+          }
+        },
+        {
+          "query": "休日",
+          "wire": "\"休日\"",
+          "quality": {
+            "true_positive": 256,
+            "false_positive": 0,
+            "false_negative": 0,
+            "precision": 1.0,
+            "recall": 1.0
+          }
+        }
+      ]
+    },
+    {
+      "ngram": 1,
+      "implementation": "pretokenized-unicode61-example",
+      "documents": 1536,
+      "page_size": 4096,
+      "pages_before": 6,
+      "pages_after": 27,
+      "insert_seconds": 0.0012637089239433408,
+      "update_seconds": 0.0031573750311508775,
+      "token_occurrences": 3584,
+      "evaluations": [
+        {
+          "query": "日",
+          "wire": "\"日\"",
+          "quality": {
+            "true_positive": 1536,
+            "false_positive": 0,
+            "false_negative": 0,
+            "precision": 1.0,
+            "recall": 1.0
+          }
+        },
+        {
+          "query": "日本",
+          "wire": "\"日\" AND \"本\"",
+          "quality": {
+            "true_positive": 512,
+            "false_positive": 512,
+            "false_negative": 0,
+            "precision": 0.5,
+            "recall": 1.0
+          }
+        },
+        {
+          "query": "休日",
+          "wire": "\"休\" AND \"日\"",
+          "quality": {
+            "true_positive": 256,
+            "false_positive": 0,
+            "false_negative": 0,
+            "precision": 1.0,
+            "recall": 1.0
+          }
+        }
+      ]
+    }
+  ]
+}

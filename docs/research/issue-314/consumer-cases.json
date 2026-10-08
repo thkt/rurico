@@ -1,0 +1,631 @@
+[
+  {
+    "case": "phrase",
+    "cleaned": "\"foo\" \"bar\"",
+    "fixed": [
+      "\"foo\"",
+      "\"bar\""
+    ],
+    "groups": [],
+    "hits": [
+      1,
+      2
+    ],
+    "producer_wire": "\"\"\"foo\" AND \"bar\"\"\"",
+    "tokenizer": "unicode61"
+  },
+  {
+    "case": "explicit-phrase",
+    "cleaned": "\"foo bar\"",
+    "hits": [
+      1
+    ],
+    "producer_wire": "\"foo bar\"",
+    "scope": "unadopted explicit phrase serialization; no product API change",
+    "tokenizer": "unicode61"
+  },
+  {
+    "case": "operator",
+    "cleaned": "\"foo\" \"bar\"",
+    "fixed": [
+      "\"foo\"",
+      "\"bar\""
+    ],
+    "groups": [],
+    "hits": [
+      1,
+      2,
+      3
+    ],
+    "producer_wire": "\"foo\" AND \"OR\" AND \"bar\"",
+    "tokenizer": "unicode61"
+  },
+  {
+    "case": "wildcards",
+    "cleaned": "\"abc*def%_\"",
+    "fixed": [
+      "\"abc*def%_\""
+    ],
+    "groups": [],
+    "hits": [
+      1,
+      2
+    ],
+    "producer_wire": "\"abc*def%_\"",
+    "tokenizer": "unicode61"
+  },
+  {
+    "case": "japanese-one",
+    "cleaned": "\"日本海\" OR \"日本語\"",
+    "fixed": [],
+    "groups": [
+      [
+        "\"日本海\"",
+        "\"日本語\""
+      ]
+    ],
+    "hits": [
+      1,
+      2
+    ],
+    "producer_wire": "(\"日\" OR \"日本海\" OR \"日本語\")",
+    "tokenizer": "unicode61"
+  },
+  {
+    "case": "japanese-two",
+    "cleaned": "\"日本海\" OR \"日本語\"",
+    "fixed": [],
+    "groups": [
+      [
+        "\"日本海\"",
+        "\"日本語\""
+      ]
+    ],
+    "hits": [
+      1,
+      2
+    ],
+    "producer_wire": "(\"日本\" OR \"日本海\" OR \"日本語\")",
+    "tokenizer": "unicode61"
+  },
+  {
+    "case": "rare",
+    "cleaned": "\"珍語彙\"",
+    "fixed": [],
+    "groups": [
+      [
+        "\"珍語彙\""
+      ]
+    ],
+    "hits": [
+      1
+    ],
+    "producer_wire": "(\"珍語彙\")",
+    "tokenizer": "unicode61"
+  },
+  {
+    "case": "no-candidates",
+    "cleaned": null,
+    "fixed": [],
+    "groups": [],
+    "hits": [],
+    "producer_wire": "\"無\"",
+    "tokenizer": "unicode61"
+  },
+  {
+    "case": "percent",
+    "cleaned": null,
+    "fixed": [],
+    "groups": [],
+    "hits": [],
+    "producer_wire": "\"日%\"",
+    "tokenizer": "unicode61"
+  },
+  {
+    "case": "underscore",
+    "cleaned": null,
+    "fixed": [],
+    "groups": [],
+    "hits": [],
+    "producer_wire": "\"日_\"",
+    "tokenizer": "unicode61"
+  },
+  {
+    "case": "backslash",
+    "cleaned": null,
+    "fixed": [],
+    "groups": [],
+    "hits": [],
+    "producer_wire": "\"日\\\"",
+    "tokenizer": "unicode61"
+  },
+  {
+    "case": "cap-ties",
+    "cleaned": "\"日一語\" OR \"日丁語\" OR \"日丂語\" OR \"日七語\" OR \"日丄語\" OR \"日丅語\" OR \"日丆語\" OR \"日万語\" OR \"日丈語\" OR \"日三語\" OR \"日上語\" OR \"日下語\" OR \"日丌語\" OR \"日不語\" OR \"日与語\" OR \"日丏語\" OR \"日丐語\" OR \"日丑語\" OR \"日丒語\" OR \"日专語\" OR \"日且語\" OR \"日丕語\" OR \"日世語\" OR \"日丗語\" OR \"日丘語\"",
+    "fixed": [],
+    "groups": [
+      [
+        "\"日一語\"",
+        "\"日丁語\"",
+        "\"日丂語\"",
+        "\"日七語\"",
+        "\"日丄語\"",
+        "\"日丅語\"",
+        "\"日丆語\"",
+        "\"日万語\"",
+        "\"日丈語\"",
+        "\"日三語\"",
+        "\"日上語\"",
+        "\"日下語\"",
+        "\"日丌語\"",
+        "\"日不語\"",
+        "\"日与語\"",
+        "\"日丏語\"",
+        "\"日丐語\"",
+        "\"日丑語\"",
+        "\"日丒語\"",
+        "\"日专語\"",
+        "\"日且語\"",
+        "\"日丕語\"",
+        "\"日世語\"",
+        "\"日丗語\"",
+        "\"日丘語\""
+      ]
+    ],
+    "hits": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54,
+      55
+    ],
+    "producer_wire": "(\"日一語\" OR \"日丁語\" OR \"日丂語\" OR \"日七語\" OR \"日丄語\" OR \"日丅語\" OR \"日丆語\" OR \"日万語\" OR \"日丈語\" OR \"日三語\" OR \"日上語\" OR \"日下語\" OR \"日丌語\" OR \"日不語\" OR \"日与語\" OR \"日丏語\" OR \"日丐語\" OR \"日丑語\" OR \"日丒語\" OR \"日专語\" OR \"日且語\" OR \"日丕語\" OR \"日世語\" OR \"日丗語\" OR \"日丘語\")",
+    "tokenizer": "unicode61"
+  },
+  {
+    "case": "consumer-combination-fallback",
+    "cleaned": "\"login\"",
+    "fixed": [
+      "\"login\""
+    ],
+    "group_sizes": [
+      25,
+      25
+    ],
+    "hits": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54,
+      55,
+      56,
+      57,
+      58,
+      59,
+      60,
+      61
+    ],
+    "limit": 100,
+    "producer_wire": "(\"日一語\" OR \"日丁語\" OR \"日丂語\" OR \"日七語\" OR \"日丄語\" OR \"日丅語\" OR \"日丆語\" OR \"日万語\" OR \"日丈語\" OR \"日三語\" OR \"日上語\" OR \"日下語\" OR \"日丌語\" OR \"日不語\" OR \"日与語\" OR \"日丏語\" OR \"日丐語\" OR \"日丑語\" OR \"日丒語\" OR \"日专語\" OR \"日且語\" OR \"日丕語\" OR \"日世語\" OR \"日丗語\" OR \"日丘語\") AND (\"月一語\" OR \"月丁語\" OR \"月丂語\" OR \"月七語\" OR \"月丄語\" OR \"月丅語\" OR \"月丆語\" OR \"月万語\" OR \"月丈語\" OR \"月三語\" OR \"月上語\" OR \"月下語\" OR \"月丌語\" OR \"月不語\" OR \"月与語\" OR \"月丏語\" OR \"月丐語\" OR \"月丑語\" OR \"月丒語\" OR \"月专語\" OR \"月且語\" OR \"月丕語\" OR \"月世語\" OR \"月丗語\" OR \"月丘語\") AND \"login\"",
+    "scope": "existing consumer drops OR groups when25x25 exceeds100; no new limit adoption",
+    "tokenizer": "unicode61"
+  },
+  {
+    "case": "phrase",
+    "cleaned": "\"foo\" \"bar\"",
+    "fixed": [
+      "\"foo\"",
+      "\"bar\""
+    ],
+    "groups": [],
+    "hits": [
+      1,
+      2
+    ],
+    "producer_wire": "\"\"\"foo\" AND \"bar\"\"\"",
+    "tokenizer": "trigram"
+  },
+  {
+    "case": "explicit-phrase",
+    "cleaned": "\"foo bar\"",
+    "hits": [
+      1
+    ],
+    "producer_wire": "\"foo bar\"",
+    "scope": "unadopted explicit phrase serialization; no product API change",
+    "tokenizer": "trigram"
+  },
+  {
+    "case": "operator",
+    "cleaned": "\"foo\" \"bar\"",
+    "fixed": [
+      "\"foo\"",
+      "\"bar\""
+    ],
+    "groups": [],
+    "hits": [
+      1,
+      2,
+      3
+    ],
+    "producer_wire": "\"foo\" AND \"OR\" AND \"bar\"",
+    "tokenizer": "trigram"
+  },
+  {
+    "case": "wildcards",
+    "cleaned": "\"abc*def%_\"",
+    "fixed": [
+      "\"abc*def%_\""
+    ],
+    "groups": [],
+    "hits": [
+      1
+    ],
+    "producer_wire": "\"abc*def%_\"",
+    "tokenizer": "trigram"
+  },
+  {
+    "case": "japanese-one",
+    "cleaned": "\"日本海\" OR \"日本語\"",
+    "fixed": [],
+    "groups": [
+      [
+        "\"日本海\"",
+        "\"日本語\""
+      ]
+    ],
+    "hits": [
+      1,
+      2
+    ],
+    "producer_wire": "(\"日本海\" OR \"日本語\")",
+    "tokenizer": "trigram"
+  },
+  {
+    "case": "japanese-two",
+    "cleaned": "\"日本海\" OR \"日本語\"",
+    "fixed": [],
+    "groups": [
+      [
+        "\"日本海\"",
+        "\"日本語\""
+      ]
+    ],
+    "hits": [
+      1,
+      2
+    ],
+    "producer_wire": "(\"日本海\" OR \"日本語\")",
+    "tokenizer": "trigram"
+  },
+  {
+    "case": "rare",
+    "cleaned": "\"珍語彙\"",
+    "fixed": [],
+    "groups": [
+      [
+        "\"珍語彙\""
+      ]
+    ],
+    "hits": [
+      1
+    ],
+    "producer_wire": "(\"珍語彙\")",
+    "tokenizer": "trigram"
+  },
+  {
+    "case": "no-candidates",
+    "cleaned": null,
+    "fixed": [],
+    "groups": [],
+    "hits": [],
+    "producer_wire": "\"無\"",
+    "tokenizer": "trigram"
+  },
+  {
+    "case": "percent",
+    "cleaned": "\"日%本\"",
+    "fixed": [],
+    "groups": [
+      [
+        "\"日%本\""
+      ]
+    ],
+    "hits": [
+      2
+    ],
+    "producer_wire": "(\"日%本\")",
+    "tokenizer": "trigram"
+  },
+  {
+    "case": "underscore",
+    "cleaned": "\"日_本\"",
+    "fixed": [],
+    "groups": [
+      [
+        "\"日_本\""
+      ]
+    ],
+    "hits": [
+      3
+    ],
+    "producer_wire": "(\"日_本\")",
+    "tokenizer": "trigram"
+  },
+  {
+    "case": "backslash",
+    "cleaned": "\"日\\本\"",
+    "fixed": [],
+    "groups": [
+      [
+        "\"日\\本\""
+      ]
+    ],
+    "hits": [
+      2
+    ],
+    "producer_wire": "(\"日\\本\")",
+    "tokenizer": "trigram"
+  },
+  {
+    "case": "cap-ties",
+    "cleaned": "\"日一語\" OR \"日丁語\" OR \"日丂語\" OR \"日七語\" OR \"日丄語\" OR \"日丅語\" OR \"日丆語\" OR \"日万語\" OR \"日丈語\" OR \"日三語\" OR \"日上語\" OR \"日下語\" OR \"日丌語\" OR \"日不語\" OR \"日与語\" OR \"日丏語\" OR \"日丐語\" OR \"日丑語\" OR \"日丒語\" OR \"日专語\" OR \"日且語\" OR \"日丕語\" OR \"日世語\" OR \"日丗語\" OR \"日丘語\"",
+    "fixed": [],
+    "groups": [
+      [
+        "\"日一語\"",
+        "\"日丁語\"",
+        "\"日丂語\"",
+        "\"日七語\"",
+        "\"日丄語\"",
+        "\"日丅語\"",
+        "\"日丆語\"",
+        "\"日万語\"",
+        "\"日丈語\"",
+        "\"日三語\"",
+        "\"日上語\"",
+        "\"日下語\"",
+        "\"日丌語\"",
+        "\"日不語\"",
+        "\"日与語\"",
+        "\"日丏語\"",
+        "\"日丐語\"",
+        "\"日丑語\"",
+        "\"日丒語\"",
+        "\"日专語\"",
+        "\"日且語\"",
+        "\"日丕語\"",
+        "\"日世語\"",
+        "\"日丗語\"",
+        "\"日丘語\""
+      ]
+    ],
+    "hits": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54,
+      55
+    ],
+    "producer_wire": "(\"日一語\" OR \"日丁語\" OR \"日丂語\" OR \"日七語\" OR \"日丄語\" OR \"日丅語\" OR \"日丆語\" OR \"日万語\" OR \"日丈語\" OR \"日三語\" OR \"日上語\" OR \"日下語\" OR \"日丌語\" OR \"日不語\" OR \"日与語\" OR \"日丏語\" OR \"日丐語\" OR \"日丑語\" OR \"日丒語\" OR \"日专語\" OR \"日且語\" OR \"日丕語\" OR \"日世語\" OR \"日丗語\" OR \"日丘語\")",
+    "tokenizer": "trigram"
+  },
+  {
+    "case": "consumer-combination-fallback",
+    "cleaned": "\"login\"",
+    "fixed": [
+      "\"login\""
+    ],
+    "group_sizes": [
+      25,
+      25
+    ],
+    "hits": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54,
+      55,
+      56,
+      57,
+      58,
+      59,
+      60,
+      61
+    ],
+    "limit": 100,
+    "producer_wire": "(\"日一語\" OR \"日丁語\" OR \"日丂語\" OR \"日七語\" OR \"日丄語\" OR \"日丅語\" OR \"日丆語\" OR \"日万語\" OR \"日丈語\" OR \"日三語\" OR \"日上語\" OR \"日下語\" OR \"日丌語\" OR \"日不語\" OR \"日与語\" OR \"日丏語\" OR \"日丐語\" OR \"日丑語\" OR \"日丒語\" OR \"日专語\" OR \"日且語\" OR \"日丕語\" OR \"日世語\" OR \"日丗語\" OR \"日丘語\") AND (\"月一語\" OR \"月丁語\" OR \"月丂語\" OR \"月七語\" OR \"月丄語\" OR \"月丅語\" OR \"月丆語\" OR \"月万語\" OR \"月丈語\" OR \"月三語\" OR \"月上語\" OR \"月下語\" OR \"月丌語\" OR \"月不語\" OR \"月与語\" OR \"月丏語\" OR \"月丐語\" OR \"月丑語\" OR \"月丒語\" OR \"月专語\" OR \"月且語\" OR \"月丕語\" OR \"月世語\" OR \"月丗語\" OR \"月丘語\") AND \"login\"",
+    "scope": "existing consumer drops OR groups when25x25 exceeds100; no new limit adoption",
+    "tokenizer": "trigram"
+  }
+]

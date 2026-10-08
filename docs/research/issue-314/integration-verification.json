@@ -1,0 +1,57 @@
+{
+  "start": "6b5a3855f35120c39423a1a49c656f5b58c98ee3",
+  "main": "56f412c8401d6a3b501d7effb0aff18df1f344e5",
+  "cargo_lock_sha256": "743d754ae4fb6f0f44d169feab408a1b80caa50d17c38b058ec156c66811bf30",
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "dependencies": {
+    "librusqlite-a9ee9e11cb5e43b2.rlib": "fad44500cb8b775236be98c61562b6e5fdc64f1ee5c4bdfd59a684a626a97e82",
+    "libserde-367dd3e11f144bc8.rlib": "292015e9d5738031b0c96053d71aba4fc54845dfd0e9aef73afb93a5328a43c8",
+    "libserde_json-b807a8bda3ee45ee.rlib": "0326d296dfc4063b436a710fb6e87f8a6fd74191677fc625c6f289acba666c3d",
+    "libunicode_normalization-5043ab956a879653.rlib": "9dbb9a101a6ca5484c63911db3e93067499276ffb81c8af18828298f2dfc3c39",
+    "libthiserror-9909537f160c9283.rlib": "11a19ad4affcaab9600b47e84a7419a13cbac9fc44b8b745b965022e992d7d10",
+    "libtempfile-5835db8b186298ec.rlib": "2e84c71f13004313ea00e34b68897dd3414ca720a08722a96aedcc40ba81f952"
+  },
+  "versions": {
+    "before": {
+      "sources": {
+        "src/storage/search.rs": "3541d1c05733a7df19b962345ee53e7bd6d45bf5b9e25d75d127cc73f7ce30c9",
+        "src/storage/search/tests.rs": "049e7f1d713f40810727fcf3eb290187acf2e1673c40ee8061c376a93b7bb7d8",
+        "src/storage/query_normalize.rs": "7cbd526169b6627fb29807a448018883dae6fb7f425603ecd034b792503a7075",
+        "src/storage/query_normalize/tests.rs": "9797945573c32e3fc00b59884a6375f88ccb1d9169ae39297da356e907750a82",
+        "docs/research/issue-314/cases.json": "e8632e9573ae8098eae6326d81129ef56c44732a6f48ed90a505d6069ff73bdb",
+        "docs/research/issue-314/results.json": "c352ec199d13141bb2e943a26859e4947ed00ee331d925999bdddb513550f171"
+      },
+      "binary_sha256": "b1cfe9627a0ff8e4e18275fd245f10c9a7123cf6e97591eb08ffb79e6eb14a96",
+      "test_wall_seconds": 0.47191133303567767,
+      "exit_code": 0,
+      "summary": "ok. 55 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s"
+    },
+    "after": {
+      "sources": {
+        "src/storage/search.rs": "3541d1c05733a7df19b962345ee53e7bd6d45bf5b9e25d75d127cc73f7ce30c9",
+        "src/storage/search/tests.rs": "999c32da8de21863c24f1524d5252ac6aaea02f00be6108590df0f094b193b41",
+        "src/storage/query_normalize.rs": "7cbd526169b6627fb29807a448018883dae6fb7f425603ecd034b792503a7075",
+        "src/storage/query_normalize/tests.rs": "9797945573c32e3fc00b59884a6375f88ccb1d9169ae39297da356e907750a82",
+        "docs/research/issue-314/cases.json": "e8632e9573ae8098eae6326d81129ef56c44732a6f48ed90a505d6069ff73bdb",
+        "docs/research/issue-314/results.json": "c352ec199d13141bb2e943a26859e4947ed00ee331d925999bdddb513550f171"
+      },
+      "binary_sha256": "262fd3a4d355584b1fdfa47c2cf3fcd4f13d13ce450e648490e5b19c218863f1",
+      "test_wall_seconds": 0.25663533294573426,
+      "exit_code": 0,
+      "summary": "ok. 55 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s"
+    }
+  },
+  "scope": "CPU-only rustc compilation of unchanged production search/query_normalize modules and existing tests, using hash-verified prebuilt dependencies with the same Cargo.lock; not workspace check or fixed-consumer acceptance.",
+  "flags": [
+    "--edition=2024",
+    "-O",
+    "-C lto",
+    "--test",
+    "same prebuilt dependency rlibs"
+  ],
+  "comparison": "before: three-way merge with conflict comment resolved, before removing duplicate wildcard fixture checks; after: integrated tests with phrase/cap fixture checks and upstream wildcard tests. Same rustfmt, inputs and dependencies; one execution each, no speed or flake claim.",
+  "preparation_failures": [
+    "Dependency selection initially found two serde rlibs; selected the prior manifest by filename and verified every dependency hash.",
+    "Two initial temporary harnesses failed module-path resolution; retained their stderr, compiled the normal src/lib.rs -> storage module layout. No product source changes or weakening of expectations."
+  ]
+}

@@ -211,6 +211,10 @@ match prepare_match_query(&conn, user_input, "fts_chunks_vocab", &normalization)
 
 amiciの `parse_fts_segments` が読むwire-formatは、固定語の `"..."`（内部引用符は `""`）、展開語群の `("..." OR "...")`、語・語群間の明示的な ` AND ` を維持する。[#297](https://github.com/thkt/rurico/issues/297)では、入力 `rate-limit` の出力を `"""rate-limit"""` から `"rate-limit"` へ修正した。構文形状や公開APIは変えないが、literalの内容と検索結果は修正される。amici側の互換性は依存rev更新時に既存のround-trip testで確認する（[契約の参照元 #249](https://github.com/thkt/rurico/issues/249)）。
 
+phrase・短語上限・型付きquery planの未採用比較は[Issue #314の調査](docs/research/issue-314/README.md)を参照する。現行入力の引用符とORのliteral扱いは変えていない。
+固定amici版のparserには内部引用符を途中で区切る欠陥と、引用内の`)`をgroup終端と誤認する欠陥があるため、上記wire形状の維持や既存round-trip成功だけではliteral内容の保持を保証しない。
+[consumerへの影響と検証範囲](docs/research/issue-314/report.md#315との分担とconsumerへの影響)に固定版のnative実測で確認した欠落と、未確認の適用範囲を記載している。
+
 ### query normalization 単体利用
 
 `prepare_match_query` を経由せずに同じ folding を適用したい場合（例: indexing 側の body 正規化）は `normalize_for_fts` を直接呼ぶ。

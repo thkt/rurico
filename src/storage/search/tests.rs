@@ -105,9 +105,7 @@ fn expand_special_chars_escaped() {
     }
 }
 
-/// Tests below pin the sanitize / expand contract — pass `disabled()` so
-/// changes to the Phase 5 normalization defaults can never alter what
-/// these tests measure.
+// Disable normalization to isolate the sanitize / expand contract.
 fn no_norm() -> QueryNormalizationConfig {
     QueryNormalizationConfig::disabled()
 }
@@ -184,6 +182,68 @@ fn match_ids(conn: &Connection, query: &MatchFtsQuery) -> Vec<i64> {
         .unwrap_or_else(|e| panic!("MATCH rejected {:?}: {e}", query.as_str()))
         .collect::<Result<Vec<_>, _>>()
         .unwrap()
+}
+
+// Compare the research fixture with the public producer, independently of
+// the Python SQL renderer. Wildcard escaping is covered above.
+#[test]
+fn research_query_plan_legacy_matches_shared_observations() {
+    let cases: serde_json::Value =
+        serde_json::from_str(include_str!("../../../docs/research/issue-314/cases.json")).unwrap();
+    let results: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../docs/research/issue-314/results.json"
+    ))
+    .unwrap();
+    for tokenizer in ["unicode61", "trigram"] {
+        for case in cases.as_array().unwrap() {
+            if !["phrase", "cap-ties"].contains(&case["name"].as_str().unwrap()) {
+                continue;
+            }
+            let conn = Connection::open_in_memory().unwrap();
+            conn.execute_batch(&format!(
+                "CREATE VIRTUAL TABLE docs USING fts5(body, tokenize='{tokenizer}');
+                 CREATE VIRTUAL TABLE vocab USING fts5vocab(docs, row);"
+            ))
+            .unwrap();
+            for body in case["bodies"].as_array().unwrap() {
+                conn.execute("INSERT INTO docs VALUES (?1)", [body.as_str().unwrap()])
+                    .unwrap();
+            }
+            for mode in ["legacy", "missing-vocab"] {
+                let observed = results["cases"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|row| {
+                        row["case"] == case["name"]
+                            && row["tokenizer"] == tokenizer
+                            && row["mode"] == mode
+                    })
+                    .unwrap();
+                let vocab = if mode == "legacy" { "vocab" } else { "absent" };
+                let query =
+                    prepare_match_query(&conn, case["input"].as_str().unwrap(), vocab, &no_norm())
+                        .unwrap();
+                let actual = match_ids(&conn, &query);
+                if case["name"] == "cap-ties" && mode == "legacy" {
+                    // cnt ties have no promised order. Do not freeze this
+                    // SQLite version's choice of the 25 terms into the API.
+                    assert_eq!(query.as_str().split(" OR ").count(), 25);
+                    assert_eq!(actual.len(), 50);
+                    assert!(!actual.contains(&61), "rare term must be below the cap");
+                } else {
+                    assert_eq!(query.as_str(), observed["wire"].as_str().unwrap());
+                    let expected: Vec<i64> = observed["hits"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|id| id.as_i64().unwrap())
+                        .collect();
+                    assert_eq!(actual, expected, "{tokenizer}, {mode}, {}", case["name"]);
+                }
+            }
+        }
+    }
 }
 
 #[test]
