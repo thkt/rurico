@@ -1,0 +1,70 @@
+# Issue #313 重複候補・集約allocationの調査
+
+[報告](report.md)に現行契約、consumer照合、未採用案、修正版のCPU測定と残る検証を示す。
+要求・採用権限の正本は [Issue #313](https://github.com/thkt/rurico/issues/313)。
+既定の重複処理、公開API、JSON、モデル処理を変更する入口ではない。
+
+現在の修正は公開head `64c80cc3ff27675873d5e24cde16106ef45c669e` に、
+#379マージ後のmain `e1ba0ed703cf8168faba60fb7fd0eb6258f675db` を通常mergeした未commit版である。
+ホストで取得・版照合を行い、自動mergeが成功した。未解決indexはない。
+#304・#312・#314を含むmainの変更を保持し、retrievalと本調査のsourceはmerge前後で同じだった。
+[統合記録](results/latest-main-integration.json)と[今回の状態](report.md#379マージ後のmain統合)を参照する。
+
+前回の公開headは標準check・独立評価・CIが成功したが、最新統合版の成功へ転用しない。
+最新統合版のCPU限定53テストは新規build先で成功した。標準checkと変更文書を含む独立評価はこれから行う。
+現在のmerge commit作成・同じPR更新・新headのCI照合は後続の公開工程で行う。
+製品方式は未採用で、GPU・実モデルは実行していない。
+
+## 検証する
+
+製品のセットアップ・全体検証はルートの [CONTRIBUTING](../../../CONTRIBUTING.md#テスト) と
+設定済みの `cargo fetch --locked` / `bash scripts/check.sh` を使う。
+以下のCPU調査は全体検証を置き換えず、製品のCPU backendや依存分離を導入しない。
+
+調査用crateは製品の `src/retrieval.rs` とその既存テストを直接コンパイルする。
+serde関連の依存は開始版Cargo.lockの版を使い、調査用lockにも固定した。
+モデルの取得・GPU初期化は行わない。
+テスト・clippy・fmtだけ確認する場合も、このcheckout専用の新しいbuild先を使う。
+別checkoutや不具合注入のコピーと同じbuild先を共有すると、相対source pathのcacheを取り違え得る。
+
+```sh
+# /tmp/rurico-313-tests は未使用のパスを指定する
+CARGO_TARGET_DIR=/tmp/rurico-313-tests cargo test --offline --locked --manifest-path docs/research/issue-313/probe/Cargo.toml
+CARGO_TARGET_DIR=/tmp/rurico-313-tests cargo clippy --offline --locked --manifest-path docs/research/issue-313/probe/Cargo.toml --all-targets -- -D warnings
+cargo fmt --manifest-path docs/research/issue-313/probe/Cargo.toml -- --check
+```
+
+## ホストで時間・allocation・RSSを測る
+
+macOS Apple Siliconの権限のあるホストで、ほかの重いビルド・計測と重ならない時間を確保する。
+実行前後の機種・RAM・負荷条件と、確保した期間を別途記録する。
+runnerは負荷の隔離を保証しない。モデルとMetalは不要。
+outputとtarget-dirはcheckout外の**新規**ディレクトリを指定する。
+rootのsetupが取得する依存の一部だけを使い、測定時はoffline/lockedを維持する。
+
+```sh
+python3 docs/research/issue-313/run.py /tmp/rurico-313-host-evidence --target-dir /tmp/rurico-313-host-build
+```
+
+runnerは調査テスト、clippy、release build、大小入力での出力一致を確認してから、
+2 workload × 6 variant × 3 processを実行する。2回目はprocess順を逆転する。
+各processは1回warm-up後に7回測定し、計252 callのrawと36 processのpeak RSSを残す。
+時間にallocator counterの費用を含む。速度・メモリの新しい合否閾値は設けない。
+
+- `context.json`: 開始commit、source/lock hash、compiler、測定条件。
+- `raw.json`: callごとのns、allocation/reallocation回数、要求byte総数、追加live heap peak、process RSS。
+- `summary.json`: 同条件の最小・中央値・最大。RSSはprocess全体のpeakで、call区間の値とは区別する。
+- `complete.json`: source前後一致、binary/raw/summary hash、件数。存在だけで要求充足を判断しない。
+
+source変更、子process失敗、7回の欠落、RSS取得不能では非ゼロで停止し、部分出力を保持する。
+同じ出力先へ再実行せず、失敗原因を確認して新しい保存先を使う。
+記録には私的pathを含むため、生ログ・contextを一括でrepoへコピーしない。
+担当AIが条件、raw、再集計値を照合し、公開可能な数値・source識別・未確認事項だけを
+この報告へ追記し、既存の文書を含む独立評価へ戻す。
+
+`scripts/check.sh`、CIのtest/coverage/security/zizmor、captureなしの契約には
+このrunnerやprocess RSS測定が含まれない。標準check待ちと、この追加受入検証待ちは区別する。
+今回のsandboxでは `/usr/bin/time -l` が `sysctl kern.clockrate: Operation not permitted` で失敗した。
+[部分記録](results/partial-context.json)を完全なホスト測定へ読み替えない。
+
+2026-10-08のR1修正版は36 process・252 callとRSSの取得を完了した。[修正版context](results/host-r1-context.json)、[原数値](results/host-r1-raw.json)、[再集計](results/host-r1-summary.json)、[完了記録](results/host-r1-complete.json)を参照する。外部負荷の隔離は未確認で、速度改善の因果的な証拠として使わない。修正前の原本は保持し、版を混ぜず読む。製品の全体check・独立評価・方式採用はそれぞれ別の条件である。

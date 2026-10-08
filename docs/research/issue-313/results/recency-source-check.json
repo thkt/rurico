@@ -1,0 +1,15 @@
+{
+  "measured_sha256": "af3e40373e9df405dd9be77b62f2c4322fa89a4cdb0f749b019de9438a2010e5",
+  "rebuilt_sha256": "af3e40373e9df405dd9be77b62f2c4322fa89a4cdb0f749b019de9438a2010e5",
+  "equal": true,
+  "scope": "After R1 CPU measurements, only cfg(test) recency guards and comments changed; full hit/score/source map expected values replace vacuous finiteness assertions. Measured release rebuild byte-identical. Runtime/probe/runner unchanged.",
+  "tests": 54,
+  "test_clippy_release_exit_code": 0,
+  "source_sha256": {
+    "src/retrieval.rs": "25dfaf86deb246ba6aed09566b87f3f79afc6eb029d5340b8da84327d492317a",
+    "src/retrieval/tests.rs": "aca5f93149cee791581278eb4bdc21dea13f480e5f2d3b6260e93e7529b8acd2",
+    "docs/research/issue-313/probe/src/main.rs": "06f57384d67406f16eb4b8ff559e7d5c2f89c49da3e112bc2c56506866317134",
+    "docs/research/issue-313/run.py": "5ef85ad2a6ba7f10fcb479f868f5ed21bcfd616e40a17209f2d5a07b36fd4b99",
+    "Cargo.lock": "743d754ae4fb6f0f44d169feab408a1b80caa50d17c38b058ec156c66811bf30"
+  }
+}

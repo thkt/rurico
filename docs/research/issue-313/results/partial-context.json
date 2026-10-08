@@ -1,0 +1,29 @@
+{
+  "state": "partial_not_acceptance",
+  "date": "2026-10-08",
+  "start_commit": "24725a72be44300afc24186b82b14bcb3f5f9d3d",
+  "source_sha256": {
+    "Cargo.lock": "743d754ae4fb6f0f44d169feab408a1b80caa50d17c38b058ec156c66811bf30",
+    "src/retrieval.rs": "ffcecc8c89fb093125d4a9622d0e835f8a2f99cf6928eb14e8301df1af670cd5",
+    "src/retrieval/tests.rs": "09f5c147996802ba8e3bf4c91884aa6df03ad0e97467fb6daf6f19a71aaac4d7",
+    "docs/research/issue-313/probe/Cargo.toml": "a3dd62570f1d47e9ecbacd80629290c629605c6a6c0aea773c2c906f8821ccf4",
+    "docs/research/issue-313/probe/Cargo.lock": "478b40da5c9f50fd4cf08511b8c1be204a6dc0a89c3025876be606b6cc59a013",
+    "docs/research/issue-313/probe/src/main.rs": "1c939131c4bd5f22381d7a9c884b3f8231a7374ec2f000db3fbed0f59cc2e144",
+    "docs/research/issue-313/run.py": "5ef85ad2a6ba7f10fcb479f868f5ed21bcfd616e40a17209f2d5a07b36fd4b99"
+  },
+  "binary_sha256": "801f71f4b26e24bbf0250d7f62581e4bffa84d355acf04f2fb16e8d17da3fa8b",
+  "root_lock_sha256": "743d754ae4fb6f0f44d169feab408a1b80caa50d17c38b058ec156c66811bf30",
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "cargo": "cargo 1.99.0 (5f94df478 2026-08-27)",
+  "profile": "standalone release defaults, no product LTO",
+  "rustflags": null,
+  "raw_sha256": "0b847c7b165cfdc8b3e35d31c3111d1dcac5e3c9ec5cf4607ea7eeb175f67a23",
+  "summary_sha256": "a1fb32fa0f83ff801be64a96003bf703353e1e73cde7a77ed096d39604258b32",
+  "conditions": "one process, 1 warmup per variant/workload, then 7 calls with forward/reverse route order; input preparation and output drop excluded; allocation counters active during calls",
+  "load_isolation": "not established; timing is preliminary, not a causal performance claim",
+  "rss_failure": "/usr/bin/time -l: sysctl kern.clockrate: Operation not permitted; exit 1. Its partial stdout is not a complete measurement. Retained separately outside checkout.",
+  "process_max_rss_bytes": null,
+  "tests": "fresh target: 53 passed; 0 failed; 0 ignored; reported test execution 0.00s (rounded); standalone clippy -D warnings passed; repository check not run in sandbox",
+  "mutation": "max >= selects last tied source map; TopK chunk-id tie-break selects wrong boundary source map; each fails the fixed-expectation test. Copied checkouts must use separate build targets; cached cross-copy test outputs were discarded."
+}

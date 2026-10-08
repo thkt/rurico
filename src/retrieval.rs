@@ -59,9 +59,12 @@ pub enum CandidateSource {
 /// for vector — sign convention depends on source).
 ///
 /// `chunk_id` carries the child chunk identifier when chunk-level retrieval
-/// is active. `None` means whole-document indexing — the legacy posture,
-/// where every aggregator collapses to identity because Stage 2 fusion
-/// already keys by `doc_id` alone. With `Some(id)`, Stage 2 fuses on
+/// is active. `None` means whole-document indexing. When Stage 2 returns
+/// one hit per parent in descending score order (with doc ID ties ascending),
+/// with finite scores and source contributions, the built-in aggregators
+/// are equivalent to identity for `TopKAverageAggregator` with `k > 0`.
+/// This equivalence does not cover arbitrary unsorted input; `k = 0` returns
+/// an empty result. With `Some(id)`, Stage 2 fuses on
 /// `(doc_id, chunk_id)` so distinct chunks survive merge and Stage 3
 /// aggregators can produce non-vacuous rankings.
 #[derive(Debug, Clone, PartialEq)]
@@ -403,7 +406,7 @@ impl MergeStrategy for WeightedRrf {
 /// ADR 0004 fixes the position (between Stage 2 merge and Stage 4 rerank) and
 /// the surface; this trait is the only stable extension point. Granularity
 /// (chunk vs document) is strategy-specific — implementations document their
-/// own dedupe / collapse contract.
+/// own dedupe / collapse contract. Input scores are assumed finite after Stage 2.
 pub trait Aggregator {
     /// Aggregate `hits` into the form Stage 4 expects.
     ///
@@ -424,7 +427,7 @@ pub trait Aggregator {
 /// Default for the reference pipeline composition; preserves the pre-Phase-3
 /// behaviour where each input document produces exactly one hit. The sort
 /// invariant is upheld by pass-through because Stage 2 RRF merge already
-/// emits score-descending output.
+/// emits the full 3-key order. Direct calls preserve even unsorted input.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct IdentityAggregator;
 
@@ -478,7 +481,9 @@ impl Aggregator for MaxChunkAggregator {
 /// the higher rank from RRF), making it a structural dedupe rather than a
 /// score-aware collapse. The sort invariant is upheld because Stage 2 RRF
 /// merge already emits score-descending output and dedupe drops later
-/// duplicates without re-ordering.
+/// duplicates without re-ordering. Direct calls on unsorted input keep the
+/// first occurrence even if a later chunk has a higher score. The full 3-key
+/// output guarantee therefore requires input in Stage 2 order.
 ///
 /// Output `chunk_id` is `None` (parent-granular) — Dedupe's contract is
 /// "one hit per parent doc", so retaining a chunk_id would imply parents
@@ -507,7 +512,11 @@ impl Aggregator for DedupeAggregator {
 }
 
 /// Top-k average aggregator — for each `doc_id`, averages its highest `k`
-/// scores. Output is sorted by aggregate score descending.
+/// scores. Within each parent, scores use descending `f64::total_cmp`; ties
+/// retain input order, including ties at the k boundary. Output is parent-
+/// granular, sorted by average descending then doc_id ascending, even for
+/// unsorted input. Source maps average only selected chunks, with the same
+/// denominator as scores; recency can make score differ from the source sum.
 ///
 /// Finite inputs retain finite averages even when the direct sum overflows,
 /// including negative scores and source contributions. Missing sources count
@@ -622,4 +631,5 @@ impl Aggregator for TopKAverageAggregator {
 }
 
 #[cfg(test)]
+#[path = "retrieval/tests.rs"]
 mod tests;

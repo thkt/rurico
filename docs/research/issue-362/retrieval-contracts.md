@@ -51,6 +51,12 @@ wire変更では、過去literalに存在するdoc_id・source名・source_weigh
 欠落sourceを除いた除数への変更、wire名変更、recency結果を常に空にする変更を、それぞれ検出する。
 失敗理由を確認し、復元後の成功も確認する。恒常的なmutation基盤は追加していない。
 
+#313の統合版では、上表の実行結果を履歴として保持する。
+再実行時のNaN half-lifeのfilterは `weighted_rrf_recency_nan_half_life_keeps_unboosted_hits` を使う。
+inf age／half-lifeの対応filterは `weighted_rrf_recency_inf_half_life_inf_age_keeps_unboosted_hits` である。
+どちらも有限性だけでなく全hit・score・source mapを固定値へ照合する。
+重複例の統合と現行版での検出力確認は [#313のテスト整理と残る検出条件](../issue-313/report.md#テスト整理の理由と残る検出条件)を参照する。
+
 測定後、触ったファイルのテスト名の再述・装飾見出しを削減した。
 公開APIの契約、数値例、異なる失敗条件の理由は保持した。
 空行・コメントを除く全行が測定版と一致することをホストで照合したため、記録は現在版にも適用できる。

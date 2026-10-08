@@ -1,0 +1,374 @@
+[
+  {
+    "workload": "small",
+    "variant": "rrf_map",
+    "samples": 21,
+    "ns": {
+      "min": 5625,
+      "median": 6958,
+      "max": 9667
+    },
+    "alloc_calls": {
+      "min": 100,
+      "median": 100,
+      "max": 100
+    },
+    "requested_bytes": {
+      "min": 24948,
+      "median": 24948,
+      "max": 24948
+    },
+    "additional_peak_bytes": {
+      "min": 11672,
+      "median": 11672,
+      "max": 11672
+    },
+    "process_max_rss_bytes": {
+      "samples": 3,
+      "min": 2195456,
+      "median": 2195456,
+      "max": 2211840
+    }
+  },
+  {
+    "workload": "small",
+    "variant": "rrf_slots",
+    "samples": 21,
+    "ns": {
+      "min": 5917,
+      "median": 7084,
+      "max": 8875
+    },
+    "alloc_calls": {
+      "min": 100,
+      "median": 100,
+      "max": 100
+    },
+    "requested_bytes": {
+      "min": 22964,
+      "median": 22964,
+      "max": 22964
+    },
+    "additional_peak_bytes": {
+      "min": 10960,
+      "median": 10960,
+      "max": 10960
+    },
+    "process_max_rss_bytes": {
+      "samples": 3,
+      "min": 2162688,
+      "median": 2162688,
+      "max": 2162688
+    }
+  },
+  {
+    "workload": "small",
+    "variant": "identity_borrowed",
+    "samples": 21,
+    "ns": {
+      "min": 1291,
+      "median": 1542,
+      "max": 2250
+    },
+    "alloc_calls": {
+      "min": 91,
+      "median": 91,
+      "max": 91
+    },
+    "requested_bytes": {
+      "min": 5760,
+      "median": 5760,
+      "max": 5760
+    },
+    "additional_peak_bytes": {
+      "min": 5760,
+      "median": 5760,
+      "max": 5760
+    },
+    "process_max_rss_bytes": {
+      "samples": 3,
+      "min": 2097152,
+      "median": 2113536,
+      "max": 2113536
+    }
+  },
+  {
+    "workload": "small",
+    "variant": "identity_owned",
+    "samples": 21,
+    "ns": {
+      "min": 0,
+      "median": 0,
+      "max": 42
+    },
+    "alloc_calls": {
+      "min": 0,
+      "median": 0,
+      "max": 0
+    },
+    "requested_bytes": {
+      "min": 0,
+      "median": 0,
+      "max": 0
+    },
+    "additional_peak_bytes": {
+      "min": 0,
+      "median": 0,
+      "max": 0
+    },
+    "process_max_rss_bytes": {
+      "samples": 3,
+      "min": 2097152,
+      "median": 2097152,
+      "max": 2097152
+    }
+  },
+  {
+    "workload": "small",
+    "variant": "topk_sort",
+    "samples": 21,
+    "ns": {
+      "min": 3125,
+      "median": 4000,
+      "max": 5042
+    },
+    "alloc_calls": {
+      "min": 36,
+      "median": 36,
+      "max": 36
+    },
+    "requested_bytes": {
+      "min": 5234,
+      "median": 5234,
+      "max": 5234
+    },
+    "additional_peak_bytes": {
+      "min": 3190,
+      "median": 3190,
+      "max": 3190
+    },
+    "process_max_rss_bytes": {
+      "samples": 3,
+      "min": 2097152,
+      "median": 2097152,
+      "max": 2097152
+    }
+  },
+  {
+    "workload": "small",
+    "variant": "topk_select",
+    "samples": 21,
+    "ns": {
+      "min": 6459,
+      "median": 9125,
+      "max": 10667
+    },
+    "alloc_calls": {
+      "min": 153,
+      "median": 153,
+      "max": 153
+    },
+    "requested_bytes": {
+      "min": 16086,
+      "median": 16086,
+      "max": 16086
+    },
+    "additional_peak_bytes": {
+      "min": 9158,
+      "median": 9158,
+      "max": 9158
+    },
+    "process_max_rss_bytes": {
+      "samples": 3,
+      "min": 2211840,
+      "median": 2211840,
+      "max": 2211840
+    }
+  },
+  {
+    "workload": "large",
+    "variant": "rrf_map",
+    "samples": 21,
+    "ns": {
+      "min": 33545542,
+      "median": 34697709,
+      "max": 36051250
+    },
+    "alloc_calls": {
+      "min": 300033,
+      "median": 300033,
+      "max": 300033
+    },
+    "requested_bytes": {
+      "min": 67393140,
+      "median": 67393140,
+      "max": 67393140
+    },
+    "additional_peak_bytes": {
+      "min": 34096904,
+      "median": 34096904,
+      "max": 34096904
+    },
+    "process_max_rss_bytes": {
+      "samples": 3,
+      "min": 169574400,
+      "median": 169590784,
+      "max": 169590784
+    }
+  },
+  {
+    "workload": "large",
+    "variant": "rrf_slots",
+    "samples": 21,
+    "ns": {
+      "min": 29953958,
+      "median": 30325458,
+      "max": 31689708
+    },
+    "alloc_calls": {
+      "min": 300033,
+      "median": 300033,
+      "max": 300033
+    },
+    "requested_bytes": {
+      "min": 63198900,
+      "median": 63198900,
+      "max": 63198900
+    },
+    "additional_peak_bytes": {
+      "min": 31999752,
+      "median": 31999752,
+      "max": 31999752
+    },
+    "process_max_rss_bytes": {
+      "samples": 3,
+      "min": 157515776,
+      "median": 157515776,
+      "max": 157515776
+    }
+  },
+  {
+    "workload": "large",
+    "variant": "identity_borrowed",
+    "samples": 21,
+    "ns": {
+      "min": 4319833,
+      "median": 4425333,
+      "max": 5110958
+    },
+    "alloc_calls": {
+      "min": 300001,
+      "median": 300001,
+      "max": 300001
+    },
+    "requested_bytes": {
+      "min": 19200000,
+      "median": 19200000,
+      "max": 19200000
+    },
+    "additional_peak_bytes": {
+      "min": 19200000,
+      "median": 19200000,
+      "max": 19200000
+    },
+    "process_max_rss_bytes": {
+      "samples": 3,
+      "min": 88342528,
+      "median": 88342528,
+      "max": 88358912
+    }
+  },
+  {
+    "workload": "large",
+    "variant": "identity_owned",
+    "samples": 21,
+    "ns": {
+      "min": 0,
+      "median": 0,
+      "max": 83
+    },
+    "alloc_calls": {
+      "min": 0,
+      "median": 0,
+      "max": 0
+    },
+    "requested_bytes": {
+      "min": 0,
+      "median": 0,
+      "max": 0
+    },
+    "additional_peak_bytes": {
+      "min": 0,
+      "median": 0,
+      "max": 0
+    },
+    "process_max_rss_bytes": {
+      "samples": 3,
+      "min": 62242816,
+      "median": 62242816,
+      "max": 62242816
+    }
+  },
+  {
+    "workload": "large",
+    "variant": "topk_sort",
+    "samples": 21,
+    "ns": {
+      "min": 2877959,
+      "median": 3135792,
+      "max": 3807458
+    },
+    "alloc_calls": {
+      "min": 8020,
+      "median": 8020,
+      "max": 8020
+    },
+    "requested_bytes": {
+      "min": 2583428,
+      "median": 2583428,
+      "max": 2583428
+    },
+    "additional_peak_bytes": {
+      "min": 1108059,
+      "median": 1108059,
+      "max": 1108059
+    },
+    "process_max_rss_bytes": {
+      "samples": 3,
+      "min": 51281920,
+      "median": 51298304,
+      "max": 51314688
+    }
+  },
+  {
+    "workload": "large",
+    "variant": "topk_select",
+    "samples": 21,
+    "ns": {
+      "min": 2962875,
+      "median": 3175334,
+      "max": 3524750
+    },
+    "alloc_calls": {
+      "min": 19041,
+      "median": 19041,
+      "max": 19041
+    },
+    "requested_bytes": {
+      "min": 5498832,
+      "median": 5498832,
+      "max": 5498832
+    },
+    "additional_peak_bytes": {
+      "min": 1109576,
+      "median": 1109576,
+      "max": 1109576
+    },
+    "process_max_rss_bytes": {
+      "samples": 3,
+      "min": 51740672,
+      "median": 51757056,
+      "max": 51773440
+    }
+  }
+]

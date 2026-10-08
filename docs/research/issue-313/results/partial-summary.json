@@ -1,0 +1,314 @@
+[
+  {
+    "workload": "small",
+    "variant": "rrf_map",
+    "samples": 7,
+    "ns": {
+      "min": 5750,
+      "median": 6541,
+      "max": 11583
+    },
+    "alloc_calls": {
+      "min": 100,
+      "median": 100,
+      "max": 100
+    },
+    "requested_bytes": {
+      "min": 24948,
+      "median": 24948,
+      "max": 24948
+    },
+    "additional_peak_bytes": {
+      "min": 11672,
+      "median": 11672,
+      "max": 11672
+    },
+    "process_max_rss_bytes": null
+  },
+  {
+    "workload": "small",
+    "variant": "rrf_slots",
+    "samples": 7,
+    "ns": {
+      "min": 6167,
+      "median": 7458,
+      "max": 10250
+    },
+    "alloc_calls": {
+      "min": 100,
+      "median": 100,
+      "max": 100
+    },
+    "requested_bytes": {
+      "min": 22964,
+      "median": 22964,
+      "max": 22964
+    },
+    "additional_peak_bytes": {
+      "min": 10960,
+      "median": 10960,
+      "max": 10960
+    },
+    "process_max_rss_bytes": null
+  },
+  {
+    "workload": "small",
+    "variant": "identity_borrowed",
+    "samples": 7,
+    "ns": {
+      "min": 1333,
+      "median": 1416,
+      "max": 2250
+    },
+    "alloc_calls": {
+      "min": 91,
+      "median": 91,
+      "max": 91
+    },
+    "requested_bytes": {
+      "min": 5760,
+      "median": 5760,
+      "max": 5760
+    },
+    "additional_peak_bytes": {
+      "min": 5760,
+      "median": 5760,
+      "max": 5760
+    },
+    "process_max_rss_bytes": null
+  },
+  {
+    "workload": "small",
+    "variant": "identity_owned",
+    "samples": 7,
+    "ns": {
+      "min": 0,
+      "median": 41,
+      "max": 42
+    },
+    "alloc_calls": {
+      "min": 0,
+      "median": 0,
+      "max": 0
+    },
+    "requested_bytes": {
+      "min": 0,
+      "median": 0,
+      "max": 0
+    },
+    "additional_peak_bytes": {
+      "min": 0,
+      "median": 0,
+      "max": 0
+    },
+    "process_max_rss_bytes": null
+  },
+  {
+    "workload": "small",
+    "variant": "topk_sort",
+    "samples": 7,
+    "ns": {
+      "min": 2917,
+      "median": 3083,
+      "max": 5042
+    },
+    "alloc_calls": {
+      "min": 36,
+      "median": 36,
+      "max": 36
+    },
+    "requested_bytes": {
+      "min": 5234,
+      "median": 5234,
+      "max": 5234
+    },
+    "additional_peak_bytes": {
+      "min": 3190,
+      "median": 3190,
+      "max": 3190
+    },
+    "process_max_rss_bytes": null
+  },
+  {
+    "workload": "small",
+    "variant": "topk_select",
+    "samples": 7,
+    "ns": {
+      "min": 6416,
+      "median": 7292,
+      "max": 9667
+    },
+    "alloc_calls": {
+      "min": 153,
+      "median": 153,
+      "max": 153
+    },
+    "requested_bytes": {
+      "min": 16086,
+      "median": 16086,
+      "max": 16086
+    },
+    "additional_peak_bytes": {
+      "min": 9158,
+      "median": 9158,
+      "max": 9158
+    },
+    "process_max_rss_bytes": null
+  },
+  {
+    "workload": "large",
+    "variant": "rrf_map",
+    "samples": 7,
+    "ns": {
+      "min": 33387667,
+      "median": 34914541,
+      "max": 38073500
+    },
+    "alloc_calls": {
+      "min": 300033,
+      "median": 300033,
+      "max": 300033
+    },
+    "requested_bytes": {
+      "min": 67393140,
+      "median": 67393140,
+      "max": 67393140
+    },
+    "additional_peak_bytes": {
+      "min": 34096904,
+      "median": 34096904,
+      "max": 34096904
+    },
+    "process_max_rss_bytes": null
+  },
+  {
+    "workload": "large",
+    "variant": "rrf_slots",
+    "samples": 7,
+    "ns": {
+      "min": 29580167,
+      "median": 30017542,
+      "max": 32508125
+    },
+    "alloc_calls": {
+      "min": 300033,
+      "median": 300033,
+      "max": 300033
+    },
+    "requested_bytes": {
+      "min": 63198900,
+      "median": 63198900,
+      "max": 63198900
+    },
+    "additional_peak_bytes": {
+      "min": 31999752,
+      "median": 31999752,
+      "max": 31999752
+    },
+    "process_max_rss_bytes": null
+  },
+  {
+    "workload": "large",
+    "variant": "identity_borrowed",
+    "samples": 7,
+    "ns": {
+      "min": 4315375,
+      "median": 4425917,
+      "max": 4788459
+    },
+    "alloc_calls": {
+      "min": 300001,
+      "median": 300001,
+      "max": 300001
+    },
+    "requested_bytes": {
+      "min": 19200000,
+      "median": 19200000,
+      "max": 19200000
+    },
+    "additional_peak_bytes": {
+      "min": 19200000,
+      "median": 19200000,
+      "max": 19200000
+    },
+    "process_max_rss_bytes": null
+  },
+  {
+    "workload": "large",
+    "variant": "identity_owned",
+    "samples": 7,
+    "ns": {
+      "min": 0,
+      "median": 0,
+      "max": 83
+    },
+    "alloc_calls": {
+      "min": 0,
+      "median": 0,
+      "max": 0
+    },
+    "requested_bytes": {
+      "min": 0,
+      "median": 0,
+      "max": 0
+    },
+    "additional_peak_bytes": {
+      "min": 0,
+      "median": 0,
+      "max": 0
+    },
+    "process_max_rss_bytes": null
+  },
+  {
+    "workload": "large",
+    "variant": "topk_sort",
+    "samples": 7,
+    "ns": {
+      "min": 3034208,
+      "median": 3107917,
+      "max": 3831750
+    },
+    "alloc_calls": {
+      "min": 8020,
+      "median": 8020,
+      "max": 8020
+    },
+    "requested_bytes": {
+      "min": 2583428,
+      "median": 2583428,
+      "max": 2583428
+    },
+    "additional_peak_bytes": {
+      "min": 1108059,
+      "median": 1108059,
+      "max": 1108059
+    },
+    "process_max_rss_bytes": null
+  },
+  {
+    "workload": "large",
+    "variant": "topk_select",
+    "samples": 7,
+    "ns": {
+      "min": 3226375,
+      "median": 3394875,
+      "max": 3696209
+    },
+    "alloc_calls": {
+      "min": 19041,
+      "median": 19041,
+      "max": 19041
+    },
+    "requested_bytes": {
+      "min": 5498832,
+      "median": 5498832,
+      "max": 5498832
+    },
+    "additional_peak_bytes": {
+      "min": 1109576,
+      "median": 1109576,
+      "max": 1109576
+    },
+    "process_max_rss_bytes": null
+  }
+]

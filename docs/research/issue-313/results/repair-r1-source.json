@@ -1,0 +1,15 @@
+{
+  "start_commit": "24725a72be44300afc24186b82b14bcb3f5f9d3d",
+  "review_target": "a6e23a563d78851085f6c3fc8c17df75702e753f0f52c2d4e724f14266134278",
+  "source_sha256": {
+    "src/retrieval.rs": "25dfaf86deb246ba6aed09566b87f3f79afc6eb029d5340b8da84327d492317a",
+    "src/retrieval/tests.rs": "2c8dfe46fdcdde7a42dd705b70c6b2605387d964c510f77e7df70c9e0a552ddb",
+    "Cargo.lock": "743d754ae4fb6f0f44d169feab408a1b80caa50d17c38b058ec156c66811bf30",
+    "docs/research/issue-313/probe/src/main.rs": "06f57384d67406f16eb4b8ff559e7d5c2f89c49da3e112bc2c56506866317134",
+    "docs/research/issue-313/probe/Cargo.toml": "a3dd62570f1d47e9ecbacd80629290c629605c6a6c0aea773c2c906f8821ccf4",
+    "docs/research/issue-313/probe/Cargo.lock": "478b40da5c9f50fd4cf08511b8c1be204a6dc0a89c3025876be606b6cc59a013",
+    "docs/research/issue-313/run.py": "5ef85ad2a6ba7f10fcb479f868f5ed21bcfd616e40a17209f2d5a07b36fd4b99"
+  },
+  "measurement_status": "pending_host",
+  "historical_measurement": "host-context.json; final-source-check.json describes the pre-R1 edition only"
+}

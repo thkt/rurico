@@ -1,0 +1,28 @@
+{
+  "scope": "Historical comment-only edition before final test ownership changes. See final-source-check.json for current source and measured release binary equality.",
+  "records": [
+    {
+      "file": "src/retrieval/tests.rs",
+      "measured_source_sha256": "09f5c147996802ba8e3bf4c91884aa6df03ad0e97467fb6daf6f19a71aaac4d7",
+      "current_source_sha256": "2aa34e703783aaa2248c8b9b41b1f835f41982c7f21b3c51f0d964a4c34e5e90",
+      "removed_lines": 43,
+      "non_comment_non_empty_lines_equal": true
+    }
+  ],
+  "release_rebuild": {
+    "command": [
+      "cargo",
+      "build",
+      "--offline",
+      "--locked",
+      "--manifest-path",
+      "docs/research/issue-313/probe/Cargo.toml",
+      "--release"
+    ],
+    "exit_code": 0,
+    "binary_sha256": "801f71f4b26e24bbf0250d7f62581e4bffa84d355acf04f2fb16e8d17da3fa8b",
+    "measured_binary_equal": true,
+    "scope": "Comment cleanup only in cfg(test) source; measurementrelease executable unchanged after rebuild. Current native check/review still required."
+  },
+  "historical_edition": true
+}
