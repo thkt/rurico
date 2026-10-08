@@ -42,9 +42,9 @@ shellingham==1.5.4
 sympy==1.14.0
 threadpoolctl==3.7.0
 tokenizers==0.23.2
-torch==2.14.0
+torch==2.14.1
 tqdm==4.70.1
-transformers==5.17.0
+transformers==5.18.0
 typer==0.27.2
 typing-extensions==4.16.0
 urllib3==2.8.0
