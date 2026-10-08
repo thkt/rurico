@@ -496,8 +496,8 @@ This installs a pre-commit hook that runs `cargo fmt --all -- --check` and `carg
 ### Common commands
 
 ```sh
-cargo nextest run --workspace                                           # all tests (doctest を除く)
-cargo test --doc --workspace                                            # doctest (nextest は doctest を走らせない)
+bash scripts/test.sh                                                   # 通常テスト（smokeのモデル不要テストを含む、doctestを除く）
+cargo test --locked --doc --workspace --features test-support,test-mlx,smoke # doctest (nextest は doctest を走らせない)
 cargo clippy --workspace --all-targets --all-features -- -D warnings    # lint (matches CI)
 cargo fmt --all -- --check                                              # format check
 ```
@@ -505,7 +505,7 @@ cargo fmt --all -- --check                                              # format
 ## テスト
 
 ```sh
-cargo nextest run --workspace                                                  # モデル不要（FFIテストはMetalを使用）
+bash scripts/check.sh                                                        # 標準check（モデル不要、FFIテストはMetalを使用）
 cargo nextest run --workspace --features test-mlx --run-ignored=ignored-only   # MLX ランタイムテスト（通常 Terminal 推奨）
 cargo run --bin mlx_smoke --features smoke --release -- verify-fixture         # embed 数値同等性検証（smoke binary）
 ```
@@ -515,6 +515,9 @@ smoke binary は `sandbox::exit_if_seatbelt` 経由で `SEATBELT_SKIP_EXIT` (78)
 実検証は通常の Terminal か、sandbox 外の実行環境で行う。
 
 `mlx_smoke` binary は `smoke` Cargo feature でゲートされており、library として rurico を取り込む downstream には `tracing-subscriber` を持ち込まない。harness 用 just recipe（`just embed-verify` / `just embed-baseline` / `just probe-embed` / `just probe-reranker` 等）は `justfile` を参照。
+
+通常CI・checkは `test-support,test-mlx,smoke` を有効にし、実モデルのignoredテストは実行しない。
+`--all-features` の意味と実行対象・選択検査は[CONTRIBUTING](CONTRIBUTING.md#テスト)を参照。
 
 性能判定と基準rev比較は[CONTRIBUTING](CONTRIBUTING.md#性能判定と基準rev比較issue-359)を参照。
 `measure-baseline` のprimary成功はW1/W3の速度や全workloadの目標達成を保証しない。

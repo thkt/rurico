@@ -9,12 +9,14 @@ default:
 
 # === Development ===
 
-# Full local CI: cargo test + clippy + fmt --check
-check: test lint fmt-check
+# Standard Rust check + smoke selection checks + clippy + fmt --check
+check:
+    bash scripts/check.sh
 
 test:
-    cargo nextest run --workspace --all-features
-    cargo test --doc --workspace --all-features
+    python3 -m unittest discover -b -s scripts -p 'test_*.py'
+    bash scripts/test.sh
+    cargo test --locked --doc --workspace --features test-support,test-mlx,smoke
 
 lint:
     cargo clippy --workspace --all-targets --all-features -- -D warnings
