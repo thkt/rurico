@@ -1,0 +1,60 @@
+{
+  "scope": "small synthetic fixture; shared production save route; below/exact/one-byte-over cap; retained external prefix",
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "baseline_head": "fef306fc2e60211f8cc6653c3a75b00230a5e6eb",
+  "results": [
+    {
+      "stage": "normal",
+      "exit_code": 0,
+      "elapsed_seconds": 8.752596855163574,
+      "source_sha256": "dc545da012c84d56e4f1368cd8445ac092e1c69e1ade0cf5b3fe88d4aa792d16",
+      "lock_sha256": "743d754ae4fb6f0f44d169feab408a1b80caa50d17c38b058ec156c66811bf30",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--lib",
+        "embed::fixtures::tests::versioned_save_byte_limit_is_checked_before_writing",
+        "--",
+        "--exact"
+      ]
+    },
+    {
+      "stage": "mutant",
+      "exit_code": 101,
+      "elapsed_seconds": 2.683924913406372,
+      "source_sha256": "0affd8e6cf20fbdd6daca605df630aedd0ab1d084f1e7cd31c4f0ff6337cf009",
+      "lock_sha256": "743d754ae4fb6f0f44d169feab408a1b80caa50d17c38b058ec156c66811bf30",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--lib",
+        "embed::fixtures::tests::versioned_save_byte_limit_is_checked_before_writing",
+        "--",
+        "--exact"
+      ]
+    },
+    {
+      "stage": "restored",
+      "exit_code": 0,
+      "elapsed_seconds": 2.763256072998047,
+      "source_sha256": "dc545da012c84d56e4f1368cd8445ac092e1c69e1ade0cf5b3fe88d4aa792d16",
+      "lock_sha256": "743d754ae4fb6f0f44d169feab408a1b80caa50d17c38b058ec156c66811bf30",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--lib",
+        "embed::fixtures::tests::versioned_save_byte_limit_is_checked_before_writing",
+        "--",
+        "--exact"
+      ]
+    }
+  ],
+  "limits": [
+    "64 MiB huge fixture not measured",
+    "no inference or speed/RSS claim",
+    "partial-write rollback after validation not guaranteed"
+  ]
+}

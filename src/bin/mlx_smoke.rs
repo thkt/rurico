@@ -31,7 +31,7 @@ mod records;
 
 use std::env;
 use std::fs::{self, File};
-use std::io::{BufReader, BufWriter, stderr};
+use std::io::{BufReader, stderr};
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -172,7 +172,6 @@ fn as_refs(texts: &[String]) -> Vec<&str> {
     texts.iter().map(String::as_str).collect()
 }
 
-// Reuse the smoke provenance contract without acquiring a model in tests.
 fn fixture_generation(
     texts: &[String],
     context: &serde_json::Value,
@@ -218,9 +217,8 @@ fn run_capture_fixture(embedder: &embed::Embedder) {
         let path = dir.join(format!("{name}.bin"));
         let generation =
             fixture_generation(&texts, &context).expect("fixture generation conditions");
-        let file = File::create(&path).expect("create fixture file");
-        let mut w = BufWriter::new(file);
-        fixtures::save_versioned(&mut w, &out, &generation).expect("save fixture");
+        let mut file = File::create(&path).expect("create fixture file");
+        fixtures::save_versioned(&mut file, &out, &generation).expect("save fixture");
         eprintln!(
             "capture[{name}] wrote {} docs to {}",
             out.len(),

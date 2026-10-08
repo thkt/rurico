@@ -37,8 +37,6 @@ fn compare_identical_fixtures_reports_zero_diff() {
     );
 }
 
-// Regression: identical all-zero fixtures must report cosine=1.0 (not 0.0)
-// so the NFR-001 threshold stays passable on zero-norm inputs.
 #[test]
 fn compare_identical_zero_fixtures_reports_cosine_one() {
     let zeros = vec![ChunkedEmbedding::try_new(vec![vec![0.0f32; 8]]).unwrap()];
@@ -47,7 +45,6 @@ fn compare_identical_zero_fixtures_reports_cosine_one() {
     assert_eq!(diff.max_abs_diff, 0.0);
 }
 
-// Regression: zero vs nonzero must report cosine=0.0 (clear mismatch).
 #[test]
 fn compare_zero_versus_nonzero_reports_cosine_zero() {
     let a = vec![ChunkedEmbedding::try_new(vec![vec![0.0f32; 3]]).unwrap()];
@@ -205,8 +202,6 @@ fn load_rejects_invalid_vector_content() {
     }
 }
 
-// Corrupt header: a chunk declares `dim` but the f32 payload is shorter
-// than `dim * 4` bytes: payload bounds reject it before vector allocation.
 #[test]
 fn load_rejects_chunk_with_truncated_payload() {
     let mut bytes = Vec::new();
@@ -264,6 +259,32 @@ fn conditions() -> GenerationConditions {
         generation_code: "src/embed/fixtures/tests.rs".into(),
         settings: "synthetic, no inference".into(),
     }
+}
+
+#[test]
+fn versioned_save_byte_limit_is_checked_before_writing() {
+    let docs = sample_docs();
+    let metadata = conditions();
+    // Version header + JSON + legacy counts (2 docs, 3 chunks) + 9 f32 values.
+    let size = 12 + serde_json::to_vec(&metadata).unwrap().len() + 4 + 2 * 4 + 3 * 4 + 9 * 4;
+    let mut public_output = Vec::new();
+    save_versioned(&mut public_output, &docs, &metadata).unwrap();
+    assert_eq!(public_output.len(), size);
+
+    for limit in [size + 1, size] {
+        let mut output = Vec::new();
+        save_versioned_with_limit(&mut output, &docs, &metadata, limit).unwrap();
+        assert_eq!(output, public_output, "limit {limit}");
+    }
+
+    // A pre-existing prefix makes writes observable without assuming an empty writer.
+    let prefix = b"existing output";
+    let mut output = prefix.to_vec();
+    let result = save_versioned_with_limit(&mut output, &docs, &metadata, size - 1);
+    assert_eq!(output, prefix, "oversized fixture wrote to external writer");
+    let err = result.expect_err("oversized fixture must be rejected");
+    assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+    assert_eq!(err.to_string(), "fixture exceeds byte limit");
 }
 
 #[test]

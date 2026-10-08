@@ -34,6 +34,12 @@ readerのI/Oエラーは伝播する。読込みは一つの完全なfixtureがE
 `save`は互換用のlegacy writerで、内容・総byte数を検証しない。
 新規生成には`save_versioned`と明示した`GenerationConditions`を使う。
 新writerは内容と生成条件、64 MiB上限を検証してから書込み、失敗は`io::Error`で返す。
+上限はversion header・生成条件JSON・legacy payloadを含むserialized byte数に適用する。
+検証・サイズ確認の失敗では外部writerへ1 byteも書かない。
+`capture-fixture`は新しいFileを直接渡す。versioned writerが検証・計数・符号化を
+内部で完了し、完成byte列を外部writerへ一度の`write_all`で渡すため、
+呼出側で短い書込みを集約するbufferは不要である。
+書込み開始後のwriterエラーは伝播するが、部分出力のrollbackは保証しない。
 正常legacyを読んで新形式へ保存する場合も、由来を確認できない情報で埋めてはいけない。
 由来を回収できなければlegacyとして保つ。
 
@@ -78,6 +84,34 @@ cacheのローカル変更をhash検証していないこともtokenizer欄とco
 この変更は読込み・比較・生成記録の契約を検証し、モデル数値や検索品質の再測定を主張しない。
 実モデルの比較は既存の`verify-fixture`を別に使う（[CONTRIBUTING](../../../CONTRIBUTING.md#テスト)）。
 
+### 保存上限の回帰検証
+
+`versioned_save_byte_limit_is_checked_before_writing`は、公開`save_versioned`が
+64 MiBを渡す内部helperと同じ保存経路へ、小さいfixtureと上限を渡す。
+serialized byte数をheader・JSON・document/chunk数・値数から求め、上限以下と境界では
+公開APIと同じbyte列、1 byte超過では`InvalidData`と`fixture exceeds byte limit`を確認する。
+超過時には外部writerの既存prefixが変わらないことも確認する。
+巨大fixtureやByteCounter単体の検査でこの保証を代用しない。
+
+検出力を確認する際は、変更版とCargo.lockを固定したcheckout外の一時コピーを使う。
+通常版で次を実行した後、そのコピーだけで`ByteCounter::write`の
+`if self.bytes > self.max_bytes { ... }`による上限拒否を外し、同じテストを実行する。
+`oversized fixture wrote to external writer`のassertionで失敗することを確認する。
+元のsourceをコピーへ復元し、同じテストの成功を確認する。コンパイル失敗は検出成功に数えない。
+
+```sh
+cargo test --locked --lib embed::fixtures::tests::versioned_save_byte_limit_is_checked_before_writing -- --exact
+```
+
+source・差分・Cargo.lockのhash、ツールチェーン、各実行の終了コードとstdout/stderrを
+checkoutと既存runの外へ保存する。通常checkは正常版のテストを実行するが、この一時改変は実行しない。
+今回のsandboxではMLXビルド用sourceの取得がDNS制約で失敗し、テスト実行へ到達していない。
+その後のホスト検証では、通常版・復元版は各1件成功し、上限拒否を外した版は
+`oversized fixture wrote to external writer`のassertionで終了101となった。
+[結果と版](issue-304-save-boundary.json)・[対象出力](issue-304-save-boundary.txt)を保存した。
+traitのflushや有限入力から通常到達しないcosine防御経路を、件数合わせで実行する検査や
+coverage除外は追加しない。
+
 Issue #304の追加ホスト検証では、sandbox外のApple Silicon・Metal環境で、
 同じ変更版とCargo.lockから次をビルド・実行する。
 `cl-nagoya/ruri-v3-310m`のrevision `18b60fb8c2b9df296fb4212bb7d23ef94e579cd3`を
@@ -120,3 +154,14 @@ model/config/tokenizerのローカル内容も実行後に固定revisionの公�
 JSONのhashと上記数値は修正前の測定版の記録であり、修正後のbinaryを実測した結果ではない。
 同じ値を構築する局所修正のため既存の数値観測を参照するが、読込み時間や総RSSの改善は未測定。
 修正後の内容拒否・原因型・値・順序・IDはfixture単体テストで検証し、標準checkと独立評価へ戻す。
+PR #376のhead `fef306fc2e60211f8cc6653c3a75b00230a5e6eb`からの保存上限検証の補強では、
+公開writerの既定64 MiBを内部helperへ渡し、小さい上限で同じ保存経路を検証できるようにした。
+この変更は保存経路・テスト・説明に限り、読込み・推論・比較計算・入力・fixture・Cargo.lockは変えていない。
+`verify-fixture`はlegacyの読込みと比較を使い、versioned保存は呼ばないため、今回の保存経路変更の
+検証を旧W1/W2/W3観測で代用しない。保存境界テストと上限拒否を外す検出力確認を使う。
+続くcapture呼出側の修正では、不要になったBufWriterを削除し、同じ保存先のFileへ直接渡す。
+保存境界のホスト証拠が対象とした保存実装・テスト・Cargo.lockはこの修正でも不変で、
+その検出力確認を再利用できる。呼出側のコンパイルとモデル不要smoke検証は標準checkで確認する。
+この証拠は実モデルのcapture実行やFileへの書込み結果を実測したものではない。
+旧出力・JSON・数値は引き続き二重走査修正前の測定版に限る。今回のbinaryの実モデル検証、
+保存上限64 MiBそのものの巨大fixtureによる実測、実行時間・総RSS・保守費用の改善は未確認である。

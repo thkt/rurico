@@ -144,17 +144,27 @@ pub fn save_versioned<W: Write>(
     docs: &[ChunkedEmbedding],
     generation: &GenerationConditions,
 ) -> io::Result<()> {
+    save_versioned_with_limit(w, docs, generation, DEFAULT_MAX_BYTES)
+}
+
+fn save_versioned_with_limit<W: Write>(
+    w: &mut W,
+    docs: &[ChunkedEmbedding],
+    generation: &GenerationConditions,
+    max_bytes: usize,
+) -> io::Result<()> {
     generation.validate(docs.len())?;
     validate_docs(docs).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
     let metadata = serde_json::to_vec(generation).map_err(invalid)?;
-    let mut bytes = Vec::new();
-    // The counting pass prevents serialization from growing beyond the default limit.
-    let mut counter = ByteCounter(
-        12usize
+    // Count the full fixture before building the binary output buffer.
+    let mut counter = ByteCounter {
+        bytes: 12usize
             .checked_add(metadata.len())
             .ok_or_else(|| invalid("size overflow"))?,
-    );
+        max_bytes,
+    };
     save(&mut counter, docs)?;
+    let mut bytes = Vec::new();
     bytes.extend_from_slice(&MAGIC.to_le_bytes());
     bytes.extend_from_slice(&1u32.to_le_bytes());
     bytes.extend_from_slice(
@@ -167,14 +177,17 @@ pub fn save_versioned<W: Write>(
     w.write_all(&bytes)
 }
 
-struct ByteCounter(usize);
+struct ByteCounter {
+    bytes: usize,
+    max_bytes: usize,
+}
 impl Write for ByteCounter {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        self.0 = self
-            .0
+        self.bytes = self
+            .bytes
             .checked_add(bytes.len())
             .ok_or_else(|| invalid("size overflow"))?;
-        if self.0 > DEFAULT_MAX_BYTES {
+        if self.bytes > self.max_bytes {
             return Err(invalid("fixture exceeds byte limit"));
         }
         Ok(bytes.len())
