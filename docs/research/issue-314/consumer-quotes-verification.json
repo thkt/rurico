@@ -1,0 +1,20 @@
+{
+  "fixed_consumer_commit": "547f9ee2ed734a2eab316fdbd62f194849875ee4",
+  "rurico_start_commit": "24725a72be44300afc24186b82b14bcb3f5f9d3d",
+  "consumer_lock_sha256": "cb132c818a1f7d4ca9434219c227f7a4e7e2656161b501c514e98eab7a551836",
+  "previous_consumer_lock_equal": true,
+  "consumer_product_source_equal": true,
+  "binary_sha256": "7973c0c78dbfffa58d9bc947f43201dde219529b6cd74968d0d60ff9ac5e4157",
+  "sqlite_version": "3.53.2",
+  "quote_filter": {
+    "exit_code": 0,
+    "seconds": 6.3191792499274015
+  },
+  "final_suite": {
+    "exit_code": 0,
+    "seconds": 0.6336757499957457
+  },
+  "tests_passed": 13,
+  "quote_observations": 4,
+  "scope": "Temporary consumer test extension only. Native CPU SQLite tests, no GPU/model inference. Control and defect observed, not desired production acceptance."
+}

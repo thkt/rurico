@@ -1,0 +1,35 @@
+--- a/src/storage/fts/tests.rs
++++ b/src/storage/fts/tests.rs
+@@ -155,3 +155,32 @@
+         ]
+     );
+ }
++
++#[test]
++fn issue314_host_quoted_group_terminator_observation() {
++    let mut records = Vec::new();
++    for body in ["日本語", "日)本"] {
++        let conn = Connection::open_in_memory().unwrap();
++        conn.execute_batch("CREATE VIRTUAL TABLE docs USING fts5(body, tokenize='trigram'); CREATE VIRTUAL TABLE vocab USING fts5vocab(docs, row);").unwrap();
++        for value in [body, "無関係"] {
++            conn.execute("INSERT INTO docs(body) VALUES (?1)", [value]).unwrap();
++        }
++        let query = prepare_match_query(&conn, "日", "vocab", &QueryNormalizationConfig::disabled()).unwrap();
++        let (fixed, groups) = parse_fts_segments(query.as_str());
++        let cleaned = clean_for_trigram(&query);
++        let fetch = |wire: &str| -> Vec<i64> {
++            conn.prepare("SELECT rowid FROM docs WHERE docs MATCH ?1 ORDER BY rowid").unwrap().query_map([wire], |row| row.get(0)).unwrap().collect::<Result<_, _>>().unwrap()
++        };
++        let direct = fetch(query.as_str());
++        let via_consumer = cleaned.as_deref().map(fetch).unwrap_or_default();
++        records.push(serde_json::json!({"body":body,"control":body=="日本語","input":"日","tokenizer":"trigram","normalization":"all-off on both sides","producer_wire":query.as_str(),"fixed":fixed,"groups":groups,"cleaned":cleaned,"direct_hits":direct,"consumer_hits":via_consumer,"relevant":[1],"direct_quality":{"precision":1.0,"recall":1.0},"consumer_quality":{"precision":if via_consumer.is_empty(){None}else{Some(1.0)},"recall":via_consumer.len() as f64},"scope":"fixed consumer defect observation; no production adoption"}));
++        println!("issue314-group:{}", serde_json::to_string(records.last().unwrap()).unwrap());
++        assert_eq!(direct, vec![1]);
++        assert_eq!(query.as_str(), if body=="日本語" {"(\"日本語\")"} else {"(\"日)本\")"});
++        assert!(fixed.is_empty());
++        if body=="日本語" {assert_eq!(groups,vec![vec!["\"日本語\""]]);assert_eq!(cleaned,Some("\"日本語\"".to_owned()));assert_eq!(via_consumer,vec![1]);}
++        else {assert!(groups.is_empty());assert_eq!(cleaned,None);assert!(via_consumer.is_empty());}
++    }
++    assert_eq!(records.len(),2);
++    println!("issue314-sqlite:{}",rusqlite::version());
++}

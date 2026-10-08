@@ -1,0 +1,22 @@
+{
+  "fixed_consumer_commit": "547f9ee2ed734a2eab316fdbd62f194849875ee4",
+  "sqlite_version": "3.53.2",
+  "consumer_lock_sha256": "cb132c818a1f7d4ca9434219c227f7a4e7e2656161b501c514e98eab7a551836",
+  "consumer_product_sources_equal": true,
+  "lock_equal_previous": true,
+  "rurico_lock_sha256": "743d754ae4fb6f0f44d169feab408a1b80caa50d17c38b058ec156c66811bf30",
+  "test_binary_sha256": "933cbe543452f1b4328242b6d73ac88734adcff7ecc3209442c87fa33eec5640",
+  "group_filter": {
+    "exit_code": 0,
+    "seconds": 6.918599499971606
+  },
+  "suite": {
+    "exit_code": 0,
+    "seconds": 4.805060624959879
+  },
+  "tests_passed": 14,
+  "group_observations": 2,
+  "quote_observations": 4,
+  "original_fixture_observations": 26,
+  "scope": "Same fixed consumer and own resolved lock; only temporary tests extended, no product parser change, no GPU/model inference."
+}

@@ -1,0 +1,31 @@
+{
+  "baseline": "24725a72be44300afc24186b82b14bcb3f5f9d3d",
+  "head": "24725a72be44300afc24186b82b14bcb3f5f9d3d",
+  "cargo_lock_sha256": "743d754ae4fb6f0f44d169feab408a1b80caa50d17c38b058ec156c66811bf30",
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "sources": {
+    "baseline/src/storage/query_normalize.rs": "f11c06ff30711d6707581951c7682be3416d14a643bc76d907f1a7cf5b6f59e9",
+    "baseline/src/storage/query_normalize/tests.rs": "aed248e00c29ec3bbe9c3c3cb7de62310e045b6217fea1addd2b8c238b4c8366",
+    "baseline/src/storage/search.rs": "d8c10312b4fa9bbb59f159fac7a433866c95890a7b8f129b2a0e6fc239dbc7e7",
+    "baseline/src/storage/search/tests.rs": "de4ccaadc0c7455c14c827173d47bfffd685ce3130bf10840d7a68bd582bbe37",
+    "current/src/storage/query_normalize.rs": "1c28cbc87bfe1c1b078876ca83af03ba646c3c2281232085699b1d70cc42dc5d",
+    "current/src/storage/query_normalize/tests.rs": "8360b9b5f54f9598aef363260b5a15ffe9b06aeaf84c95b6e7ed13a78e408179",
+    "current/src/storage/search.rs": "e4136d955fc46d704080f9cc61275d5ba4cf74412cff6984373ff92ec55ffe3c",
+    "current/src/storage/search/tests.rs": "5b7f68e5f82f7f5aaa6ef2df77574b0e2050d7e1dacd0644840631a313e58cb9"
+  },
+  "dependencies": {
+    "librusqlite-a9ee9e11cb5e43b2.rlib": "fad44500cb8b775236be98c61562b6e5fdc64f1ee5c4bdfd59a684a626a97e82",
+    "libserde-367dd3e11f144bc8.rlib": "292015e9d5738031b0c96053d71aba4fc54845dfd0e9aef73afb93a5328a43c8",
+    "libserde_json-b807a8bda3ee45ee.rlib": "0326d296dfc4063b436a710fb6e87f8a6fd74191677fc625c6f289acba666c3d",
+    "libunicode_normalization-5043ab956a879653.rlib": "9dbb9a101a6ca5484c63911db3e93067499276ffb81c8af18828298f2dfc3c39",
+    "libthiserror-9909537f160c9283.rlib": "11a19ad4affcaab9600b47e84a7419a13cbac9fc44b8b745b965022e992d7d10"
+  },
+  "probe_sha256": "2696203c44fe886b63871a909b8160ba16ed45bf5448fa54f41032b417dba7ea",
+  "flags": [
+    "--edition=2024",
+    "-O",
+    "-C lto",
+    "same prebuilt dependency rlibs"
+  ],
+  "binary_sha256": "ba659b7aaab56f3966079d7039983b52ae726b188c2d0ff1ade9bb29f32f1624"
+}

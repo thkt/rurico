@@ -55,7 +55,7 @@ wire変更では、過去literalに存在するdoc_id・source名・source_weigh
 再実行時のNaN half-lifeのfilterは `weighted_rrf_recency_nan_half_life_keeps_unboosted_hits` を使う。
 inf age／half-lifeの対応filterは `weighted_rrf_recency_inf_half_life_inf_age_keeps_unboosted_hits` である。
 どちらも有限性だけでなく全hit・score・source mapを固定値へ照合する。
-重複例の統合と現行版での検出力確認は [#313の統合記録](../issue-313/report.md#最新mainとの統合と今回のfindings)を参照する。
+重複例の統合と現行版での検出力確認は [#313のテスト整理と残る検出条件](../issue-313/report.md#テスト整理の理由と残る検出条件)を参照する。
 
 測定後、触ったファイルのテスト名の再述・装飾見出しを削減した。
 公開APIの契約、数値例、異なる失敗条件の理由は保持した。

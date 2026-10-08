@@ -1,0 +1,157 @@
+{
+  "sqlite_version": "3.53.2",
+  "records": [
+    {
+      "bodies": [
+        "say\"hi",
+        "say alone",
+        "say unrelated"
+      ],
+      "cleaned": "\"say\"",
+      "consumer_hits": [
+        1,
+        2,
+        3
+      ],
+      "consumer_quality": {
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "direct_hits": [
+        1,
+        2,
+        3
+      ],
+      "direct_quality": {
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "fixed": [
+        "\"say\""
+      ],
+      "groups": [],
+      "input": "say",
+      "normalization": "all-off on both sides",
+      "producer_wire": "\"say\"",
+      "relevant": [
+        1,
+        2,
+        3
+      ],
+      "scope": "fixed consumer defect observation; no product change or acceptance",
+      "tokenizer": "unicode61"
+    },
+    {
+      "bodies": [
+        "say\"hi",
+        "say alone",
+        "say unrelated"
+      ],
+      "cleaned": "\"say\"",
+      "consumer_hits": [
+        1,
+        2,
+        3
+      ],
+      "consumer_quality": {
+        "precision": 0.3333333333333333,
+        "recall": 1.0
+      },
+      "direct_hits": [
+        1
+      ],
+      "direct_quality": {
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "fixed": [
+        "\"say\""
+      ],
+      "groups": [],
+      "input": "say\"hi",
+      "normalization": "all-off on both sides",
+      "producer_wire": "\"say\"\"hi\"",
+      "relevant": [
+        1
+      ],
+      "scope": "fixed consumer defect observation; no product change or acceptance",
+      "tokenizer": "unicode61"
+    },
+    {
+      "bodies": [
+        "say\"hi",
+        "say alone",
+        "say unrelated"
+      ],
+      "cleaned": "\"say\"",
+      "consumer_hits": [
+        1,
+        2,
+        3
+      ],
+      "consumer_quality": {
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "direct_hits": [
+        1,
+        2,
+        3
+      ],
+      "direct_quality": {
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "fixed": [
+        "\"say\""
+      ],
+      "groups": [],
+      "input": "say",
+      "normalization": "all-off on both sides",
+      "producer_wire": "\"say\"",
+      "relevant": [
+        1,
+        2,
+        3
+      ],
+      "scope": "fixed consumer defect observation; no product change or acceptance",
+      "tokenizer": "trigram"
+    },
+    {
+      "bodies": [
+        "say\"hi",
+        "say alone",
+        "say unrelated"
+      ],
+      "cleaned": "\"say\"",
+      "consumer_hits": [
+        1,
+        2,
+        3
+      ],
+      "consumer_quality": {
+        "precision": 0.3333333333333333,
+        "recall": 1.0
+      },
+      "direct_hits": [
+        1
+      ],
+      "direct_quality": {
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "fixed": [
+        "\"say\""
+      ],
+      "groups": [],
+      "input": "say\"hi",
+      "normalization": "all-off on both sides",
+      "producer_wire": "\"say\"\"hi\"",
+      "relevant": [
+        1
+      ],
+      "scope": "fixed consumer defect observation; no product change or acceptance",
+      "tokenizer": "trigram"
+    }
+  ]
+}

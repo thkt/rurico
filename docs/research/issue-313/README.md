@@ -4,25 +4,16 @@
 要求・採用権限の正本は [Issue #313](https://github.com/thkt/rurico/issues/313)。
 既定の重複処理、公開API、JSON、モデル処理を変更する入口ではない。
 
-現在の修正は公開head `883b4a53e25451cfffa78e5e08d7ea84a0787482` から始め、
-main `01dd1c69c633a7f2eeccd188d566ec25d0f94e93` のファイルを統合した未commit版である。
-GitHubでPR #380の作者thkt・同じhead・draftとmainの版を照合した。
-初回のsandbox作業では版固定blobを三者統合した後、Git状態の準備をホストへ引き継いだ。
-その後ホストが最新baseを取得し、既存branchの未commit mergeを準備して競合を解消した。
-現在の`MERGE_HEAD`は上記mainと一致し、未解決indexはない。
-保存した統合ファイルとのbyte一致、mainのlock・requirements・追加検証の保持も確認済みである。
-このGit統合確認は完了しており、再実行を待つ状態ではない。
-[報告のホスト確認](report.md#ホストでのgit統合確認)と
-[source対応記録](results/main-integration-source-check.json)を参照する。
-merge commitは未作成で、公開branchの祖先関係の確定は後続の公開工程で確認する。
-今回もcommit・push・公開は行わない。
+現在の修正は公開head `64c80cc3ff27675873d5e24cde16106ef45c669e` に、
+#379マージ後のmain `e1ba0ed703cf8168faba60fb7fd0eb6258f675db` を通常mergeした未commit版である。
+ホストで取得・版照合を行い、自動mergeが成功した。未解決indexはない。
+#304・#312・#314を含むmainの変更を保持し、retrievalと本調査のsourceはmerge前後で同じだった。
+[統合記録](results/latest-main-integration.json)と[今回の状態](report.md#379マージ後のmain統合)を参照する。
 
-製品runtimeとprobeは旧測定版から変わらず、native release再buildは
-R1測定binaryとSHA-256が一致した。[統合sourceとの対応](results/main-integration-source-check.json)を参照する。
-旧測定sourceのhashを統合sourceのhashに読み替えない。現在版のCPU検証は53件とclippyが成功した。
-ホストの統合版checkは成功したが、独立評価で文書の現在状態に不一致が指摘された。
-この文書修正後の標準checkと変更文書を含む独立評価はホストの既存手順へ渡す。
-旧accepted・check・CIは今回の版の成功として利用しない。GPU・実モデルは実行していない。
+前回の公開headは標準check・独立評価・CIが成功したが、最新統合版の成功へ転用しない。
+最新統合版のCPU限定53テストは新規build先で成功した。標準checkと変更文書を含む独立評価はこれから行う。
+現在のmerge commit作成・同じPR更新・新headのCI照合は後続の公開工程で行う。
+製品方式は未採用で、GPU・実モデルは実行していない。
 
 ## 検証する
 

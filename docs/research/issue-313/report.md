@@ -2,9 +2,9 @@
 
 既定は現在の加算契約を維持し、単一query・単一source内で同じdoc/chunkを繰り返す場合のbest rank統合を、明示的な追加入口の候補として提案する。統合・拒否・wire変更は未採用で、製品には実装していない。別source、別chunk、parentの`None`とchildの`Some(_)`を同一視しない。
 
-修正前の内部比較では、固定slotはallocation回数を減らさず、要求byte総数と追加live heap peakが小さくなった。固定slotの重み取得を呼出し内で一度にまとめた現在版でも、36 process・252 callとRSSを再測定した。修正前の数値は履歴として分ける。所有権を渡すidentity候補は、準備済みVecを移譲する区間では追加allocationがなかった。今回のTopK選択候補は小入力・大量入力ともallocationが増えたため、現候補の採用は推奨しない。ホストで36 process・252 callとprocess peak RSSを取得した。外部作業の停止と負荷隔離は未確認で、時間差を候補による速度改善とは判断しない。製品方式は未採用で、全体checkと独立評価はこの報告の更新後に行う。
+修正前の内部比較では、固定slotはallocation回数を減らさず、要求byte総数と追加live heap peakが小さくなった。固定slotの重み取得を呼出し内で一度にまとめた現在版でも、36 process・252 callとRSSを再測定した。修正前の数値は履歴として分ける。所有権を渡すidentity候補は、準備済みVecを移譲する区間では追加allocationがなかった。今回のTopK選択候補は小入力・大量入力ともallocationが増えたため、現候補の採用は推奨しない。ホストで36 process・252 callとprocess peak RSSを取得した。外部作業の停止と負荷隔離は未確認で、時間差を候補による速度改善とは判断しない。製品方式は未採用で、最新統合版の全体checkと独立評価はこの報告の更新後に行う。
 
-現在の修正は公開head `883b4a5` にmain `01dd1c6` のファイルを統合した未commit版である。旧R1測定binaryとnative再buildの一致を確認した。統合版の検証、テスト整理、次の評価担当への引き継ぎは[末尾の現行状態](#最新mainとの統合と今回のfindings)を参照する。旧check・acceptedは現在版へ引き継がない。
+現在の修正は公開head `64c80cc3` に#379マージ後のmain `e1ba0ed7` を通常mergeした未commit版である。現在の確認・残る検証は[今回の状態](#379マージ後のmain統合)を参照する。以下のR1測定と01dd1c6統合の記録は履歴であり、旧check・accepted・CIを今回の成功へ読み替えない。
 
 ## 根拠の版と適用条件
 
@@ -185,7 +185,7 @@ R1の局所統合で設定検索の重複を除き、欠落source・非有限値
 
 最終cfg(test)版の54テスト・clippy・fmt・release再buildが成功し、測定binary `af3e40373e9df405dd9be77b62f2c4322fa89a4cdb0f749b019de9438a2010e5`とのSHA-256一致を確認した。[現在sourceの対応](results/recency-source-check.json)は測定時のhashと混ぜず別に記録する。型付きsourceの全体check・独立評価はこの追記後に行う。
 
-## 最新mainとの統合と今回のfindings
+## main 01dd1c6との統合とfindings（公開head 64c80cc3までの履歴）
 
 公開head `883b4a53e25451cfffa78e5e08d7ea84a0787482` と旧runのpublished URLをGitHubのPR #380へ照合した。作者はthkt、draft、baseはmain `01dd1c69c633a7f2eeccd188d566ec25d0f94e93` だった。今回の修正はこの公開headから始めた。初回のsandbox作業では、shellのDNS制限と共有Git管理領域の読取専用制限があったため、GitHub connectorから版固定の変更blobを取得し、Git blob hashを照合して、開始版24725a7を共通基点とするファイル統合を行った。その時点ではindexを更新せず、Git状態の準備をホストへ引き継いだ。その後の未commit merge準備と競合解消は[ホスト確認](#ホストでのgit統合確認)で完了している。merge commit・push・公開は行っていない。
 
@@ -234,3 +234,15 @@ READMEとretrieval関連の3ファイルの競合を統合済み内容で解消�
 原因は、ホスト完了の追記時に冒頭とhandoffの停止時説明を更新しなかったことだった。READMEの現行状態と本handoffを未commit merge・競合解消済みへ書き直し、初回の停止経緯は履歴として区別した。現在状態の変更時には追記だけでなく、既存の操作説明と残る待機条件も照合する。コード・テスト・測定原本は変更しておらず、上記checkを文書修正後の成功には転用しない。担当ホストは設定済みcheckと変更文書を含む独立評価を更新する。
 
 今回の文書修正も日本語確認の固定版と手動チェックリストで意味を照合した。新規cacheでのoffline lintはsudachipyを取得できず終了1となり、未完了である。文書の意味確認は既存の独立評価へ戻し、lintを追加の合否条件にしない。
+
+## #379マージ後のmain統合
+
+公開head `64c80cc3ff27675873d5e24cde16106ef45c669e` は前回の標準check・独立評価・全5件のCIが成功した。その後、人が#375・#376・#377・#379をマージしたため、現在のmain `e1ba0ed703cf8168faba60fb7fd0eb6258f675db` を同じcheckoutへ取得し、commit前の通常mergeを準備した。自動mergeが成功し、MERGE_HEADはこのmainと一致、未解決indexはない。#304のfixture境界、#312のquery内memo・Cow・schema検査、#314の共有fixture検証とconsumer観測を保持した。
+
+retrieval実装・既存検証・本調査のsourceはmerge前後で差分がなく、#307報告blobも指定版のままである。[統合記録](results/latest-main-integration.json)は前回の記録と分けて保存した。古いREADMEの未commit merge済みという説明を現在版へ更新し、過去の測定・評価・ログを保持した。意味上の重複テスト追加や製品方式採用は行っていない。
+
+最新統合版のCPU限定53テストは、新規build先・offline/lockedで成功した（失敗0、ignored 0）。GPUやモデル推論、性能測定は行っていない。更新文書の日本語lintも実行し、READMEは検出0件、報告は語彙多様性と文頭反復の参考情報14件だった。設定済み標準checkと変更文書を含む独立評価はこの更新後に行う。独立評価の初回はupdates=[]とし、指摘があればnewItemsへ返す。同じPR #380の更新、更新headのCI、本文照合、ready切替は後続工程で確認する。前回の成功と現在版の成功を区別する。
+
+旧R1の36 process・252 callは並行作業下のCPU観測であり、速度改善の因果的根拠ではない。実データ・全consumer・実モデル品質・全pipeline費用・flake率の限界、未採用の契約案、固定slot・Vec移譲の条件付き提案とTopK候補見送りを維持する。GPU・モデル推論や性能再測定は行っていない。新しい許容差・資源上限・既定値・consumer移行を採用しない。
+
+文書参照の評価では、01dd1c6との統合節の見出しを履歴用に変更した際、#362からのリンクを更新していない欠陥が見つかった。[#362の再検証案内](../issue-362/retrieval-contracts.md)を、既存の「テスト整理の理由と残る検出条件」節へ直接つながるよう修正した。報告の見出しを変更するときは、参照元のfragmentと、案内する内容・対象版も照合する。旧測定・旧評価の原本は変更せず、今回の文書修正後の設定済みcheckと独立評価へ戻す。

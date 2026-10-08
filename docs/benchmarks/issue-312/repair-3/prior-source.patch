@@ -1,0 +1,422 @@
+diff --git a/src/storage/query_normalize.rs b/src/storage/query_normalize.rs
+index d7ce57b..606b454 100644
+--- a/src/storage/query_normalize.rs
++++ b/src/storage/query_normalize.rs
+@@ -18,8 +18,10 @@
+ //!    runs to a single space so trigram boundaries stay deterministic across
+ //!    full-width spaces (`U+3000`) NFKC-folded into ASCII spaces.
+ 
++use std::borrow::Cow;
++
+ use serde::{Deserialize, Serialize};
+-use unicode_normalization::UnicodeNormalization;
++use unicode_normalization::{IsNormalized, UnicodeNormalization, is_nfkc_quick};
+ 
+ /// Per-step toggles for the [`normalize_for_fts`] pipeline.
+ ///
+@@ -82,26 +84,83 @@ pub fn pre_phase_5_disabled() -> QueryNormalizationConfig {
+ /// allocation on the hot path when callers explicitly opt out).
+ #[must_use]
+ pub fn normalize_for_fts(text: &str, config: &QueryNormalizationConfig) -> String {
+-    if !config.nfkc && !config.ascii_lowercase && !config.collapse_whitespace {
+-        return text.to_owned();
+-    }
++    normalize_for_fts_cow(text, config).into_owned()
++}
++
++/// Borrow unchanged text inside the query pipeline; the public API stays owned.
++pub(super) fn normalize_for_fts_cow<'a>(
++    text: &'a str,
++    config: &QueryNormalizationConfig,
++) -> Cow<'a, str> {
+     let mut buf = if config.nfkc {
+-        text.nfkc().collect::<String>()
++        match is_nfkc_quick(text.chars()) {
++            IsNormalized::Yes => Cow::Borrowed(text),
++            IsNormalized::No => Cow::Owned(text.nfkc().collect::<String>()),
++            IsNormalized::Maybe => normalize_nfkc_maybe(text),
++        }
+     } else {
+-        text.to_owned()
++        Cow::Borrowed(text)
+     };
+-    if config.ascii_lowercase {
+-        buf.make_ascii_lowercase();
++    if config.ascii_lowercase && buf.bytes().any(|b| b.is_ascii_uppercase()) {
++        buf.to_mut().make_ascii_lowercase();
+     }
+-    if config.collapse_whitespace {
+-        buf = collapse_whitespace(&buf);
++    if config.collapse_whitespace
++        && let Cow::Owned(collapsed) = collapse_whitespace(&buf)
++    {
++        buf = Cow::Owned(collapsed);
+     }
+     buf
+ }
+ 
+-/// Trim and collapse runs of whitespace to a single ASCII space.
+-fn collapse_whitespace(text: &str) -> String {
+-    text.split_whitespace().collect::<Vec<_>>().join(" ")
++/// Reuse the iterator that checks equality: copy the equal prefix only when
++/// the first difference requires ownership, then consume the remaining output.
++fn normalize_nfkc_maybe(text: &str) -> Cow<'_, str> {
++    let mut original = text.char_indices();
++    let mut normalized = text.nfkc();
++    while let Some(next) = normalized.next() {
++        let offset = match original.next() {
++            Some((_, ch)) if ch == next => continue,
++            Some((offset, _)) => offset,
++            None => text.len(),
++        };
++        let mut output = String::with_capacity(text.len());
++        output.push_str(&text[..offset]);
++        output.push(next);
++        output.extend(normalized);
++        return Cow::Owned(output);
++    }
++    match original.next() {
++        Some((offset, _)) => Cow::Owned(text[..offset].to_owned()),
++        None => Cow::Borrowed(text),
++    }
++}
++
++/// One pass over words, allocating only at the first noncanonical separator.
++fn collapse_whitespace(text: &str) -> Cow<'_, str> {
++    let mut output: Option<String> = None;
++    let mut offset = 0;
++    for word in text.split_whitespace() {
++        let separator = if offset == 0 { "" } else { " " };
++        if output.is_none()
++            && !text[offset..]
++                .strip_prefix(separator)
++                .is_some_and(|tail| tail.starts_with(word))
++        {
++            let mut owned = String::with_capacity(text.len());
++            owned.push_str(&text[..offset]);
++            output = Some(owned);
++        }
++        if let Some(owned) = output.as_mut() {
++            owned.push_str(separator);
++            owned.push_str(word);
++        }
++        offset += separator.len() + word.len();
++    }
++    match output {
++        Some(owned) => Cow::Owned(owned),
++        None if offset != text.len() => Cow::Owned(text[..offset].to_owned()),
++        None => Cow::Borrowed(text),
++    }
+ }
+ 
+ #[cfg(test)]
+diff --git a/src/storage/query_normalize/tests.rs b/src/storage/query_normalize/tests.rs
+index d7d4b45..f88ddcf 100644
+--- a/src/storage/query_normalize/tests.rs
++++ b/src/storage/query_normalize/tests.rs
+@@ -106,6 +106,20 @@ fn nfkc_only_skips_lowercase_and_whitespace() {
+     };
+     assert_eq!(normalize_for_fts("ＡＢＣ", &config), "ABC");
+     assert_eq!(normalize_for_fts("foo  bar", &config), "foo  bar");
++    // Maybe inputs can compose, reorder, or already be normalized. Byte
++    // prefixes include multibyte characters; expectations are literal.
++    for (input, expected, borrowed) in [
++        ("日本語 e\u{301}", "日本語 é", false),
++        ("e\u{301}x", "éx", false),
++        ("x\u{301}\u{327}", "x\u{327}\u{301}", false),
++        ("x\u{301}", "x\u{301}", true),
++        ("é\u{301}", "é\u{301}", true),
++    ] {
++        let actual = normalize_for_fts_cow(input, &config);
++        assert_eq!(actual, expected);
++        assert_eq!(matches!(actual, Cow::Borrowed(_)), borrowed);
++        assert_eq!(normalize_for_fts(input, &config), expected);
++    }
+ }
+ 
+ #[test]
+@@ -142,3 +156,29 @@ fn fullwidth_punctuation_folds_under_nfkc() {
+     // Fullwidth `！` (U+FF01) NFKC-folds to ASCII `!` (U+0021).
+     assert_eq!(run("hello！"), "hello!");
+ }
++
++#[test]
++fn mixed_symbols_and_unicode_preserve_each_configuration() {
++    // Literal expectations pin composition, ASCII-only case, Unicode spaces,
++    // and punctuation independently of the implementation's transformations.
++    let expected = [
++        "  Ａ e\u{301}\u{2003}B%_\\  ",
++        "Ａ e\u{301} B%_\\",
++        "  Ａ e\u{301}\u{2003}b%_\\  ",
++        "Ａ e\u{301} b%_\\",
++        "  A é B%_\\  ",
++        "A é B%_\\",
++        "  a é b%_\\  ",
++        "a é b%_\\",
++    ];
++    for (bits, expected) in expected.into_iter().enumerate() {
++        let config = QueryNormalizationConfig {
++            nfkc: bits & 4 != 0,
++            ascii_lowercase: bits & 2 != 0,
++            collapse_whitespace: bits & 1 != 0,
++        };
++        let actual = normalize_for_fts("  Ａ e\u{301}\u{2003}B%_\\  ", &config);
++        assert_eq!(actual, expected, "{config:?}");
++        assert_eq!(normalize_for_fts(&actual, &config), actual);
++    }
++}
+diff --git a/src/storage/search.rs b/src/storage/search.rs
+index 4ef0f8c..aa3b808 100644
+--- a/src/storage/search.rs
++++ b/src/storage/search.rs
+@@ -1,6 +1,8 @@
++use std::collections::HashMap;
++
+ use rusqlite::Connection;
+ 
+-use super::query_normalize::{QueryNormalizationConfig, normalize_for_fts};
++use super::query_normalize::{QueryNormalizationConfig, normalize_for_fts_cow};
+ 
+ /// Filter out `NEAR(...)` and `NEAR/N(...)` groups from whitespace-split tokens.
+ fn strip_near_groups(query: &str) -> Vec<&str> {
+@@ -170,7 +172,7 @@ pub fn prepare_match_query(
+     vocab_table: &str,
+     normalization: &QueryNormalizationConfig,
+ ) -> Result<MatchFtsQuery, SanitizeError> {
+-    let normalized = normalize_for_fts(query, normalization);
++    let normalized = normalize_for_fts_cow(query, normalization);
+     let sanitized = sanitize_fts_query(&normalized)?;
+     fts_expand_short_terms(conn, &sanitized, vocab_table)
+ }
+@@ -245,29 +247,54 @@ pub(crate) fn fts_expand_short_terms(
+     if !is_valid_sql_identifier(vocab_table) {
+         return Err(SanitizeError::InvalidVocabTable(vocab_table.to_owned()));
+     }
+-    let sql = format!(
+-        "SELECT term FROM {vocab_table} \
+-         WHERE term LIKE ?1 ESCAPE '\\' \
+-         ORDER BY cnt DESC LIMIT 25"
+-    );
+-    let mut stmt = match conn.prepare_cached(&sql) {
+-        Ok(s) => Some(s),
++    let has_short_term = query
++        .0
++        .iter()
++        .any(|token| token.chars().count() < 3 && !is_fts5_operator(token));
++    // Short queries step the cached statement and SQLite rechecks its schema.
++    // Long-only queries must also step a statement: fresh prepare alone can
++    // use a stale connection-local schema after another connection's DDL.
++    // WHERE 0 validates term/cnt and the schema cookie without reading rows.
++    let prepared = if has_short_term {
++        let sql = format!(
++            "SELECT term FROM {vocab_table} \
++             WHERE term LIKE ?1 ESCAPE '\\' \
++             ORDER BY cnt DESC LIMIT 25"
++        );
++        conn.prepare_cached(&sql).map(Some)
++    } else {
++        conn.prepare(&format!("SELECT term, cnt FROM {vocab_table} WHERE 0"))
++            .and_then(|mut validation| {
++                validation.query([])?.next()?;
++                Ok(None)
++            })
++    };
++    let mut stmt = match prepared {
++        Ok(s) => s,
+         Err(e) if is_missing_table_error(&e) => None,
+         Err(e) => return Err(SanitizeError::VocabLookupFailed(e.to_string())),
+     };
+ 
+     let mut parts = Vec::new();
++    // Only this call owns the memo: later queries must observe DB updates.
++    let mut lookups: HashMap<&str, usize> = HashMap::new();
+     for token in &query.0 {
+         // Length check covers AND/NOT (3 chars); operator guard adds OR (2 chars).
+-        if token.chars().count() >= 3 || is_fts5_operator(token) {
++        if !has_short_term || token.chars().count() >= 3 || is_fts5_operator(token) {
+             parts.push(fts_quote(token));
+             continue;
+         }
++        if let Some(index) = lookups.get(token.as_str()) {
++            parts.push(parts[*index].clone());
++            continue;
++        }
+         let expanded = match stmt.as_mut() {
+             Some(s) => expand_token_via_vocab(s, token)?,
+             None => None,
+         };
+-        parts.push(expanded.unwrap_or_else(|| fts_quote(token)));
++        let part = expanded.unwrap_or_else(|| fts_quote(token));
++        lookups.insert(token, parts.len());
++        parts.push(part);
+     }
+     // Join with explicit AND: FTS5 implicit adjacency rejects parenthesised
+     // groups as operands (`(a OR b) c` is a syntax error); explicit AND
+diff --git a/src/storage/search/tests.rs b/src/storage/search/tests.rs
+index 9cb3062..b432b7b 100644
+--- a/src/storage/search/tests.rs
++++ b/src/storage/search/tests.rs
+@@ -73,6 +73,36 @@ fn expand_special_chars_escaped() {
+     let conn = setup_fts_db();
+     let result = fts_expand_short_terms(&conn, &sanitized("a%"), "fts_chunks_vocab").unwrap();
+     assert_eq!(result.as_str(), "\"a%\"");
++
++    // Trigram keeps punctuation in real vocab terms. A wildcard/escape bug
++    // would include axa, or fail to expand a literal two-character prefix.
++    let conn = Connection::open_in_memory().unwrap();
++    conn.execute_batch(
++        "CREATE VIRTUAL TABLE docs USING fts5(body, tokenize='trigram');
++         CREATE VIRTUAL TABLE vocab USING fts5vocab(docs, row);",
++    )
++    .unwrap();
++    for body in ["a%a", "a_a", r"a\a", "axa"] {
++        conn.execute("INSERT INTO docs VALUES (?1)", [body])
++            .unwrap();
++    }
++    let terms: Vec<String> = conn
++        .prepare("SELECT term FROM vocab ORDER BY term")
++        .unwrap()
++        .query_map([], |row| row.get(0))
++        .unwrap()
++        .collect::<Result<_, _>>()
++        .unwrap();
++    assert_eq!(terms, ["a%a", r"a\a", "a_a", "axa"]);
++    for (input, expected, hits) in [
++        ("a%", r#"("a%a")"#, vec![1]),
++        ("a_", r#"("a_a")"#, vec![2]),
++        (r"a\", r#"("a\a")"#, vec![3]),
++    ] {
++        let query = prepare_match_query(&conn, input, "vocab", &no_norm()).unwrap();
++        assert_eq!(query.as_str(), expected);
++        assert_eq!(match_ids(&conn, &query), hits);
++    }
+ }
+ 
+ /// Tests below pin the sanitize / expand contract — pass `disabled()` so
+@@ -254,11 +284,13 @@ fn prepare_match_query_operators_are_quoted() {
+ #[test]
+ fn prepare_match_query_rejects_invalid_vocab_table_name() {
+     let conn = setup_fts_db();
+-    for vocab in ["", "1vocab"] {
+-        assert_eq!(
+-            prepare_match_query(&conn, "au", vocab, &no_norm()),
+-            Err(SanitizeError::InvalidVocabTable(vocab.into()))
+-        );
++    for input in ["au", "authentication", "au au"] {
++        for vocab in ["", "1vocab", "vocab; DROP TABLE docs"] {
++            assert_eq!(
++                prepare_match_query(&conn, input, vocab, &no_norm()),
++                Err(SanitizeError::InvalidVocabTable(vocab.into()))
++            );
++        }
+     }
+ }
+ 
+@@ -268,10 +300,67 @@ fn prepare_match_query_surfaces_non_missing_vocab_errors() {
+     conn.execute("CREATE TABLE bad_vocab(term TEXT)", [])
+         .unwrap();
+ 
+-    let result = prepare_match_query(&conn, "au", "bad_vocab", &no_norm());
+-    assert!(
+-        matches!(result, Err(SanitizeError::VocabLookupFailed(_))),
+-        "expected vocab lookup failure, got {result:?}"
++    for input in ["au", "authentication", "au au"] {
++        let result = prepare_match_query(&conn, input, "bad_vocab", &no_norm());
++        assert!(
++            matches!(result, Err(SanitizeError::VocabLookupFailed(_))),
++            "expected vocab lookup failure, got {result:?}"
++        );
++    }
++
++    // Warm the lookup statement, then invalidate its schema. A long-only
++    // query never steps that statement, so cached prepare alone is insufficient.
++    let conn = setup_fts_db();
++    prepare_match_query(&conn, "au", "fts_chunks_vocab", &no_norm()).unwrap();
++    conn.execute_batch("DROP TABLE fts_chunks_vocab; CREATE TABLE fts_chunks_vocab(term TEXT);")
++        .unwrap();
++    assert!(matches!(
++        prepare_match_query(&conn, "authentication", "fts_chunks_vocab", &no_norm()),
++        Err(SanitizeError::VocabLookupFailed(_))
++    ));
++    conn.execute_batch("DROP TABLE fts_chunks_vocab;").unwrap();
++    assert_eq!(
++        prepare_match_query(&conn, "authentication", "fts_chunks_vocab", &no_norm())
++            .unwrap()
++            .as_str(),
++        r#""authentication""#
++    );
++}
++
++#[test]
++fn prepare_match_query_observes_committed_schema_from_another_connection() {
++    let directory = tempfile::tempdir().unwrap();
++    let path = directory.path().join("search.sqlite");
++    let reader = Connection::open(&path).unwrap();
++    reader
++        .execute_batch(
++            "CREATE VIRTUAL TABLE docs USING fts5(body);
++             INSERT INTO docs VALUES ('authentication');
++             CREATE VIRTUAL TABLE vocab USING fts5vocab(docs, row);",
++        )
++        .unwrap();
++    let writer = Connection::open(&path).unwrap();
++    assert_eq!(
++        prepare_match_query(&reader, "au", "vocab", &no_norm())
++            .unwrap()
++            .as_str(),
++        r#"("authentication")"#
++    );
++    writer
++        .execute_batch("DROP TABLE vocab; CREATE TABLE vocab(term TEXT);")
++        .unwrap();
++    // No SQL on reader between the committed DDL and the public query call:
++    // even a fresh prepare can still see reader's previously loaded schema.
++    assert!(matches!(
++        prepare_match_query(&reader, "authentication", "vocab", &no_norm()),
++        Err(SanitizeError::VocabLookupFailed(_))
++    ));
++    writer.execute_batch("DROP TABLE vocab;").unwrap();
++    assert_eq!(
++        prepare_match_query(&reader, "authentication", "vocab", &no_norm())
++            .unwrap()
++            .as_str(),
++        r#""authentication""#
+     );
+ }
+ 
+@@ -434,3 +523,35 @@ fn drop_dangling_operators_drops_operator_at_position_zero() {
+         "operator at index 0 has no left neighbour → must drop"
+     );
+ }
++
++#[test]
++fn repeated_short_terms_observe_database_changes_between_queries() {
++    let conn = Connection::open_in_memory().unwrap();
++    conn.execute_batch(
++        "CREATE VIRTUAL TABLE docs USING fts5(body);
++         INSERT INTO docs VALUES ('audit'), ('audit'), ('author');
++         CREATE VIRTUAL TABLE vocab USING fts5vocab(docs, row);",
++    )
++    .unwrap();
++    let query = prepare_match_query(&conn, "au au zz zz", "vocab", &no_norm()).unwrap();
++    assert_eq!(
++        query.as_str(),
++        r#"("audit" OR "author") AND ("audit" OR "author") AND "zz" AND "zz""#
++    );
++    let query = prepare_match_query(&conn, "au au", "vocab", &no_norm()).unwrap();
++    assert_eq!(match_ids(&conn, &query), [1, 2, 3]);
++    conn.execute_batch("DELETE FROM docs; INSERT INTO docs(rowid, body) VALUES (4, 'autumn');")
++        .unwrap();
++    let query = prepare_match_query(&conn, "au au", "vocab", &no_norm()).unwrap();
++    assert_eq!(query.as_str(), r#"("autumn") AND ("autumn")"#);
++    assert_eq!(match_ids(&conn, &query), [4]);
++    conn.execute_batch("DROP TABLE vocab;").unwrap();
++    let query = prepare_match_query(&conn, "au au", "vocab", &no_norm()).unwrap();
++    assert_eq!(query.as_str(), r#""au" AND "au""#);
++    conn.execute_batch("CREATE TABLE vocab(term TEXT);")
++        .unwrap();
++    assert!(matches!(
++        prepare_match_query(&conn, "au au", "vocab", &no_norm()),
++        Err(SanitizeError::VocabLookupFailed(_))
++    ));
++}

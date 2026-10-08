@@ -1,0 +1,61 @@
+--- a/src/storage/fts/tests.rs
++++ b/src/storage/fts/tests.rs
+@@ -155,3 +155,58 @@
+         ]
+     );
+ }
++
++
++#[test]
++fn issue314_host_current_producer_parser_cleaner_match_cases() {
++    let cases: Vec<serde_json::Value> = serde_json::from_str(
++        &std::fs::read_to_string(std::env::var("RURICO_314_CASES").unwrap()).unwrap()).unwrap();
++    let mut records = Vec::new();
++    for tokenizer in ["unicode61", "trigram"] {
++        for case in &cases {
++            let conn = Connection::open_in_memory().unwrap();
++            conn.execute_batch(&format!("CREATE VIRTUAL TABLE docs USING fts5(body, tokenize='{tokenizer}'); CREATE VIRTUAL TABLE vocab USING fts5vocab(docs, row);")).unwrap();
++            for text in case["bodies"].as_array().unwrap() {
++                conn.execute("INSERT INTO docs(body) VALUES (?1)", [text.as_str().unwrap()]).unwrap();
++            }
++            let query = prepare_match_query(&conn, case["input"].as_str().unwrap(), "vocab", &QueryNormalizationConfig::disabled()).unwrap();
++            let (fixed, groups) = parse_fts_segments(query.as_str());
++            let cleaned = clean_for_trigram(&query);
++            let hits: Vec<i64> = match &cleaned {
++                Some(wire) => conn.prepare("SELECT rowid FROM docs WHERE docs MATCH ?1 ORDER BY rowid").unwrap().query_map([wire], |row| row.get(0)).unwrap().collect::<Result<_, _>>().unwrap(),
++                None => vec![],
++            };
++            if case["name"] == "phrase" || case["name"] == "operator" {
++                assert_eq!(hits, if case["name"] == "phrase" { vec![1, 2] } else { vec![1, 2, 3] });
++            }
++            records.push(serde_json::json!({"case":case["name"],"tokenizer":tokenizer,"producer_wire":query.as_str(),"fixed":fixed,"groups":groups,"cleaned":cleaned,"hits":hits}));
++            if case["name"] == "phrase" {
++                let wire = rurico::storage::fts_quote("foo bar");
++                let cleaned = clean_impl(&wire).unwrap();
++                let hits: Vec<i64> = conn.prepare("SELECT rowid FROM docs WHERE docs MATCH ?1 ORDER BY rowid").unwrap().query_map([&cleaned], |row| row.get(0)).unwrap().collect::<Result<_, _>>().unwrap();
++                assert_eq!(hits, vec![1]);
++                records.push(serde_json::json!({"case":"explicit-phrase","tokenizer":tokenizer,"producer_wire":wire,"cleaned":cleaned,"hits":hits,"scope":"unadopted explicit phrase serialization; no product API change"}));
++            }
++        }
++        let conn = Connection::open_in_memory().unwrap();
++        conn.execute_batch(&format!("CREATE VIRTUAL TABLE docs USING fts5(body, tokenize='{tokenizer}'); CREATE VIRTUAL TABLE vocab USING fts5vocab(docs, row);")).unwrap();
++        for prefix in ["日", "月"] {
++            for i in 0..30 {
++                let c = char::from_u32(0x4e00+i).unwrap();
++                conn.execute("INSERT INTO docs(body) VALUES (?1)", [format!("{prefix}{c}語 login")]).unwrap();
++            }
++        }
++        conn.execute("INSERT INTO docs(body) VALUES (?1)", ["日一語 月一語 login"]).unwrap();
++        let query = prepare_match_query(&conn, "日 月 login", "vocab", &QueryNormalizationConfig::disabled()).unwrap();
++        let (fixed, groups) = parse_fts_segments(query.as_str());
++        assert_eq!(groups.len(), 2);assert!(groups.iter().all(|g| g.len()==25));
++        let cleaned = clean_for_trigram(&query).unwrap();assert_eq!(cleaned,"\"login\"");
++        let hits: Vec<i64> = conn.prepare("SELECT rowid FROM docs WHERE docs MATCH ?1 ORDER BY rowid").unwrap().query_map([&cleaned], |row| row.get(0)).unwrap().collect::<Result<_, _>>().unwrap();assert_eq!(hits.len(),61);
++        records.push(serde_json::json!({"case":"consumer-combination-fallback","tokenizer":tokenizer,"producer_wire":query.as_str(),"fixed":fixed,"group_sizes":groups.iter().map(Vec::len).collect::<Vec<_>>(),"cleaned":cleaned,"hits":hits,"limit":100,"scope":"existing consumer drops OR groups when25x25 exceeds100; no new limit adoption"}));
++    }
++    assert_eq!(records.len(),26);
++    println!("issue314-compat:{}",serde_json::to_string(&records).unwrap());
++}
++
++#[test]
++fn issue314_host_native_sqlite_version() { println!("issue314-sqlite:{}", rusqlite::version()); }

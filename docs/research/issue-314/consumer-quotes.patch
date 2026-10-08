@@ -1,0 +1,101 @@
+--- a/src/storage/fts/tests.rs
++++ b/src/storage/fts/tests.rs
+@@ -155,3 +155,98 @@
+         ]
+     );
+ }
++
++#[test]
++fn issue314_host_internal_quote_round_trip_observation() {
++    // Record the fixed consumer defect, not a desired product contract.
++    // An ordinary literal on the same documents is the control.
++    let mut records = Vec::new();
++    for tokenizer in ["unicode61", "trigram"] {
++        let conn = Connection::open_in_memory().unwrap();
++        conn.execute_batch(&format!(
++            "CREATE VIRTUAL TABLE docs USING fts5(body, tokenize='{tokenizer}');
++             CREATE VIRTUAL TABLE vocab USING fts5vocab(docs, row);"
++        ))
++        .unwrap();
++        for body in ["say\"hi", "say alone", "say unrelated"] {
++            conn.execute("INSERT INTO docs(body) VALUES (?1)", [body])
++                .unwrap();
++        }
++        for input in ["say", "say\"hi"] {
++            let query =
++                prepare_match_query(&conn, input, "vocab", &QueryNormalizationConfig::disabled())
++                    .unwrap();
++            let (fixed, groups) = parse_fts_segments(query.as_str());
++            let cleaned = clean_for_trigram(&query).unwrap();
++            let direct_hits: Vec<i64> = conn
++                .prepare("SELECT rowid FROM docs WHERE docs MATCH ?1 ORDER BY rowid")
++                .unwrap()
++                .query_map([query.as_str()], |row| row.get(0))
++                .unwrap()
++                .collect::<Result<_, _>>()
++                .unwrap();
++            let consumer_hits: Vec<i64> = conn
++                .prepare("SELECT rowid FROM docs WHERE docs MATCH ?1 ORDER BY rowid")
++                .unwrap()
++                .query_map([&cleaned], |row| row.get(0))
++                .unwrap()
++                .collect::<Result<_, _>>()
++                .unwrap();
++            let relevant = if input == "say" {
++                vec![1, 2, 3]
++            } else {
++                vec![1]
++            };
++            let quality = |hits: &[i64]| {
++                let tp = hits.iter().filter(|id| relevant.contains(id)).count();
++                serde_json::json!({
++                    "precision": if hits.is_empty() { None } else { Some(tp as f64 / hits.len() as f64) },
++                    "recall": tp as f64 / relevant.len() as f64
++                })
++            };
++            records.push(serde_json::json!({
++                "input": input,
++                "bodies": ["say\"hi", "say alone", "say unrelated"],
++                "tokenizer": tokenizer,
++                "normalization": "all-off on both sides",
++                "producer_wire": query.as_str(),
++                "fixed": fixed,
++                "groups": groups,
++                "cleaned": cleaned,
++                "direct_hits": direct_hits,
++                "consumer_hits": consumer_hits,
++                "relevant": relevant,
++                "direct_quality": quality(&direct_hits),
++                "consumer_quality": quality(&consumer_hits),
++                "scope": "fixed consumer defect observation; no product change or acceptance"
++            }));
++            // Emit observations before assertions so an unexpected result is retained.
++            println!(
++                "issue314-quotes:{}",
++                serde_json::to_string(records.last().unwrap()).unwrap()
++            );
++            assert_eq!(
++                query.as_str(),
++                if input == "say" {
++                    "\"say\""
++                } else {
++                    "\"say\"\"hi\""
++                }
++            );
++            assert_eq!(fixed, vec!["\"say\""]);
++            assert!(groups.is_empty());
++            assert_eq!(cleaned, "\"say\"");
++            assert_eq!(
++                direct_hits,
++                if input == "say" {
++                    vec![1, 2, 3]
++                } else {
++                    vec![1]
++                }
++            );
++            assert_eq!(consumer_hits, vec![1, 2, 3]);
++        }
++    }
++    assert_eq!(records.len(), 4);
++    println!("issue314-sqlite:{}", rusqlite::version());
++}

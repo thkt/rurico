@@ -1,0 +1,39 @@
+{
+  "command": [
+    "rustc",
+    "--edition=2024",
+    "--test",
+    "tests.rs",
+    "-O",
+    "-C",
+    "lto",
+    "-L",
+    "dependency=/private/tmp/rurico-360-mutation.xj34PC/target/release/deps",
+    "--extern",
+    "rusqlite=/private/tmp/rurico-360-mutation.xj34PC/target/release/deps/librusqlite-a9ee9e11cb5e43b2.rlib",
+    "--extern",
+    "serde=/private/tmp/rurico-360-mutation.xj34PC/target/release/deps/libserde-367dd3e11f144bc8.rlib",
+    "--extern",
+    "serde_json=/private/tmp/rurico-360-mutation.xj34PC/target/release/deps/libserde_json-b807a8bda3ee45ee.rlib",
+    "--extern",
+    "unicode_normalization=/private/tmp/rurico-360-mutation.xj34PC/target/release/deps/libunicode_normalization-5043ab956a879653.rlib",
+    "--extern",
+    "thiserror=/private/tmp/rurico-360-mutation.xj34PC/target/release/deps/libthiserror-9909537f160c9283.rlib",
+    "--extern",
+    "tempfile=/private/tmp/rurico-360-mutation.xj34PC/target/release/deps/libtempfile-5835db8b186298ec.rlib",
+    "-o",
+    "tests"
+  ],
+  "test_dependencies": {
+    "libtempfile-5835db8b186298ec.rlib": "2e84c71f13004313ea00e34b68897dd3414ca720a08722a96aedcc40ba81f952"
+  },
+  "binary_sha256": "0ad11ff1456140f5c05d2bc9262abd5ec8e56c19ad2eedcbd37b4eaac67372ad",
+  "sources": {
+    "search.rs": "3a03e28375dd1e759de611d08b495b74a7e6bb9d74ddbe50fa6cc94d4714dfb8",
+    "search/tests.rs": "947f93aa15284660917dbe5496bc54ac138d66eeee8fa69950fa98479022599f",
+    "query_normalize.rs": "1c28cbc87bfe1c1b078876ca83af03ba646c3c2281232085699b1d70cc42dc5d",
+    "query_normalize/tests.rs": "8360b9b5f54f9598aef363260b5a15ffe9b06aeaf84c95b6e7ed13a78e408179"
+  },
+  "cargo_lock_sha256": "743d754ae4fb6f0f44d169feab408a1b80caa50d17c38b058ec156c66811bf30",
+  "result": "54 passed; 0 failed; 0 ignored; displayed 0.02s"
+}
