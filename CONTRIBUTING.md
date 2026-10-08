@@ -46,6 +46,14 @@ clippyの `--all-targets --all-features` はコンパイル検査であり、テ
 coverageも同じfeatureを使う。既存の除外regex・95%の閾値は維持し、
 追加対象を通すための除外は設けない。
 
+### 文書分割の回帰検証
+
+`src/text/tests.rs` は本番の `split_text` を直接呼び、段落→行→UTF-8文字境界の
+優先、期待断片、原文との連結一致、byte上限を標準checkで確認する。
+`max_bytes < 4` の入力全体を返す例外は別に確認し、この条件に上限を要求しない。
+段落・行優先を削除する一時変異の検知確認は
+[再実行手順と記録](docs/research/issue-360/split-priority.md)を参照する。
+
 ### CIキャッシュの検証
 
 macOSのtest・coverageジョブは、Cargoのビルド成果物とmlx-sysが生成する
