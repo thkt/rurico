@@ -1,8 +1,9 @@
+use std::collections::HashMap;
+
 use rusqlite::Connection;
 
-use super::query_normalize::{QueryNormalizationConfig, normalize_for_fts};
+use super::query_normalize::{QueryNormalizationConfig, normalize_for_fts_cow};
 
-/// Filter out `NEAR(...)` and `NEAR/N(...)` groups from whitespace-split tokens.
 fn strip_near_groups(query: &str) -> Vec<&str> {
     let mut tokens = Vec::new();
     let mut paren_depth: usize = 0;
@@ -32,8 +33,6 @@ fn is_fts5_operator(token: &str) -> bool {
         .any(|op| token.eq_ignore_ascii_case(op))
 }
 
-/// Remove operator-like keywords that lack a non-operator neighbour on both
-/// sides. Keeps operators sandwiched between real terms.
 fn drop_dangling_operators(tokens: &[String]) -> Vec<&str> {
     tokens
         .iter()
@@ -141,7 +140,7 @@ pub fn fts_quote(s: &str) -> String {
 
 /// Normalize, sanitize, and expand short terms into a query safe for FTS5 `MATCH`.
 ///
-/// Phase 5 (#69): `normalization` is applied **before** `sanitize_fts_query`
+/// `normalization` is applied **before** `sanitize_fts_query`
 /// so full-width punctuation (e.g. `（`) folds to ASCII (`(`) prior to NEAR
 /// detection. Callers must apply the same `normalization` config to indexed
 /// text — applying only to one side leaves the FTS5 token streams disagreed
@@ -170,7 +169,7 @@ pub fn prepare_match_query(
     vocab_table: &str,
     normalization: &QueryNormalizationConfig,
 ) -> Result<MatchFtsQuery, SanitizeError> {
-    let normalized = normalize_for_fts(query, normalization);
+    let normalized = normalize_for_fts_cow(query, normalization);
     let sanitized = sanitize_fts_query(&normalized)?;
     fts_expand_short_terms(conn, &sanitized, vocab_table)
 }
@@ -245,39 +244,63 @@ pub(crate) fn fts_expand_short_terms(
     if !is_valid_sql_identifier(vocab_table) {
         return Err(SanitizeError::InvalidVocabTable(vocab_table.to_owned()));
     }
-    let sql = format!(
-        "SELECT term FROM {vocab_table} \
-         WHERE term LIKE ?1 ESCAPE '\\' \
-         ORDER BY cnt DESC LIMIT 25"
-    );
-    let mut stmt = match conn.prepare_cached(&sql) {
-        Ok(s) => Some(s),
+    let first_short_term = query
+        .0
+        .iter()
+        .position(|token| token.chars().count() < 3 && !is_fts5_operator(token))
+        .unwrap_or(query.0.len());
+    // Short queries step the cached statement and SQLite rechecks its schema.
+    // Long-only queries must also step a statement: fresh prepare alone can
+    // use a stale connection-local schema after another connection's DDL.
+    // WHERE 0 validates term/cnt and the schema cookie without reading rows.
+    let prepared = if first_short_term < query.0.len() {
+        let sql = format!(
+            "SELECT term FROM {vocab_table} \
+             WHERE term LIKE ?1 ESCAPE '\\' \
+             ORDER BY cnt DESC LIMIT 25"
+        );
+        conn.prepare_cached(&sql).map(Some)
+    } else {
+        conn.prepare(&format!("SELECT term, cnt FROM {vocab_table} WHERE 0"))
+            .and_then(|mut validation| {
+                validation.query([])?.next()?;
+                Ok(None)
+            })
+    };
+    let mut stmt = match prepared {
+        Ok(s) => s,
         Err(e) if is_missing_table_error(&e) => None,
         Err(e) => return Err(SanitizeError::VocabLookupFailed(e.to_string())),
     };
 
     let mut parts = Vec::new();
-    for token in &query.0 {
+    // Only this call owns the memo: later queries must observe DB updates.
+    let mut lookups: HashMap<&str, usize> = HashMap::new();
+    for (index, token) in query.0.iter().enumerate() {
+        // The prefix and first short token were already classified above.
         // Length check covers AND/NOT (3 chars); operator guard adds OR (2 chars).
-        if token.chars().count() >= 3 || is_fts5_operator(token) {
+        if index < first_short_term
+            || (index > first_short_term && (token.chars().count() >= 3 || is_fts5_operator(token)))
+        {
             parts.push(fts_quote(token));
+            continue;
+        }
+        if let Some(index) = lookups.get(token.as_str()) {
+            parts.push(parts[*index].clone());
             continue;
         }
         let expanded = match stmt.as_mut() {
             Some(s) => expand_token_via_vocab(s, token)?,
             None => None,
         };
-        parts.push(expanded.unwrap_or_else(|| fts_quote(token)));
+        let part = expanded.unwrap_or_else(|| fts_quote(token));
+        lookups.insert(token, parts.len());
+        parts.push(part);
     }
     // Join with explicit AND: FTS5 implicit adjacency rejects parenthesised
     // groups as operands (`(a OR b) c` is a syntax error); explicit AND
     // accepts them with identical semantics.
-    //
-    // Wire-format contract (amici ADR-0008): this ` AND ` separator and the
-    // `"..."` / `( ... )` / ` OR ` shapes are parsed by amici's
-    // `parse_fts_segments`. Changing them is a cross-repo contract change;
-    // amici's round-trip test surfaces drift at rev-bump time. See
-    // [`MatchFtsQuery`].
+    // See MatchFtsQuery for the cross-repo wire-format contract.
     Ok(MatchFtsQuery(parts.join(" AND ")))
 }
 

@@ -1,0 +1,34 @@
+{
+  "baseline": "24725a72be44300afc24186b82b14bcb3f5f9d3d",
+  "baseline_kind": "git-commit",
+  "head": "24725a72be44300afc24186b82b14bcb3f5f9d3d",
+  "cargo_lock_sha256": "743d754ae4fb6f0f44d169feab408a1b80caa50d17c38b058ec156c66811bf30",
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "sources": {
+    "baseline/query_normalize/tests.rs": "aed248e00c29ec3bbe9c3c3cb7de62310e045b6217fea1addd2b8c238b4c8366",
+    "baseline/query_normalize.rs": "f11c06ff30711d6707581951c7682be3416d14a643bc76d907f1a7cf5b6f59e9",
+    "baseline/search/tests.rs": "de4ccaadc0c7455c14c827173d47bfffd685ce3130bf10840d7a68bd582bbe37",
+    "baseline/search.rs": "d8c10312b4fa9bbb59f159fac7a433866c95890a7b8f129b2a0e6fc239dbc7e7",
+    "current/query_normalize/tests.rs": "8360b9b5f54f9598aef363260b5a15ffe9b06aeaf84c95b6e7ed13a78e408179",
+    "current/query_normalize.rs": "1c28cbc87bfe1c1b078876ca83af03ba646c3c2281232085699b1d70cc42dc5d",
+    "current/search/tests.rs": "947f93aa15284660917dbe5496bc54ac138d66eeee8fa69950fa98479022599f",
+    "current/search.rs": "3a03e28375dd1e759de611d08b495b74a7e6bb9d74ddbe50fa6cc94d4714dfb8"
+  },
+  "dependencies": {
+    "librusqlite-a9ee9e11cb5e43b2.rlib": "fad44500cb8b775236be98c61562b6e5fdc64f1ee5c4bdfd59a684a626a97e82",
+    "libserde-367dd3e11f144bc8.rlib": "292015e9d5738031b0c96053d71aba4fc54845dfd0e9aef73afb93a5328a43c8",
+    "libserde_json-b807a8bda3ee45ee.rlib": "0326d296dfc4063b436a710fb6e87f8a6fd74191677fc625c6f289acba666c3d",
+    "libunicode_normalization-5043ab956a879653.rlib": "9dbb9a101a6ca5484c63911db3e93067499276ffb81c8af18828298f2dfc3c39",
+    "libthiserror-9909537f160c9283.rlib": "11a19ad4affcaab9600b47e84a7419a13cbac9fc44b8b745b965022e992d7d10"
+  },
+  "probe_sha256": "f065a62827ca583c9377ffc741af15f3fc7b82014a49d434784d6a9741d4ce22",
+  "binary_sha256": "7ac56760a10c89ab3d2c108983222c3b4a18266cf49661a8e309c6288bf6f816",
+  "flags": [
+    "--edition=2024",
+    "-O",
+    "-C lto",
+    "same prebuilt dependency rlibs"
+  ],
+  "started": "2026-10-08T17:26:05+0900",
+  "finished": "2026-10-08T17:26:30+0900"
+}

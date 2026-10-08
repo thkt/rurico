@@ -1,0 +1,19 @@
+
+running 1 test
+test search::tests::prepare_match_query_surfaces_non_missing_vocab_errors ... FAILED
+
+failures:
+
+---- search::tests::prepare_match_query_surfaces_non_missing_vocab_errors stdout ----
+
+thread 'search::tests::prepare_match_query_surfaces_non_missing_vocab_errors' (16857521) panicked at /private/tmp/rurico-312-schema-red/search/tests.rs:317:5:
+assertion failed: matches!(prepare_match_query(&conn, "authentication", "fts_chunks_vocab",
+    &no_norm()), Err(SanitizeError::VocabLookupFailed(_)))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    search::tests::prepare_match_query_surfaces_non_missing_vocab_errors
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 52 filtered out; finished in 0.00s
+

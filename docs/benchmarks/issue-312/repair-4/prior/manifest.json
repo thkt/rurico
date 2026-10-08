@@ -1,0 +1,35 @@
+{
+  "baseline": "a77b057b0f2e33bfb648b73b012fcf67d8da677bfea61e21e4d4b514ccc7d930",
+  "head": "24725a72be44300afc24186b82b14bcb3f5f9d3d",
+  "cargo_lock_sha256": "743d754ae4fb6f0f44d169feab408a1b80caa50d17c38b058ec156c66811bf30",
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "sources": {
+    "baseline/src/storage/query_normalize.rs": "1c28cbc87bfe1c1b078876ca83af03ba646c3c2281232085699b1d70cc42dc5d",
+    "baseline/src/storage/query_normalize/tests.rs": "8360b9b5f54f9598aef363260b5a15ffe9b06aeaf84c95b6e7ed13a78e408179",
+    "baseline/src/storage/search.rs": "71eef25c7bb9be95e2835b8a60518ac628ec6ad13f9be8aa9ba3b7d4c6acb3e3",
+    "baseline/src/storage/search/tests.rs": "947f93aa15284660917dbe5496bc54ac138d66eeee8fa69950fa98479022599f",
+    "current/src/storage/query_normalize.rs": "e8dc6383a34a0e845c8cf5ede269deec3e6fa872c5085893fb85141d46b4f4a8",
+    "current/src/storage/query_normalize/tests.rs": "f383c60e62ec1555ad60ed73b2b0cd1a25c4c29295a5948f704725b8c5003d7a",
+    "current/src/storage/search.rs": "71eef25c7bb9be95e2835b8a60518ac628ec6ad13f9be8aa9ba3b7d4c6acb3e3",
+    "current/src/storage/search/tests.rs": "947f93aa15284660917dbe5496bc54ac138d66eeee8fa69950fa98479022599f"
+  },
+  "dependencies": {
+    "librusqlite-a9ee9e11cb5e43b2.rlib": "fad44500cb8b775236be98c61562b6e5fdc64f1ee5c4bdfd59a684a626a97e82",
+    "libserde-367dd3e11f144bc8.rlib": "292015e9d5738031b0c96053d71aba4fc54845dfd0e9aef73afb93a5328a43c8",
+    "libserde_json-b807a8bda3ee45ee.rlib": "0326d296dfc4063b436a710fb6e87f8a6fd74191677fc625c6f289acba666c3d",
+    "libunicode_normalization-5043ab956a879653.rlib": "9dbb9a101a6ca5484c63911db3e93067499276ffb81c8af18828298f2dfc3c39",
+    "libthiserror-9909537f160c9283.rlib": "11a19ad4affcaab9600b47e84a7419a13cbac9fc44b8b745b965022e992d7d10"
+  },
+  "baseline_kind": "evaluated-artifact",
+  "probe_sha256": "db558484541aebbf31503f3b8e8068841ebf5e453307185bdd5115e4060ae021",
+  "flags": [
+    "--edition=2024",
+    "-O",
+    "-C lto",
+    "same prebuilt dependency rlibs"
+  ],
+  "binary_sha256": "72a3a468271b37f4b3fbbf261a9af3aaf4216f3d28cb50757740463fd1f00e5b",
+  "test_dependencies": {
+    "libtempfile-5835db8b186298ec.rlib": "2e84c71f13004313ea00e34b68897dd3414ca720a08722a96aedcc40ba81f952"
+  }
+}

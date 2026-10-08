@@ -73,6 +73,36 @@ fn expand_special_chars_escaped() {
     let conn = setup_fts_db();
     let result = fts_expand_short_terms(&conn, &sanitized("a%"), "fts_chunks_vocab").unwrap();
     assert_eq!(result.as_str(), "\"a%\"");
+
+    // Trigram keeps punctuation in real vocab terms. A wildcard/escape bug
+    // would include axa, or fail to expand a literal two-character prefix.
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch(
+        "CREATE VIRTUAL TABLE docs USING fts5(body, tokenize='trigram');
+         CREATE VIRTUAL TABLE vocab USING fts5vocab(docs, row);",
+    )
+    .unwrap();
+    for body in ["a%a", "a_a", r"a\a", "axa"] {
+        conn.execute("INSERT INTO docs VALUES (?1)", [body])
+            .unwrap();
+    }
+    let terms: Vec<String> = conn
+        .prepare("SELECT term FROM vocab ORDER BY term")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(terms, ["a%a", r"a\a", "a_a", "axa"]);
+    for (input, expected, hits) in [
+        ("a%", r#"("a%a")"#, vec![1]),
+        ("a_", r#"("a_a")"#, vec![2]),
+        (r"a\", r#"("a\a")"#, vec![3]),
+    ] {
+        let query = prepare_match_query(&conn, input, "vocab", &no_norm()).unwrap();
+        assert_eq!(query.as_str(), expected);
+        assert_eq!(match_ids(&conn, &query), hits);
+    }
 }
 
 /// Tests below pin the sanitize / expand contract — pass `disabled()` so
@@ -82,7 +112,6 @@ fn no_norm() -> QueryNormalizationConfig {
     QueryNormalizationConfig::disabled()
 }
 
-// #297: synthetic input, serialized MATCH, and exact hits are kept together.
 // unicode61 discards punctuation; trigram exposes accidental extra quotes.
 // Each pair includes a distractor so dropping punctuation is also detectable.
 #[test]
@@ -188,10 +217,8 @@ fn prepare_match_query_japanese_expansion_executes_with_both_tokenizers() {
     }
 }
 
-// #224: a vocab-expanded group adjacent to another token must form a valid
-// FTS5 expression. Implicit AND rejects parenthesised groups as operands
-// (`(a OR b) c` is an fts5 syntax error), so the query must execute, not
-// just look right as a string.
+// FTS5 implicit AND rejects parenthesised groups as operands (`(a OR b) c`),
+// so serialized expansion must also execute successfully.
 #[test]
 fn prepare_match_query_expanded_group_is_executable() {
     let conn = setup_fts_db();
@@ -254,11 +281,13 @@ fn prepare_match_query_operators_are_quoted() {
 #[test]
 fn prepare_match_query_rejects_invalid_vocab_table_name() {
     let conn = setup_fts_db();
-    for vocab in ["", "1vocab"] {
-        assert_eq!(
-            prepare_match_query(&conn, "au", vocab, &no_norm()),
-            Err(SanitizeError::InvalidVocabTable(vocab.into()))
-        );
+    for input in ["au", "authentication", "au au"] {
+        for vocab in ["", "1vocab", "vocab; DROP TABLE docs"] {
+            assert_eq!(
+                prepare_match_query(&conn, input, vocab, &no_norm()),
+                Err(SanitizeError::InvalidVocabTable(vocab.into()))
+            );
+        }
     }
 }
 
@@ -268,10 +297,67 @@ fn prepare_match_query_surfaces_non_missing_vocab_errors() {
     conn.execute("CREATE TABLE bad_vocab(term TEXT)", [])
         .unwrap();
 
-    let result = prepare_match_query(&conn, "au", "bad_vocab", &no_norm());
-    assert!(
-        matches!(result, Err(SanitizeError::VocabLookupFailed(_))),
-        "expected vocab lookup failure, got {result:?}"
+    for input in ["au", "authentication", "au au"] {
+        let result = prepare_match_query(&conn, input, "bad_vocab", &no_norm());
+        assert!(
+            matches!(result, Err(SanitizeError::VocabLookupFailed(_))),
+            "expected vocab lookup failure, got {result:?}"
+        );
+    }
+
+    // Warm the lookup statement, then invalidate its schema. A long-only
+    // query never steps that statement, so cached prepare alone is insufficient.
+    let conn = setup_fts_db();
+    prepare_match_query(&conn, "au", "fts_chunks_vocab", &no_norm()).unwrap();
+    conn.execute_batch("DROP TABLE fts_chunks_vocab; CREATE TABLE fts_chunks_vocab(term TEXT);")
+        .unwrap();
+    assert!(matches!(
+        prepare_match_query(&conn, "authentication", "fts_chunks_vocab", &no_norm()),
+        Err(SanitizeError::VocabLookupFailed(_))
+    ));
+    conn.execute_batch("DROP TABLE fts_chunks_vocab;").unwrap();
+    assert_eq!(
+        prepare_match_query(&conn, "authentication", "fts_chunks_vocab", &no_norm())
+            .unwrap()
+            .as_str(),
+        r#""authentication""#
+    );
+}
+
+#[test]
+fn prepare_match_query_observes_committed_schema_from_another_connection() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("search.sqlite");
+    let reader = Connection::open(&path).unwrap();
+    reader
+        .execute_batch(
+            "CREATE VIRTUAL TABLE docs USING fts5(body);
+             INSERT INTO docs VALUES ('authentication');
+             CREATE VIRTUAL TABLE vocab USING fts5vocab(docs, row);",
+        )
+        .unwrap();
+    let writer = Connection::open(&path).unwrap();
+    assert_eq!(
+        prepare_match_query(&reader, "au", "vocab", &no_norm())
+            .unwrap()
+            .as_str(),
+        r#"("authentication")"#
+    );
+    writer
+        .execute_batch("DROP TABLE vocab; CREATE TABLE vocab(term TEXT);")
+        .unwrap();
+    // No SQL on reader between the committed DDL and the public query call:
+    // even a fresh prepare can still see reader's previously loaded schema.
+    assert!(matches!(
+        prepare_match_query(&reader, "authentication", "vocab", &no_norm()),
+        Err(SanitizeError::VocabLookupFailed(_))
+    ));
+    writer.execute_batch("DROP TABLE vocab;").unwrap();
+    assert_eq!(
+        prepare_match_query(&reader, "authentication", "vocab", &no_norm())
+            .unwrap()
+            .as_str(),
+        r#""authentication""#
     );
 }
 
@@ -340,19 +426,16 @@ fn ok(s: &str) -> Result<SanitizedFtsQuery, SanitizeError> {
     Ok(sanitized(s))
 }
 
-// T-001: near_removal
 #[test]
 fn near_removal() {
     assert_eq!(sanitize_fts_query("NEAR(a b) hello"), ok("hello"));
 }
 
-// T-001b: near_with_distance
 #[test]
 fn near_with_distance() {
     assert_eq!(sanitize_fts_query("NEAR/3(a b c) hello"), ok("hello"));
 }
 
-// T-001c: near_unclosed_paren
 #[test]
 fn near_unclosed_paren() {
     assert_eq!(
@@ -361,36 +444,29 @@ fn near_unclosed_paren() {
     );
 }
 
-// T-004: prefix_strip
 #[test]
 fn prefix_strip() {
     assert_eq!(sanitize_fts_query("^+hello"), ok("hello"));
 }
 
-// T-011: sandwiched_operator_preserved
 #[test]
 fn sandwiched_operator_preserved() {
     assert_eq!(sanitize_fts_query("foo AND bar"), ok("foo AND bar"));
     assert_eq!(sanitize_fts_query("foo OR bar"), ok("foo OR bar"));
 }
 
-// T-012: dangling_operator_dropped
 #[test]
 fn dangling_operator_dropped() {
-    // Leading/trailing operators without both neighbours are dropped.
     assert_eq!(sanitize_fts_query("NOT secret"), ok("secret"));
     assert_eq!(sanitize_fts_query("foo OR"), ok("foo"));
 }
 
-// T-012b: consecutive_operators_between_terms
 #[test]
 fn consecutive_operators_between_terms() {
-    // Neither AND nor OR has a non-operator on both sides → both dropped.
     assert_eq!(sanitize_fts_query("foo AND OR bar"), ok("foo bar"));
     assert_eq!(sanitize_fts_query("NOT foo NOT"), ok("foo"));
 }
 
-// T-013: operator_only_returns_error
 #[test]
 fn operator_only_returns_error() {
     assert_eq!(
@@ -403,27 +479,18 @@ fn operator_only_returns_error() {
     );
 }
 
-// T-014: near_then_dangling_operator
 #[test]
 fn near_then_dangling_operator() {
-    // "foo OR NEAR(bar baz)" → NEAR stripped → "foo OR" → OR dangling → "foo"
     assert_eq!(sanitize_fts_query("foo OR NEAR(bar baz)"), ok("foo"));
 }
 
-// T-015: case_insensitive_operators
 #[test]
 fn case_insensitive_operators() {
     assert_eq!(sanitize_fts_query("foo or bar"), ok("foo or bar"));
     assert_eq!(sanitize_fts_query("Not secret"), ok("secret"));
 }
 
-// T-105-013: drop_dangling_operators_drops_operator_at_position_zero
-//
-// Boundary: a valid FTS5 operator at index 0 cannot have a left neighbour,
-// so `has_left` is false and the operator must be dropped even when a
-// non-operator follows. Pins the `i > 0` short-circuit against a future
-// off-by-one rewrite that would let leading `AND` / `OR` slip through and
-// form an invalid FTS5 expression.
+// A leading operator has no left neighbour, even when a term follows.
 #[test]
 fn drop_dangling_operators_drops_operator_at_position_zero() {
     let tokens: Vec<String> = vec!["AND".into(), "foo".into(), "bar".into()];
@@ -433,4 +500,36 @@ fn drop_dangling_operators_drops_operator_at_position_zero() {
         vec!["foo", "bar"],
         "operator at index 0 has no left neighbour → must drop"
     );
+}
+
+#[test]
+fn repeated_short_terms_observe_database_changes_between_queries() {
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch(
+        "CREATE VIRTUAL TABLE docs USING fts5(body);
+         INSERT INTO docs VALUES ('audit'), ('audit'), ('author');
+         CREATE VIRTUAL TABLE vocab USING fts5vocab(docs, row);",
+    )
+    .unwrap();
+    let query = prepare_match_query(&conn, "au au zz zz", "vocab", &no_norm()).unwrap();
+    assert_eq!(
+        query.as_str(),
+        r#"("audit" OR "author") AND ("audit" OR "author") AND "zz" AND "zz""#
+    );
+    let query = prepare_match_query(&conn, "au au", "vocab", &no_norm()).unwrap();
+    assert_eq!(match_ids(&conn, &query), [1, 2, 3]);
+    conn.execute_batch("DELETE FROM docs; INSERT INTO docs(rowid, body) VALUES (4, 'autumn');")
+        .unwrap();
+    let query = prepare_match_query(&conn, "au au", "vocab", &no_norm()).unwrap();
+    assert_eq!(query.as_str(), r#"("autumn") AND ("autumn")"#);
+    assert_eq!(match_ids(&conn, &query), [4]);
+    conn.execute_batch("DROP TABLE vocab;").unwrap();
+    let query = prepare_match_query(&conn, "au au", "vocab", &no_norm()).unwrap();
+    assert_eq!(query.as_str(), r#""au" AND "au""#);
+    conn.execute_batch("CREATE TABLE vocab(term TEXT);")
+        .unwrap();
+    assert!(matches!(
+        prepare_match_query(&conn, "au au", "vocab", &no_norm()),
+        Err(SanitizeError::VocabLookupFailed(_))
+    ));
 }
