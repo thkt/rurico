@@ -203,6 +203,8 @@ match prepare_match_query(&conn, user_input, "fts_chunks_vocab", &normalization)
 
 `NEAR()` グループ、`^`/`+`/`-` プレフィックス、各語の端の括弧は除去される。コロン・語中のハイフン・入力の引用符はliteralの文字として保持し、最終出力で `"` を `""` にエスケープする。不均衡な引用符を補完したり、入力の引用符からphrase境界を解釈したりはせず、語の区切りは空白のままとする。`AND`/`OR`/`NOT` のようなoperator-like keywordは、前後に非operatorの語がある場合のみliteral termとして引用符で囲まれ、Boolean演算子にはならない。前後が欠けたdangling operator（例: 先頭の `NOT`、NEAR除去後に孤立した `OR`）は除去される。短い語（1-2文字）は指定した vocab テーブルがあればprefix展開されるが、operator-like keywordは展開しない。vocab テーブルが存在しない場合だけはそのまま引用に劣化し、それ以外の SQLite 障害は `SanitizeError::VocabLookupFailed` を返す。展開なしの短語がhitするかはtokenizerに依存し、trigramでは3文字未満のliteralはhitしない。
 
+短語のprefix照会では `%`・`_`・backslashをLIKEのwildcardやescapeとして解釈せず、literalとして扱う。同じ短語の照会結果は1回の `prepare_match_query` 内でだけ再利用し、次の呼出しはDB更新を反映する。長語のみの場合もvocabのidentifier・schemaを検査し、別接続で呼出し前に確定したschema変更によるエラーも省略しない。内部の正規化は変更不要な入力を借用するが、公開の `normalize_for_fts` は引き続き `String` を返す。測定条件と限界は [Issue #312の検証記録](docs/benchmarks/issue-312/README.md) を参照。
+
 amiciの `parse_fts_segments` が読むwire-formatは、固定語の `"..."`（内部引用符は `""`）、展開語群の `("..." OR "...")`、語・語群間の明示的な ` AND ` を維持する。[#297](https://github.com/thkt/rurico/issues/297)では、入力 `rate-limit` の出力を `"""rate-limit"""` から `"rate-limit"` へ修正した。構文形状や公開APIは変えないが、literalの内容と検索結果は修正される。amici側の互換性は依存rev更新時に既存のround-trip testで確認する（[契約の参照元 #249](https://github.com/thkt/rurico/issues/249)）。
 
 ### query normalization 単体利用
