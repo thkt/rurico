@@ -172,7 +172,37 @@ fn as_refs(texts: &[String]) -> Vec<&str> {
     texts.iter().map(String::as_str).collect()
 }
 
+// Reuse the smoke provenance contract without acquiring a model in tests.
+fn fixture_generation(
+    texts: &[String],
+    context: &serde_json::Value,
+) -> Result<fixtures::GenerationConditions, String> {
+    let model = embed::ModelId::DEFAULT;
+    for key in [
+        "commit",
+        "tracked_diff_sha256",
+        "untracked_sha256",
+        "lockfile_sha256",
+        "executable_sha256",
+        "dirty",
+    ] {
+        if context[key].is_null() {
+            return Err(format!("generation condition unavailable: {key}"));
+        }
+    }
+    Ok(fixtures::GenerationConditions {
+            producer: fixtures::Producer::Rurico,
+            model: model.repo_id().into(),
+            model_revision: model.revision().into(),
+            tokenizer: format!("{}@{} (pinned cache lookup; local modification not checked)", model.repo_id(), model.revision()),
+            inputs: texts.to_vec(),
+            generation_code: serde_json::to_string(context).expect("generation context"),
+            settings: "embed_documents_batch defaults; document prefix/chunking/pooling defined by generation code".into(),
+        })
+}
+
 fn run_capture_fixture(embedder: &embed::Embedder) {
+    let context = records::context();
     let dir = fixture_dir();
     fs::create_dir_all(&dir).expect("create fixture dir");
 
@@ -186,9 +216,11 @@ fn run_capture_fixture(embedder: &embed::Embedder) {
             .embed_documents_batch(&refs)
             .unwrap_or_else(|e| panic!("embed {name}: {e}"));
         let path = dir.join(format!("{name}.bin"));
+        let generation =
+            fixture_generation(&texts, &context).expect("fixture generation conditions");
         let file = File::create(&path).expect("create fixture file");
         let mut w = BufWriter::new(file);
-        fixtures::save(&mut w, &out).expect("save fixture");
+        fixtures::save_versioned(&mut w, &out, &generation).expect("save fixture");
         eprintln!(
             "capture[{name}] wrote {} docs to {}",
             out.len(),
@@ -233,7 +265,7 @@ fn run_verify_fixture(embedder: &embed::Embedder) {
                     ));
                 }
             }
-            Err(shape) => failures.push(format!("{name}: shape mismatch: {shape:?}")),
+            Err(error) => failures.push(format!("{name}: comparison failed: {error}")),
         }
     }
 
@@ -620,6 +652,43 @@ fn check_thresholds(results: &[WorkloadResult], r2: f64) -> ThresholdReport {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fixture_generation_preserves_public_inputs_and_requires_code_identity() {
+        let texts = vec!["public synthetic input".to_owned()];
+        let context = serde_json::json!({
+            "commit": "test commit", "tracked_diff_sha256": "test diff",
+            "untracked_sha256": "test untracked", "lockfile_sha256": "test lock",
+            "executable_sha256": "test binary", "dirty": true
+        });
+        let generation = fixture_generation(&texts, &context).unwrap();
+        assert_eq!(generation.producer, fixtures::Producer::Rurico);
+        assert_eq!(
+            generation.model_revision,
+            embed::ModelId::DEFAULT.revision()
+        );
+        assert_eq!(generation.inputs, texts);
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&generation.generation_code).unwrap(),
+            context
+        );
+        for key in [
+            "commit",
+            "tracked_diff_sha256",
+            "untracked_sha256",
+            "lockfile_sha256",
+            "executable_sha256",
+            "dirty",
+        ] {
+            let mut missing = context.clone();
+            missing[key] = serde_json::Value::Null;
+            assert!(
+                fixture_generation(&texts, &missing)
+                    .unwrap_err()
+                    .contains(key)
+            );
+        }
+    }
 
     const FLOAT_EPS: f64 = 1e-9;
 

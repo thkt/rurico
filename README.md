@@ -106,8 +106,12 @@ custom producerやmockで内容を検証して構築するには、
 別document・query・呼出し間でも同じモデル次元を返す契約は、引き続き `Embed` 実装の責任となる。
 内容検証だけではモデルの識別や保存索引との互換性を保証しない。
 fixtureの `load` は同じ検証をdocumentごとに使い、不正内容を `InvalidData` として拒否する。
-形式は維持し、document間の次元照合・生成構成の識別・総byte上限は保証しない。
-`save` は従来どおり値をそのまま保存するため、新しいfixtureの生成には検証付きconstructorを使う。
+document間の次元照合やmodel/index互換性は保証しない。
+`save` は互換用のlegacy writerとして維持する。新規生成には由来を明示する`save_versioned`を使う。
+`load`はlegacyとversion 1を64 MiB上限で読み、余剰byteも拒否する。
+`load_fixture`は上限を指定でき、legacyの由来不明を`generation: None`として保持する。
+`compare`は両側の内容を検証し、不正内容・shape差・非有限metricを`CompareError`で返す。
+形式・生成条件・呼出し移行は[fixtureの説明](tests/fixtures/phase2_baseline/README.md)を参照。
 MLXは [ADR-0002](docs/decisions/0002-gpu-side-pooling-embed.md) の境界に従い、
 readback済みbufferの既存走査で共通の有限性検査を行う。構築時の再走査は追加しない。
 
