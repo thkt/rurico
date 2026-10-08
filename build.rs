@@ -1,5 +1,4 @@
 // Preserve Cargo build conditions for offline smoke revision comparisons.
-// Library-only consumers need neither the provenance commands nor this record.
 use std::env;
 use std::fmt::Write;
 use std::fs;

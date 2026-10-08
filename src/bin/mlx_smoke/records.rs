@@ -320,7 +320,7 @@ impl Trial<'_> {
             }
         }
         let wall = start.elapsed();
-        // Outside timed region, reuse existing parity tolerances and fixtures.
+        // Keep parity checks outside the timed region.
         let diff =
             fixtures::compare(self.expected, &output).expect("input order/chunk shape parity");
         assert!(diff.cosine_min >= fixtures::DEFAULT_COSINE_MIN);
@@ -435,7 +435,6 @@ pub fn run(provider: &dyn Embed, context: &Value, mode: Mode) -> Run {
                 }
             }
             for repeat in 0_usize..3 {
-                // Alternate both method and instrumentation ordering across repeats.
                 let variants: Vec<_> = if repeat.is_multiple_of(2) {
                     variants.to_vec()
                 } else {
@@ -635,7 +634,7 @@ mod tests {
                 1
             );
         }
-        // Aggregation never overwrites a raw phase with another trial's median.
+        // Raw phases must retain their own trial values.
         assert_eq!(serde_json::to_string(&read).unwrap(), encoded);
         assert_eq!(
             read[0].calls[0].as_ref().unwrap().forward_eval.as_nanos(),

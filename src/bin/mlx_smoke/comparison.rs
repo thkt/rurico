@@ -86,7 +86,6 @@ pub fn compare(base: &[Record], current: &[Record]) -> Result<Vec<Value>, String
     if base.len() != current.len() {
         return Err("missing comparison groups".to_owned());
     }
-    // One distribution per immutable warm group, shared by both reports.
     let base_walls: Vec<_> = base
         .iter()
         .map(|g| distribution(g.iter().map(|r| r.wall).collect()))
@@ -154,7 +153,7 @@ pub fn compare(base: &[Record], current: &[Record]) -> Result<Vec<Value>, String
                     };
                     format!("{}: missing comparable {missing} measurements", r.workload)
                 })?;
-            // Validate the partner from either direction, but emit once per pair.
+            // Check both directions so a missing batch group cannot escape validation.
             if r.method != Method::Batch {
                 continue;
             }

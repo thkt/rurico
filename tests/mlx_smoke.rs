@@ -1,29 +1,11 @@
 //! Integration tests that run smoke binaries in subprocesses.
 //!
-//! All MLX-dependent verification is isolated here. A SIGABRT from MLX FFI
-//! kills only the subprocess, not the test runner.
-//!
-//! - `smoke_full`: embed model functionality end-to-end (via `mlx_smoke`)
-//! - `smoke_verify_fixture`: Phase 2 numerical equivalence (T-BIT-001〜003)
-//!   — invokes `mlx_smoke verify-fixture` which compares W1/W2/W3 output
-//!   against `tests/fixtures/phase2_baseline/w{1,2,3}.bin` at Spec NFR-001
-//!   tolerances.
-//! - `smoke_measure_baseline`: shape check for `mlx_smoke measure-baseline`
-//!   output that PR #6's SLA + linearity parser will consume.
-//! - `probe_embed_smoke_binary`: embed subprocess probe contract (via `probe_embed_smoke`)
-//! - `probe_reranker_smoke_binary`: reranker subprocess probe contract (via `probe_reranker_smoke`)
+//! A SIGABRT from MLX FFI kills only the subprocess, not the test runner.
 
 use std::process::{Command, Output};
 
 use rurico::sandbox::SEATBELT_SKIP_EXIT;
 
-/// Run the embed smoke binary and check it succeeds.
-///
-/// Covers: query embedding, document embedding (short + long + batch),
-/// consistency, prefix-merge texts.
-///
-/// The smoke binary loads the model via `cached_artifacts` internally,
-/// so the model must be downloaded before running this test.
 #[test]
 #[ignore] // requires ruri-v3-310m cached + MLX (Apple Silicon)
 fn smoke_full() {
@@ -33,14 +15,6 @@ fn smoke_full() {
     assert_smoke_success(&output);
 }
 
-/// T-BIT-001〜003: Phase 2 numerical equivalence check.
-///
-/// Runs the bucket-batched `embed_documents_batch` on W1/W2/W3, loads the
-/// committed Phase 1 fixtures, and verifies `cosine_similarity ≥ 0.99999`
-/// AND `max_abs_diff ≤ 1e-5` on every chunk pair (Spec NFR-001).
-///
-/// Re-generate the fixtures via `mlx_smoke capture-fixture` when the expected
-/// output genuinely changes (model upgrade, intentional algorithm change).
 #[test]
 #[ignore] // requires ruri-v3-310m cached + MLX (Apple Silicon)
 fn smoke_verify_fixture() {
@@ -51,18 +25,9 @@ fn smoke_verify_fixture() {
     assert_smoke_success(&output);
 }
 
-/// End-to-end Phase 2E gate: T-WLD-001..006 SLA + padding + T-MET-003 R²
-/// scale fit are enforced according to eligibility inside `mlx_smoke measure-baseline`, which
-/// panics (non-zero exit) on any violation. This integration test therefore:
-///
-/// 1. Asserts valid measurements and the applicable primary thresholds passed.
-/// 2. Guards the stderr shape so downstream consumers (`phase2_result.md`
-///    paste, future parsers) catch format drift before number drift.
-///
-/// Run time is ~4 minutes on Apple Silicon because each workload is timed
-/// three times after warm-up to harden the median against single-run noise.
+/// Success requires valid measurements and applicable primary gates, not diagnostic misses.
 #[test]
-#[ignore] // requires ruri-v3-310m cached + MLX (Apple Silicon); ~4 minute runtime
+#[ignore] // requires ruri-v3-310m cached + MLX (Apple Silicon)
 fn smoke_measure_baseline() {
     let output = Command::new(env!("CARGO_BIN_EXE_mlx_smoke"))
         .arg("measure-baseline")
@@ -143,12 +108,7 @@ fn smoke_measure_baseline() {
     );
 }
 
-/// Validate the embed subprocess probe contract end-to-end.
-///
-/// Spawns `probe_embed_smoke`, which has `handle_probe_if_needed()` wired in
-/// its `main()`. When `Embedder::probe()` re-execs `current_exe()`, it
-/// re-execs `probe_embed_smoke` — so the full probe cycle is exercised rather
-/// than a test harness that ignores probe env vars.
+/// Re-exec the probe binary so probe environment handling is exercised.
 #[test]
 #[ignore] // requires ruri-v3-310m cached + MLX (Apple Silicon)
 fn probe_embed_smoke_binary() {
@@ -158,12 +118,7 @@ fn probe_embed_smoke_binary() {
     assert_smoke_success(&output);
 }
 
-/// Validate the reranker subprocess probe contract end-to-end.
-///
-/// Spawns `probe_reranker_smoke`, which has `handle_probe_if_needed()` wired
-/// in its `main()`. When `Reranker::probe()` re-execs `current_exe()`, it
-/// re-execs `probe_reranker_smoke` — so the full probe cycle is exercised
-/// rather than a test harness that ignores probe env vars.
+/// Re-exec the probe binary so probe environment handling is exercised.
 #[test]
 #[ignore] // requires ruri-v3-reranker-310m cached + MLX (Apple Silicon)
 fn probe_reranker_smoke_binary() {
@@ -233,7 +188,6 @@ fn summarize_records_cli_preserves_sub_ms_and_excludes_warmup() {
     assert_eq!(summary["wall"]["n"], 2);
     assert_eq!(summary["wall"]["median"]["nanos"], 200);
     assert_eq!(summary["sequences"], json!([1, 2]));
-    // A missing input cannot be reported as successful empty verification.
     let bad = Command::new(env!("CARGO_BIN_EXE_mlx_smoke"))
         .arg("summarize-records")
         .arg(dir.path().join("absent.jsonl"))
@@ -242,8 +196,8 @@ fn summarize_records_cli_preserves_sub_ms_and_excludes_warmup() {
     assert!(!bad.status.success());
 }
 
-/// Reuse #306's short workload, options, parity and alternating order. No new
-/// fixture or latency target; production checks fail on extra host accesses.
+/// Reuse the short workload, options, parity and alternating order.
+/// Production checks reject extra host accesses without a new fixture or latency target.
 #[test]
 #[ignore] // cached default model and unsandboxed Metal
 fn smoke_measure_overhead_observes_readbacks() {

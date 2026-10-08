@@ -8,15 +8,11 @@
 //!
 //! # Modes
 //!
-//! - default (no args): the legacy smoke assertions that other integration
-//!   tests rely on. Running bare `mlx_smoke` keeps the contract with
-//!   `tests/mlx_smoke.rs`.
-//! - `capture-fixture`: run W1/W2/W3 and write the current-branch output to
-//!   `tests/fixtures/phase2_baseline/w{1,2,3}.bin` so later PRs can compare
-//!   bucket-batched output against today's main-branch baseline.
-//! - `measure-baseline`: run W1/W2/W3 timing `embed_documents_batch` and a
-//!   sequential equivalent, emitting one `baseline[wN] ...` line per workload
-//!   so the numbers can be copied into `docs/benchmarks/phase1_baseline.md`.
+//! - default (no args): model functionality assertions.
+//! - `capture-fixture`: write W1/W2/W3 output to
+//!   `tests/fixtures/phase2_baseline/w{1,2,3}.bin`.
+//! - `measure-baseline`: measure W1/W2/W3 batch/sequential efficiency, padding
+//!   and scale fit under the existing eligibility policy.
 //! - `measure-records`: default/nondefault options and ordinary/measured APIs,
 //!   alternating batch/sequential runs with immutable JSONL records on stdout.
 //! - `measure-overhead`: the same API/options comparisons on the first three W2
@@ -25,10 +21,8 @@
 //! - `compare-records BASE CURRENT`: refuse incompatible conditions and report
 //!   revision latency separately from batch/sequential efficiency, offline.
 //! - `verify-fixture`: run W1/W2/W3, load the committed fixtures, and assert
-//!   numerical equivalence within Spec NFR-001 tolerances
-//!   (`cosine_similarity ≥ 0.99999 AND max_abs_diff ≤ 1e-5`). Fails non-zero
-//!   when any workload diverges; used by `tests/mlx_smoke.rs::smoke_verify_fixture`
-//!   to drive T-BIT-001〜003.
+//!   numerical equivalence (`cosine_similarity ≥ 0.99999 AND max_abs_diff ≤ 1e-5`).
+//!   Fails non-zero when any workload diverges.
 
 #[path = "mlx_smoke/comparison.rs"]
 mod comparison;
@@ -50,11 +44,7 @@ use rurico::embed::{
 use rurico::handle_probe_if_needed;
 use rurico::sandbox;
 
-/// Minimal `tracing` subscriber that writes every record to stderr.
-///
-/// Kept inside the smoke binary so that debug logs emitted by the library are
-/// visible when this binary runs, without forcing a subscriber on library
-/// consumers.
+/// Keep library debug logs visible without installing a subscriber for consumers.
 fn init_tracing_subscriber() {
     if let Err(e) = tracing_subscriber::fmt()
         .with_writer(stderr)
@@ -129,8 +119,6 @@ fn main() {
     }
 }
 
-// ── Legacy smoke assertions ──────────────────────────────────────────────────
-
 fn run_assertions(embedder: &embed::Embedder) {
     let dims = embedder.embedding_dims();
 
@@ -156,7 +144,6 @@ fn run_assertions(embedder: &embed::Embedder) {
         .expect("batch");
     assert_eq!(batch.len(), 2, "batch count");
 
-    // T-BKT-009: empty `texts` → `Vec::new()` (early-return branch regression guard)
     let empty = embedder.embed_documents_batch(&[]).expect("empty batch");
     assert!(empty.is_empty(), "empty texts must return Vec::new()");
 
@@ -176,8 +163,6 @@ fn run_assertions(embedder: &embed::Embedder) {
 
     eprintln!("smoke: all checks passed");
 }
-
-// ── capture-fixture mode ─────────────────────────────────────────────────────
 
 fn fixture_dir() -> PathBuf {
     PathBuf::from("tests/fixtures/phase2_baseline")
@@ -212,8 +197,6 @@ fn run_capture_fixture(embedder: &embed::Embedder) {
     }
     eprintln!("capture-fixture: done");
 }
-
-// ── verify-fixture mode ──────────────────────────────────────────────────────
 
 fn run_verify_fixture(embedder: &embed::Embedder) {
     let dir = fixture_dir();
@@ -262,8 +245,6 @@ fn run_verify_fixture(embedder: &embed::Embedder) {
     }
     eprintln!("verify-fixture: all workloads match fixtures within NFR-001");
 }
-
-// ── measure-baseline mode ────────────────────────────────────────────────────
 
 /// Batch/sequential efficiency, not revision regression or an absolute SLA.
 /// Zero-resolution timings are indeterminate and must never imply achievement.
@@ -391,8 +372,7 @@ fn run_measure_baseline(embedder: &embed::Embedder, context: &serde_json::Value)
         });
     }
 
-    // Fit `forward_eval_ms = slope * real_tokens + intercept` over the three
-    // workload points and emit R² so NFR-005 (≥ 0.95) can be asserted.
+    // R² measures scale fit, not speed or absolute latency.
     let xs: Vec<f64> = results
         .iter()
         .map(|r| r.metrics.real_tokens as f64)
@@ -416,9 +396,7 @@ fn run_measure_baseline(embedder: &embed::Embedder, context: &serde_json::Value)
     }
 
     let report = check_thresholds(&results, r2);
-    // Deliberately separate log prefixes so phase2_result.md / downstream
-    // parsers can distinguish the three tiers — see spec NFR-003/NFR-004
-    // primary vs aspirational split and `is_bucket_saturated`.
+    // Separate prefixes preserve the primary/diagnostic distinction for consumers.
     for v in &report.saturated_informational {
         eprintln!("saturated: {v:?}");
     }
@@ -455,13 +433,9 @@ fn fit(xs: &[f64], ys: &[f64]) -> (f64, f64, f64) {
     (slope, intercept, r_squared(xs, ys, slope, intercept))
 }
 
-// ── Phase 2E: threshold checking (SLA + padding + R²) ────────────────────────
-
 struct WorkloadResult {
     name: &'static str,
-    /// Computed once via [`workload_ratio`] when the workload is measured;
-    /// `check_thresholds` reads this field instead of re-deriving the ratio,
-    /// so the displayed and gated values cannot diverge.
+    /// Shared by display and gating so their values cannot diverge.
     ratio: f64,
     metrics: BatchMetrics,
 }
@@ -489,67 +463,36 @@ enum Violation {
     },
 }
 
-/// Primary SLA threshold — SOW Why's direct translation: "batch is at least
-/// as fast as sequential, so batch API keeps its value." NFR-004-primary.
+/// Batch must be at least as fast as sequential where the primary gate applies.
 const PRIMARY_SLA_THRESHOLD: f64 = 1.00;
-/// Aspirational SLA target — original SOW number. Phase 3/5a goal.
-/// NFR-004-aspirational.
 const ASPIRATIONAL_SLA_THRESHOLD: f64 = 0.80;
-/// Primary padding threshold — observational floor for bucket-amenable
-/// workloads, reflecting the irreducible padding from length variance inside
-/// a single bucket. NFR-003-primary.
+/// Allows length variance within a bucket on non-saturated workloads.
 const PRIMARY_PADDING_THRESHOLD: f32 = 1.20;
-/// Aspirational padding target — original SOW number. Phase 3/5a goal.
-/// NFR-003-aspirational.
 const ASPIRATIONAL_PADDING_THRESHOLD: f32 = 1.10;
 const R_SQUARED_THRESHOLD: f64 = 0.95;
 
-/// A workload is bucket-saturated when every chunk lands in a single bucket
-/// whose max_seq_len is material (index ≥ 2 = seq_len > 512). Under that
-/// shape, bucket batching degenerates to a single sub-batch whose padding
-/// waste is bound by the bucket ceiling — the same state Phase 1 was in.
-/// SOW Why ("chunk 長分布に依らず") does not cover this regime; Phase 3/5a
-/// (GPU pool / mutex scope) are the designated improvement points.
-///
-/// Buckets 0 and 1 (`max_seq_len ≤ 512`) are excluded because their padding
-/// overhead is already negligible — W2's `[100,0,0,0]` shape sits at
-/// `padding_ratio ≈ 1.005` in practice, so classifying it as saturated would
-/// hide a genuine bucket batching win.
+/// A single long bucket cannot benefit from routing by length; its padding
+/// and efficiency misses remain diagnostic under the existing policy.
+/// Short-only workloads retain primary gates.
 fn is_bucket_saturated(bucket_hist: &[usize; 4]) -> bool {
     let non_empty = bucket_hist.iter().filter(|&&n| n > 0).count();
     non_empty == 1 && bucket_hist[2..].iter().any(|&n| n > 0)
 }
 
-/// A workload is SLA-amenable when every chunk sits in a short bucket
-/// (index 0 or 1, `max_seq_len ≤ 512`). Under that shape the MLX kernel
-/// compile cost and Metal scheduler noise are small enough relative to the
-/// wall-clock that the median-of-3 `batch_ms / sequential_ms` ratio is
-/// stable across runs and can carry a single-run primary SLA assertion.
-///
-/// Workloads with any chunk in bucket index ≥ 2 (like W3's `[5,0,5,0]`)
-/// run both batched and sequential passes through two distinct kernels,
-/// and the empirical run-to-run variance is ~10% — enough to flip a
-/// `ratio ≤ 1.0` assertion between pass and fail on successive runs. For
-/// those, the primary SLA assertion is skipped; the aspirational threshold
-/// still fires as a diagnostic. `is_bucket_saturated` is a strict subset of
-/// `!is_sla_amenable`.
+/// The existing efficiency policy gates short-only workloads. Long or mixed
+/// buckets remain diagnostic because kernel compilation and scheduler variance
+/// can destabilize the ratio. This does not guarantee W1/W3 speed.
 fn is_sla_amenable(bucket_hist: &[usize; 4]) -> bool {
     bucket_hist[2..].iter().all(|&n| n == 0)
 }
 
 #[derive(Debug, Default, PartialEq)]
 struct ThresholdReport {
-    /// Primary enforced failures on bucket-amenable workloads — cause panic.
-    /// Bound to SOW Why "batch ≥ sequential" (ratio ≤ 1.0) and the bucket
-    /// observational floor (padding ≤ 1.20), plus the global R² check.
+    /// Applicable primary failures and indeterminate measurements cause panic.
     primary_violations: Vec<Violation>,
-    /// Aspirational-target misses on bucket-amenable workloads — diagnostic
-    /// only. Surface the gap toward Phase 3/5a improvement targets without
-    /// blocking Phase 2 merge.
+    /// Target misses outside the saturated regime; diagnostic only.
     aspirational_diagnostics: Vec<Violation>,
-    /// Bucket-saturated workloads — out of Phase 2 scope. All deviations
-    /// against the aspirational threshold land here so regressions on the
-    /// diagnostic numbers are still visible after Phase 3/5a work.
+    /// Saturated workloads are outside the primary performance guarantee.
     saturated_informational: Vec<Violation>,
 }
 
@@ -569,14 +512,8 @@ enum Tier {
     Saturated,
 }
 
-/// Route a single metric reading against the 3-tier thresholds. Returns
-/// `Some((tier, threshold))` if `value` exceeds the tier's bound, `None` if
-/// it sits within every bound. `primary_enforced=false` on an amenable
-/// workload skips the primary gate entirely and routes over-threshold
-/// values directly to aspirational — used by SLA on padding-only-amenable
-/// workloads where kernel-compile variance makes the primary assertion
-/// unstable. Saturated workloads always evaluate only against
-/// `aspirational` and route to the saturated bucket.
+/// Saturated workloads use only the diagnostic target. Otherwise, an enforced
+/// primary miss takes precedence over an aspirational miss (no double report).
 fn classify_deviation<T: PartialOrd + Copy>(
     value: T,
     primary: T,
@@ -686,9 +623,6 @@ mod tests {
 
     const FLOAT_EPS: f64 = 1e-9;
 
-    // Bucket-hist archetypes used by the 3-workload tests, matching the
-    // `measure-baseline` observations so `is_bucket_saturated` and
-    // `is_sla_amenable` classify each fixture correctly.
     const BUCKET_SATURATED: [usize; 4] = [0, 0, 0, 3];
     const BUCKET_SHORT_ONLY: [usize; 4] = [100, 0, 0, 0];
     const BUCKET_MIXED: [usize; 4] = [5, 0, 5, 0];
@@ -718,8 +652,6 @@ mod tests {
         }
     }
 
-    // T-WLD-001..006 + T-MET-003 happy path: every workload within every
-    // threshold — primary, aspirational, and saturated buckets all empty.
     #[test]
     fn check_thresholds_all_within_limits_returns_empty() {
         let results = [
@@ -731,10 +663,6 @@ mod tests {
         assert!(report.is_clean(), "expected clean report, got {report:?}");
     }
 
-    // T-WLD-001 + T-WLD-004: W1 is bucket-saturated, so any deviation from
-    // the aspirational threshold lands in `saturated_informational` and does
-    // not trigger a primary violation. Expect two saturated entries (Sla +
-    // Padding) and an otherwise-empty report.
     #[test]
     fn check_thresholds_flags_w1_deviation_as_saturated() {
         let results = [
@@ -777,10 +705,6 @@ mod tests {
         );
     }
 
-    // T-WLD-006: W3 is bucket-amenable; a padding overshoot of the PRIMARY
-    // 1.20 floor must land in `primary_violations` and *not* double-report
-    // as aspirational — the primary violation already implies the
-    // aspirational gap.
     #[test]
     fn check_thresholds_flags_w3_padding_primary_violation() {
         let results = [
@@ -825,9 +749,6 @@ mod tests {
         }
     }
 
-    // T-WLD-006 aspirational only: W3 padding between the aspirational
-    // 1.10 and primary 1.20 gates must surface as aspirational diagnostic,
-    // not a primary violation — Phase 2 passes, Phase 3/5a goal missed.
     #[test]
     fn check_thresholds_flags_w3_padding_aspirational_diagnostic() {
         let results = [
@@ -863,18 +784,11 @@ mod tests {
         }
     }
 
-    // T-WLD-003: W3 is bucket-amenable for padding but NOT sla-amenable
-    // (bucket_hist=[5,0,5,0] hits bucket 2). Ratio deviations must land
-    // only in aspirational_diagnostics — the primary SLA gate is skipped
-    // because kernel-compile variance across the two shapes makes a
-    // single-run ratio assertion flip between pass and fail.
     #[test]
     fn check_thresholds_flags_w3_ratio_as_aspirational_only() {
         let results = [
             mk_result("w1", 500, 1000, 1.05, BUCKET_SATURATED),
             mk_result("w2", 500, 1000, 1.05, BUCKET_SHORT_ONLY),
-            // ratio 1.08 — past primary 1.0, but must not trigger a primary
-            // violation because W3 is not sla-amenable.
             mk_result("w3", 1080, 1000, 1.05, BUCKET_MIXED),
         ];
         let report = check_thresholds(&results, 0.98);
@@ -909,8 +823,6 @@ mod tests {
         }
     }
 
-    // T-MET-003: R² is workload-independent and only emits one tier; a
-    // sub-threshold value is always a primary violation.
     #[test]
     fn check_thresholds_flags_r_squared_primary_violation() {
         let results = [
@@ -944,9 +856,6 @@ mod tests {
         }
     }
 
-    // T-WLD-002: W2 at ratio 0.85 sits between aspirational (0.80) and
-    // primary (1.00) — must land only in aspirational_diagnostics. Phase 2
-    // passes, Phase 3/5a target not yet met.
     #[test]
     fn check_thresholds_flags_w2_slow_ratio_as_aspirational() {
         let results = [
@@ -986,9 +895,6 @@ mod tests {
         }
     }
 
-    // Combined: W1 saturated (2 entries) + W3 primary padding + R² primary
-    // must each go to the right bucket without leaking into aspirational —
-    // the bucket-routing invariant for the whole reporter.
     #[test]
     fn check_thresholds_splits_all_three_tiers() {
         let results = [
@@ -1045,8 +951,6 @@ mod tests {
         }
     }
 
-    // A zero denominator used to appear as achieved ratio=0. It now fails
-    // with an indeterminate diagnostic, independently of the numeric SLA tier.
     #[test]
     fn check_thresholds_zero_sequential_is_indeterminate() {
         let results = [
