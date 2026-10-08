@@ -4,6 +4,11 @@
 
 ### Breaking Changes
 
+- **fixtureの`compare`は`CompareError`を返す。** 旧shapeエラーは`CompareError::Shape`に包み、
+  legacy constructor経由の不正内容と非有限metricも型付きエラーで拒否する。
+  `load`は64 MiB上限と余剰byte拒否を追加し、正常legacyを引き続き受理する。
+  新形式・生成条件・移行は[fixtureの説明](tests/fixtures/phase2_baseline/README.md)を参照。
+
 - **`RerankerError::Inference` / `Tokenizer` / `InitFailed` を原因付きの構造体variantへ変更。**
   旧 `Inference(message)` の構築は `Inference { message, source: None }`、
   matchは `Inference { message, .. }` へ移行する。`Tokenizer` / `InitFailed` も同様。

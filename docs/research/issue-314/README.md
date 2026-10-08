@@ -8,7 +8,8 @@
 `run.py`は同じ入力を現行SQLの参照例・決定的順序案・vocab不在・明示phraseで比較する。
 製品のsanitizerを移植せず、fixtureに明示したlegacy tokenを使う。
 その差を見逃さないため、Rustの既存searchテストに追加した一群が製品の
-`prepare_match_query`で必要な入力のwireとhitを照合する。Rustの実行は標準checkに含まれる。
+`prepare_match_query`でphrase・候補上限・fallbackのwireとhitを照合する。
+LIKE escapeは最新mainの既存Rustテストへ統合した。Rustの実行は標準checkに含まれる。
 
 Python標準ライブラリだけで実行できる。SQLiteにFTS5/trigramが必要で、モデルやサーバーは使わない。
 
@@ -23,13 +24,48 @@ python3 -B docs/research/issue-314/run.py --output /tmp/issue-314-new-results.js
 短い書込み時間の一回測定は速度の優劣を保証しない。
 
 標準setup/checkは[CONTRIBUTING](../../../CONTRIBUTING.md#テスト)どおり。
-Python研究検証は標準checkへ登録していない。初回sandboxと追加ホストで上の両検証を実行した。
+Python研究検証は標準checkへ登録していない。初回・追加ホスト・最新main統合版で上の両検証を実行した。
 captureは不要。変更文書も既存の独立評価へ渡す。
 
-## 固定amiciのホスト確認
+## 最新main統合版のホスト確認
 
-対象はrurico開始版`24725a72be44300afc24186b82b14bcb3f5f9d3d`＋今回の差分と固定Cargo.lock、
+競合修正の開始headは `6b5a3855f35120c39423a1a49c656f5b58c98ee3`、
+統合mainは `56f412c8401d6a3b501d7effb0aff18df1f344e5`、共通祖先は
+`24725a72be44300afc24186b82b14bcb3f5f9d3d`。Cargo.lockはmainと同じSHA-256
+`743d754ae4fb6f0f44d169feab408a1b80caa50d17c38b058ec156c66811bf30`だった。
+query内memo・内部Cow・schema検査を含む製品入口は統合済みで、CPU限定の
+[検証要約](integration-verification.json)と[Python再実行](results-integrated.json)を保存した。
+この結果はworkspace checkや固定consumerの新しい実行を代替しない。
+
+Git共有領域への書込みが拒否された場合は、統合済みファイルとcheckout外のpatch/hashを保ち、
+ホストが同じcheckoutに通常の未commit merge状態を整える。設定・前run・認証情報は変更しない。
+現在のsourceと固定consumerを結び直すため、下の固定版取得・source照合・path patch手順を使い、
+新しい一時コピーで3つの再現patchをtestsだけへ適用する。
+各patchは同じ原本末尾への追加差分なので、個別コピーで一枚ずつ適用を確認してから、
+原本が不変であることを確認した追加blockを一つのtestsへ合成する。
+同じファイルへ順に`git apply`すると2枚目以降が失敗する。
+consumerのlockは今回の依存解決結果として記録し、旧lockと違う場合は差と理由を示す。
+旧lockへの強制置換や、rurico自身のCargo.lock更新は行わない。
+
+`RURICO_314_CASES`は今回のcheckoutの `cases.json` を指定する。
+同じpath patch設定で `storage::fts::tests` を実行し、既存round-tripと26fixture・quote4・group2の
+各filterが実行されたことを確認する。旧suiteは14件だったが、その件数だけを合否条件にしない。
+期待する結果は旧観測との比較であり、quote/groupの欠陥を望ましい製品仕様として採用しない。
+source・resolved packages・lock差分・binary・rurico差分のhash、実行対象と終了コード、
+回復構造・cleaner・直接/consumer MATCHのhitと品質、所要時間を新しい証拠へ保存する。
+既存の原本を上書きしない。結果が違えば原因を調べ、固定consumerの製品parserは修正しない。
+
+新しい要約を報告へ反映してから、変更後の `cargo fetch --locked` と設定済み
+`bash scripts/check.sh`、変更文書を含むfresh独立評価へ戻る。
+初回評価は `updates=[]`、現在の指摘はIDなし `newItems`。PR全体と今回の採用済み競合修正を両方確認する。
+既存本文の適用される説明・限界・公開済みリンクを新しいassessments/handoffへ明示し、旧成功の主張を引き継がない。
+commit・push・公開は今回のsandbox作業では行わない。
+
+## 固定amiciの再現手順と過去のホスト確認
+
+以下の旧観測の対象はrurico開始版`24725a72be44300afc24186b82b14bcb3f5f9d3d`＋当時の差分と固定Cargo.lock、
 amici `547f9ee2ed734a2eab316fdbd62f194849875ee4`。
+再実行では上の最新main統合版を使い、producer・lock・binaryの新しいhashを記録する。
 ネットワークが使える担当AIが、checkout外の新しい一時領域へこのamici版を取得する。
 [既存のsource manifest](../issue-307/results/search/amici-source.json)の
 `src/storage/fts.rs`と`src/storage/fts/tests.rs`のSHA-256へ照合し、parser、cleaner、既存round-trip testを読む。
@@ -68,12 +104,12 @@ PhraseとLiteralの型の区別、打切り/fallback診断は現行文字列か�
 結果と限界は[報告](report.md)・[consumer記録](consumer-cases.json)を参照する。
 Python側の再実行は[別の原本](results-host.json)に保存し、既存`results.json`を上書きしない。
 
-## 内部引用符の追加ホスト確認（R1-2）
+## 内部引用符の再現
 
 26観測の旧原本には内部引用符入力がない。新しい確認は[consumer-quotes.patch](consumer-quotes.patch)を使う。
 過去のcheckout・lock・生ログは変更せず、新しい隔離コピーで固定amici版とsource hashを照合する。
 上のpath patchで今回のrurico checkoutへ解決し、consumerのlockを
-[既存要約](host-verification.json)のSHA-256と照合する。依存版を変えた場合は同条件の証拠とせず理由を報告する。
+[既存要約](host-verification.json)のSHA-256と比較する。依存版が変わった場合は同条件の証拠とせず理由を報告する。
 再現patchは固定版の`src/storage/fts/tests.rs`へ追加するだけで、製品parserを変更しない。
 
 追加filterは`issue314_host_internal_quote_round_trip_observation`。

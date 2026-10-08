@@ -46,6 +46,50 @@ clippyの `--all-targets --all-features` はコンパイル検査であり、テ
 coverageも同じfeatureを使う。既存の除外regex・95%の閾値は維持し、
 追加対象を通すための除外は設けない。
 
+### vector byte-bindの実SQL検証（Issue #368）
+
+`src/storage/tests.rs` は本番の `ensure_sqlite_vec` を使い、登録後に開いた2つの
+in-memory connectionで、合成f32 vectorを `bytemuck::cast_slice` によりBLOBとして挿入・検索する。
+明示したL2 metricで、query `[1, -2, 0.5]` に対する距離が2・3・5・10となる候補を使い、
+上位3件のID・順序・距離と保存されたlittle-endian bytesを固定する。
+sqlite-vecが拒否する不正BLOB長・空BLOB・次元不一致は挿入と検索の両方で確認し、
+拒否後に候補が残らないことと正常な挿入・検索への復帰、空対象の空結果も確認する。
+製品のvalidationやconsumerのschemaは追加しない。
+既存の登録idempotence・CREATE検証をこの通し検証へ統合し、FFIのversion検証は維持する。
+
+標準checkで実行されるモデル不要テストであり、個別の再実行は次のコマンドを使う。
+ビルドは引き続きMLX-only構成で行う。
+
+```sh
+cargo test --locked --lib --features test-support,test-mlx,smoke storage::tests
+```
+
+検出力の確認はホスト上の一時コピーで行い、未commitの変更も含む今回のcheckoutをコピーする。
+最初に上記コマンドで正常版が成功することを確認する。その後、`src/storage/tests.rs`に
+次の変更を1つずつ適用し、毎回同ファイルを正常版から復元する。
+
+- 挿入側で各f32の4 bytesを逆順にする。保存bytesのassertionで失敗することを確認する。
+- `neighbors`の取得結果を逆順にする。ID・順序・距離のassertionで失敗することを確認する。
+- `KNN_SQL`を、元の近傍取得SQLをmaterialized CTEへ入れ、外側のSELECTで
+  `ORDER BY rowid`へ並べ直すSQLに変更する。近傍取得そのものは成功させ、
+  上位3件の順序を比較するassertionで失敗することを確認する。
+  vec0のKNN queryへ直接`ORDER BY rowid`を指定するとSQLiteが拒否するため、
+  そのエラーを順位assertionの検出実績とは扱わない。
+
+各版を上記コマンドで実行し、最後に正常版を復元して成功することを確認する。
+ビルドや環境の失敗は回帰の検出と扱わない。開始commit・統合したmain・対象差分と
+Cargo.lockのhash、Rust/Xcode/Metalの版、コマンド、終了コード、stdout/stderrをcheckout外に保存する。
+標準checkはこれらの変異を適用しないため、その成功を検出力確認の実施済み証拠にしない。
+この検査は実モデルの意味表現、consumerのCandidate pipeline、migration、検索品質を保証しない。
+
+### 文書分割の回帰検証
+
+`src/text/tests.rs` は本番の `split_text` を直接呼び、段落→行→UTF-8文字境界の
+優先、期待断片、原文との連結一致、byte上限を標準checkで確認する。
+`max_bytes < 4` の入力全体を返す例外は別に確認し、この条件に上限を要求しない。
+段落・行優先を削除する一時変異の検知確認は
+[再実行手順と記録](docs/research/issue-360/split-priority.md)を参照する。
+
 ### CIキャッシュの検証
 
 macOSのtest・coverageジョブは、Cargoのビルド成果物とmlx-sysが生成する
@@ -349,6 +393,58 @@ Rust/Xcode/Metal、機種/OS、モデルrevision、実行コマンドと全サ�
 共有する結果は`docs/benchmarks/`等の証拠保存先へ置き、通常の操作説明に実測値を混在させない。
 未実行・モデル不足・観測不能の指標は明記する。mockの順序確認や短い固定shapeの反復から、
 全shape・全モデル・長時間運転のGPUメモリ保証やリーク削減量を推定しない。
+
+### モデル種別の拒否条件（Issue #361）
+
+[Issue #361](https://github.com/thkt/rurico/issues/361) のkind検証は、
+`src/artifacts/tests.rs`で内部helperと公開`CandidateArtifacts::verify`の両方を確認する。
+有効なbackboneのprefixに禁止headを1種類ずつ加えたembedと、
+classifier・head.dense・head.normのうち1種類だけを欠くrerankerを使い、
+`WrongModelKind`の対象kind、禁止／欠落の理由、該当prefixを検査する。
+全prefixが揃う正常例、backbone不在、header破損は既存の別テストで確認する。
+ここでいう有効なbackboneはkindのprefix条件を満たすことを指し、
+config由来の全必須重み・shape・F32・data rangeの保証は、次節のloader検証が担う。
+小さな合成ファイルを再利用し、モデルのダウンロードや追加の実モデルロードは行わない。
+
+通常checkはこれらのテストを実行するが、製品コードを変異させた検出力の確認は行わない。
+検出力を確認する場合は、変更後のソースを含む一時コピーをホストに作り、まず正常版を実行する。
+コピー元は今回のcheckoutとし、commitだけをコピーして未commitの変更を落とさない。
+MLX-onlyのビルド条件は通常checkと同じにする。
+
+```sh
+rurico_kind_copy=$(mktemp -d)
+rsync -a --exclude=.git --exclude=target ./ "$rurico_kind_copy/"
+cd "$rurico_kind_copy"
+cargo nextest run --locked --workspace --features test-support,test-mlx,smoke --profile ci \
+  --run-ignored default --no-tests fail -E 'test(artifacts::tests::)' \
+  --status-level all --final-status-level all
+```
+
+一時コピーの`src/artifacts.rs`だけに、次の変異を1つずつ適用する。
+各変異の前に同ファイルを正常版から復元し、テストやfixtureは変更しない。
+
+- `verify_model_kind`の`else if !require_reranker_keys && found`分岐を、
+  その`WrongModelKind`を返すブロックごと削除する。
+  下記のembed限定実行でhelperとcandidateの2テストが拒否を期待するassertionで失敗することを確認する。
+- `RERANKER_KEY_PREFIXES`から`"head.norm."`だけを削除する。
+  下記のreranker限定実行でhelperとcandidateの2テストが、
+  normだけを欠くケースの拒否を期待するassertionで失敗することを確認する。
+
+```sh
+# head拒否分岐を削除したコピー
+cargo nextest run --locked --workspace --features test-support,test-mlx,smoke --profile ci \
+  --run-ignored default --no-tests fail -E 'test(embed_kind_rejects_each_head_prefix)' \
+  --status-level all --final-status-level all
+# 正常版を復元し、norm必須prefixだけを削除したコピー
+cargo nextest run --locked --workspace --features test-support,test-mlx,smoke --profile ci \
+  --run-ignored default --no-tests fail -E 'test(reranker_kind_rejects_each_missing_head_prefix)' \
+  --status-level all --final-status-level all
+```
+
+終了コードだけで検出成功とせず、各テスト名・該当ケース・assertionのログを残す。
+ビルドや環境の失敗は変異の検出と扱わない。最後に正常版を復元し、最初のartifact限定実行が成功することを確認する。
+開始commit、作業差分、Cargo.lock、Rust/Xcode/Metalの版、実行コマンドと結果を検証記録へ残す。
+標準checkや旧版の成功を、この変異確認の実施済み証拠として扱わない。
 
 ### 重みの読込み検証
 

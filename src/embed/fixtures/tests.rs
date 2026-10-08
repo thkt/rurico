@@ -1,4 +1,5 @@
 use super::*;
+use crate::embed::{EmbeddingValidationError, EmptyChunksError};
 use std::io::Cursor;
 
 fn sample_docs() -> Vec<ChunkedEmbedding> {
@@ -36,8 +37,6 @@ fn compare_identical_fixtures_reports_zero_diff() {
     );
 }
 
-// Regression: identical all-zero fixtures must report cosine=1.0 (not 0.0)
-// so the NFR-001 threshold stays passable on zero-norm inputs.
 #[test]
 fn compare_identical_zero_fixtures_reports_cosine_one() {
     let zeros = vec![ChunkedEmbedding::try_new(vec![vec![0.0f32; 8]]).unwrap()];
@@ -46,7 +45,6 @@ fn compare_identical_zero_fixtures_reports_cosine_one() {
     assert_eq!(diff.max_abs_diff, 0.0);
 }
 
-// Regression: zero vs nonzero must report cosine=0.0 (clear mismatch).
 #[test]
 fn compare_zero_versus_nonzero_reports_cosine_zero() {
     let a = vec![ChunkedEmbedding::try_new(vec![vec![0.0f32; 3]]).unwrap()];
@@ -71,10 +69,10 @@ fn compare_doc_count_mismatch_returns_err() {
     let b: Vec<_> = a.iter().skip(1).cloned().collect();
     assert_eq!(
         compare(&a, &b),
-        Err(ShapeMismatch::DocCount {
+        Err(CompareError::Shape(ShapeMismatch::DocCount {
             expected: 2,
             actual: 1
-        })
+        }))
     );
 }
 
@@ -84,11 +82,11 @@ fn compare_chunk_count_mismatch_returns_err_with_doc_index() {
     let mut b = sample_docs();
     b[0].chunks.pop();
     match compare(&a, &b) {
-        Err(ShapeMismatch::ChunkCount {
+        Err(CompareError::Shape(ShapeMismatch::ChunkCount {
             doc,
             expected,
             actual,
-        }) => {
+        })) => {
             assert_eq!(doc, 0);
             assert_eq!(expected, 2);
             assert_eq!(actual, 1);
@@ -103,12 +101,12 @@ fn compare_dim_mismatch_returns_err_with_chunk_index() {
     let mut b = sample_docs();
     b[1].chunks[0].push(0.0);
     match compare(&a, &b) {
-        Err(ShapeMismatch::Dim {
+        Err(CompareError::Shape(ShapeMismatch::Dim {
             doc,
             chunk,
             expected,
             actual,
-        }) => {
+        })) => {
             assert_eq!(doc, 1);
             assert_eq!(chunk, 0);
             assert_eq!(expected, 3);
@@ -124,10 +122,6 @@ fn default_tolerances_match_spec_nfr_001() {
     assert!((DEFAULT_MAX_ABS_DIFF - 1e-5).abs() < f32::EPSILON);
 }
 
-// Corrupt header: stream ends after `num_docs = 1` so reading the
-// first `num_chunks` u32 fails with `UnexpectedEof`. The previous
-// `as usize` cast read whatever the partial buffer happened to contain
-// and could trigger a multi-GB `Vec::with_capacity` on hostile input.
 #[test]
 fn load_rejects_truncated_header_after_num_docs() {
     let bytes = (1u32).to_le_bytes().to_vec();
@@ -143,6 +137,12 @@ fn load_rejects_doc_with_zero_chunks() {
 
     let err = load(&mut Cursor::new(&bytes)).expect_err("zero chunks must error");
     assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+    assert_eq!(
+        err.get_ref()
+            .unwrap()
+            .downcast_ref::<EmbeddingValidationError>(),
+        Some(&EmbeddingValidationError::EmptyChunks(EmptyChunksError))
+    );
     assert!(
         err.to_string().contains("at least one chunk"),
         "unexpected error: {err}"
@@ -169,22 +169,39 @@ fn load_rejects_invalid_vector_content() {
                 element: 0,
             },
         ),
+        (
+            vec![vec![f32::INFINITY]],
+            E::NonFiniteValue {
+                chunk: 0,
+                element: 0,
+            },
+        ),
+        (
+            vec![vec![f32::NEG_INFINITY]],
+            E::NonFiniteValue {
+                chunk: 0,
+                element: 0,
+            },
+        ),
     ];
     for (chunks, expected) in cases {
         // The legacy constructor and writer can represent invalid old fixtures.
         let doc = ChunkedEmbedding::try_new(chunks).unwrap();
         let mut bytes = Vec::new();
         save(&mut bytes, &[doc]).unwrap();
-        let err = load(&mut Cursor::new(bytes)).unwrap_err();
-        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
-        assert_eq!(err.get_ref().unwrap().downcast_ref::<E>(), Some(&expected));
+        // Invalid content must win over a later chunk's truncated payload.
+        let mut later_truncated = bytes.clone();
+        let count = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
+        later_truncated[4..8].copy_from_slice(&(count + 1).to_le_bytes());
+        later_truncated.extend_from_slice(&u32::MAX.to_le_bytes());
+        for input in [bytes, later_truncated] {
+            let err = load(&mut Cursor::new(input)).unwrap_err();
+            assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+            assert_eq!(err.get_ref().unwrap().downcast_ref::<E>(), Some(&expected));
+        }
     }
 }
 
-// Corrupt header: a chunk declares `dim` but the f32 payload is shorter
-// than `dim * 4` bytes, so `read_exact` fails with `UnexpectedEof` after
-// a small bounded allocation. Uses a small `dim` to avoid the 16 GiB
-// allocation that `dim = u32::MAX` would force on 64-bit hosts.
 #[test]
 fn load_rejects_chunk_with_truncated_payload() {
     let mut bytes = Vec::new();
@@ -197,8 +214,8 @@ fn load_rejects_chunk_with_truncated_payload() {
 }
 
 // 32-bit-only: `dim.checked_mul(4)` overflows `usize` on 32-bit targets
-// when `dim > usize::MAX / 4`. Gated to avoid the 16 GiB allocation that
-// would happen on 64-bit hosts before `read_exact` could return.
+// when `dim > usize::MAX / 4`. The architecture-independent hostile-header
+// test also rejects this payload on 64-bit without header-derived allocation.
 #[cfg(target_pointer_width = "32")]
 #[test]
 fn load_rejects_dim_times_4_overflow_on_32bit() {
@@ -210,7 +227,6 @@ fn load_rejects_dim_times_4_overflow_on_32bit() {
     assert_eq!(err.kind(), io::ErrorKind::InvalidData);
 }
 
-// T-105-004: save_load_round_trip_with_zero_docs_yields_empty_vec
 #[test]
 fn save_load_round_trip_with_zero_docs_yields_empty_vec() {
     let docs: Vec<ChunkedEmbedding> = Vec::new();
@@ -223,7 +239,6 @@ fn save_load_round_trip_with_zero_docs_yields_empty_vec() {
     );
 }
 
-// T-105-005: compare_returns_zero_diff_when_both_sides_empty
 #[test]
 fn compare_returns_zero_diff_when_both_sides_empty() {
     let diff = compare(&[], &[]).unwrap();
@@ -232,4 +247,202 @@ fn compare_returns_zero_diff_when_both_sides_empty() {
         diff.cosine_min, 1.0,
         "empty fixtures must report cosine=1.0 (vacuous match), not 0.0"
     );
+}
+
+fn conditions() -> GenerationConditions {
+    GenerationConditions {
+        producer: Producer::Rurico,
+        model: "synthetic".into(),
+        model_revision: "test-v1".into(),
+        tokenizer: "none: synthetic vectors".into(),
+        inputs: vec!["public A".into(), "public B".into()],
+        generation_code: "src/embed/fixtures/tests.rs".into(),
+        settings: "synthetic, no inference".into(),
+    }
+}
+
+#[test]
+fn versioned_save_byte_limit_is_checked_before_writing() {
+    let docs = sample_docs();
+    let metadata = conditions();
+    // Version header + JSON + legacy counts (2 docs, 3 chunks) + 9 f32 values.
+    let size = 12 + serde_json::to_vec(&metadata).unwrap().len() + 4 + 2 * 4 + 3 * 4 + 9 * 4;
+    let mut public_output = Vec::new();
+    save_versioned(&mut public_output, &docs, &metadata).unwrap();
+    assert_eq!(public_output.len(), size);
+
+    for limit in [size + 1, size] {
+        let mut output = Vec::new();
+        save_versioned_with_limit(&mut output, &docs, &metadata, limit).unwrap();
+        assert_eq!(output, public_output, "limit {limit}");
+    }
+
+    // A pre-existing prefix makes writes observable without assuming an empty writer.
+    let prefix = b"existing output";
+    let mut output = prefix.to_vec();
+    let result = save_versioned_with_limit(&mut output, &docs, &metadata, size - 1);
+    assert_eq!(output, prefix, "oversized fixture wrote to external writer");
+    let err = result.expect_err("oversized fixture must be rejected");
+    assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+    assert_eq!(err.to_string(), "fixture exceeds byte limit");
+}
+
+#[test]
+fn versioned_provenance_and_legacy_unknown_round_trip() {
+    let docs = sample_docs();
+    for producer in [Producer::Rurico, Producer::OfficialReference] {
+        let mut metadata = conditions();
+        metadata.producer = producer;
+        let mut bytes = Vec::new();
+        save_versioned(&mut bytes, &docs, &metadata).unwrap();
+        let fixture = load_fixture(&mut Cursor::new(&bytes), bytes.len()).unwrap();
+        assert_eq!(fixture.generation, Some(metadata));
+        assert_eq!(compare(&docs, &fixture.docs).unwrap().max_abs_diff, 0.0);
+        assert!(load_fixture(&mut Cursor::new(&bytes), bytes.len() - 1).is_err());
+        for end in 0..bytes.len() {
+            assert!(
+                load(&mut Cursor::new(&bytes[..end])).is_err(),
+                "truncation {end}"
+            );
+        }
+        let mut trailing = bytes.clone();
+        trailing.push(0);
+        assert!(
+            load(&mut Cursor::new(trailing))
+                .unwrap_err()
+                .to_string()
+                .contains("trailing")
+        );
+    }
+    let mut bytes = Vec::new();
+    save(&mut bytes, &docs).unwrap();
+    assert!(
+        load_fixture(&mut Cursor::new(&bytes), bytes.len())
+            .unwrap()
+            .generation
+            .is_none()
+    );
+    bytes.push(0);
+    assert!(
+        load(&mut Cursor::new(bytes))
+            .unwrap_err()
+            .to_string()
+            .contains("trailing")
+    );
+}
+
+#[test]
+fn tiny_hostile_headers_and_metadata_fail_without_header_allocation() {
+    for words in [
+        vec![u32::MAX - 1],
+        vec![1, u32::MAX],
+        vec![1, 1, u32::MAX],
+        vec![MAGIC, 2],
+        vec![MAGIC, 1, u32::MAX],
+        vec![MAGIC, 1, 1, 0],
+    ] {
+        let bytes: Vec<u8> = words.iter().flat_map(|v| v.to_le_bytes()).collect();
+        assert!(load(&mut Cursor::new(bytes)).is_err());
+    }
+    let mut metadata = conditions();
+    metadata.model_revision.clear();
+    let mut output = Vec::new();
+    assert!(save_versioned(&mut output, &sample_docs(), &metadata).is_err());
+    assert!(output.is_empty());
+    metadata = conditions();
+    metadata.inputs.pop();
+    assert!(save_versioned(&mut output, &sample_docs(), &metadata).is_err());
+    // Also reject invalid metadata from a reader, rather than trusting the writer.
+    let json = serde_json::to_vec(&metadata).unwrap();
+    let mut bytes = Vec::new();
+    for value in [MAGIC, 1, u32::try_from(json.len()).unwrap()] {
+        bytes.extend(value.to_le_bytes());
+    }
+    bytes.extend(json);
+    save(&mut bytes, &sample_docs()).unwrap();
+    assert!(load(&mut Cursor::new(bytes)).is_err());
+}
+
+#[test]
+fn compare_rejects_legacy_invalid_content_on_either_side() {
+    let mut cases = vec![vec![vec![]], vec![vec![1.0], vec![1.0, 2.0]]];
+    for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+        cases.push(vec![vec![value]]);
+    }
+    for chunks in cases {
+        let invalid = vec![ChunkedEmbedding::try_new(chunks).unwrap()];
+        for (expected, actual, side) in [
+            (&invalid, &invalid, FixtureSide::Expected),
+            (&sample_docs(), &invalid, FixtureSide::Actual),
+        ] {
+            assert!(
+                matches!(compare(expected, actual), Err(CompareError::InvalidContent { side: got, doc: 0, .. }) if got == side)
+            );
+        }
+        let mut bytes = Vec::new();
+        assert!(
+            save_versioned(
+                &mut bytes,
+                &invalid,
+                &GenerationConditions {
+                    inputs: vec!["public".into()],
+                    ..conditions()
+                }
+            )
+            .is_err()
+        );
+        assert!(bytes.is_empty());
+    }
+}
+
+#[test]
+fn compare_large_finite_vectors_does_not_hide_overflow() {
+    let a = vec![ChunkedEmbedding::try_new(vec![vec![f32::MAX, f32::MAX]]).unwrap()];
+    let equal = compare(&a, &a).unwrap();
+    assert_eq!(equal.cosine_min, 1.0);
+    assert_eq!(equal.max_abs_diff, 0.0);
+    let orthogonal = vec![ChunkedEmbedding::try_new(vec![vec![f32::MAX, -f32::MAX]]).unwrap()];
+    assert!(matches!(
+        compare(&a, &orthogonal),
+        Err(CompareError::NonFiniteMetric { doc: 0, chunk: 0 })
+    ));
+    let smaller = vec![ChunkedEmbedding::try_new(vec![vec![f32::MAX, 0.0]]).unwrap()];
+    let diff = compare(&a, &smaller).unwrap();
+    assert!((diff.cosine_min - 1.0 / 2.0f32.sqrt()).abs() < 1e-6);
+    assert_eq!(diff.max_abs_diff, f32::MAX);
+}
+
+#[test]
+fn committed_legacy_workloads_remain_readable() {
+    for bytes in [
+        include_bytes!("../../../tests/fixtures/phase2_baseline/w1.bin").as_slice(),
+        include_bytes!("../../../tests/fixtures/phase2_baseline/w2.bin").as_slice(),
+        include_bytes!("../../../tests/fixtures/phase2_baseline/w3.bin").as_slice(),
+    ] {
+        let fixture = load_fixture(&mut Cursor::new(bytes), DEFAULT_MAX_BYTES).unwrap();
+        assert!(fixture.generation.is_none());
+        assert!(!fixture.docs.is_empty());
+        assert_eq!(
+            compare(&fixture.docs, &fixture.docs).unwrap().max_abs_diff,
+            0.0
+        );
+    }
+}
+
+#[test]
+fn public_reproduction_fixtures_are_accepted_or_rejected_as_documented() {
+    for bytes in [
+        include_bytes!("../../../tests/fixtures/embedding_format/legacy.bin").as_slice(),
+        include_bytes!("../../../tests/fixtures/embedding_format/v1.bin").as_slice(),
+    ] {
+        let fixture = load_fixture(&mut Cursor::new(bytes), DEFAULT_MAX_BYTES).unwrap();
+        assert_eq!(fixture.docs[0].chunks()[0], [1.0, 0.0]);
+    }
+    for bytes in [
+        include_bytes!("../../../tests/fixtures/embedding_format/hostile-dim.bin").as_slice(),
+        include_bytes!("../../../tests/fixtures/embedding_format/nonfinite.bin").as_slice(),
+        include_bytes!("../../../tests/fixtures/embedding_format/trailing.bin").as_slice(),
+    ] {
+        assert!(load(&mut Cursor::new(bytes)).is_err());
+    }
 }

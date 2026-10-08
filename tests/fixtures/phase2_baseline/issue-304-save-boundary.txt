@@ -1,0 +1,38 @@
+normal
+
+running 1 test
+test embed::fixtures::tests::versioned_save_byte_limit_is_checked_before_writing ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 383 filtered out; finished in 0.00s
+
+
+mutant
+
+running 1 test
+test embed::fixtures::tests::versioned_save_byte_limit_is_checked_before_writing ... FAILED
+
+failures:
+
+---- embed::fixtures::tests::versioned_save_byte_limit_is_checked_before_writing stdout ----
+
+thread 'embed::fixtures::tests::versioned_save_byte_limit_is_checked_before_writing' (17554878) panicked at src/embed/fixtures/tests.rs:284:5:
+assertion `left == right` failed: oversized fixture wrote to external writer
+  left: [101, 120, 105, 115, 116, 105, 110, 103, 32, 111, 117, 116, 112, 117, 116, 255, 255, 255, 255, 1, 0, 0, 0, 224, 0, 0, 0, 123, 34, 112, 114, 111, 100, 117, 99, 101, 114, 34, 58, 34, 114, 117, 114, 105, 99, 111, 34, 44, 34, 109, 111, 100, 101, 108, 34, 58, 34, 115, 121, 110, 116, 104, 101, 116, 105, 99, 34, 44, 34, 109, 111, 100, 101, 108, 95, 114, 101, 118, 105, 115, 105, 111, 110, 34, 58, 34, 116, 101, 115, 116, 45, 118, 49, 34, 44, 34, 116, 111, 107, 101, 110, 105, 122, 101, 114, 34, 58, 34, 110, 111, 110, 101, 58, 32, 115, 121, 110, 116, 104, 101, 116, 105, 99, 32, 118, 101, 99, 116, 111, 114, 115, 34, 44, 34, 105, 110, 112, 117, 116, 115, 34, 58, 91, 34, 112, 117, 98, 108, 105, 99, 32, 65, 34, 44, 34, 112, 117, 98, 108, 105, 99, 32, 66, 34, 93, 44, 34, 103, 101, 110, 101, 114, 97, 116, 105, 111, 110, 95, 99, 111, 100, 101, 34, 58, 34, 115, 114, 99, 47, 101, 109, 98, 101, 100, 47, 102, 105, 120, 116, 117, 114, 101, 115, 47, 116, 101, 115, 116, 115, 46, 114, 115, 34, 44, 34, 115, 101, 116, 116, 105, 110, 103, 115, 34, 58, 34, 115, 121, 110, 116, 104, 101, 116, 105, 99, 44, 32, 110, 111, 32, 105, 110, 102, 101, 114, 101, 110, 99, 101, 34, 125, 2, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 205, 204, 204, 61, 205, 204, 76, 62, 154, 153, 153, 62, 3, 0, 0, 0, 205, 204, 204, 62, 0, 0, 0, 63, 154, 153, 25, 63, 1, 0, 0, 0, 3, 0, 0, 0, 51, 51, 51, 191, 205, 204, 76, 63, 102, 102, 102, 63]
+ right: [101, 120, 105, 115, 116, 105, 110, 103, 32, 111, 117, 116, 112, 117, 116]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    embed::fixtures::tests::versioned_save_byte_limit_is_checked_before_writing
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 383 filtered out; finished in 0.00s
+
+
+restored
+
+running 1 test
+test embed::fixtures::tests::versioned_save_byte_limit_is_checked_before_writing ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 383 filtered out; finished in 0.00s
+
+

@@ -1,0 +1,56 @@
+{
+  "producer_start": "6b5a3855f35120c39423a1a49c656f5b58c98ee3",
+  "main": "56f412c8401d6a3b501d7effb0aff18df1f344e5",
+  "fixed_consumer": "547f9ee2ed734a2eab316fdbd62f194849875ee4",
+  "producer_path_verified": true,
+  "consumer_product_sources_unchanged": true,
+  "root_lock_sha256": "743d754ae4fb6f0f44d169feab408a1b80caa50d17c38b058ec156c66811bf30",
+  "consumer_lock_sha256": "cb132c818a1f7d4ca9434219c227f7a4e7e2656161b501c514e98eab7a551836",
+  "consumer_lock_equal_previous": true,
+  "resolved_packages_equal_previous": true,
+  "consumer_dependencies": {
+    "mlx-rs": "0.32.0",
+    "mlx-sys": "0.6.0",
+    "rusqlite": "0.40.1",
+    "sqlite-vec": "0.1.9",
+    "tokenizers": "0.23.1"
+  },
+  "sqlite_version": "3.53.2",
+  "tests_passed": 14,
+  "zero_tests_not_accepted": true,
+  "observations": {
+    "fixture": 26,
+    "quotes": 4,
+    "group": 2,
+    "all_equal_previous_record": true,
+    "quality_scope": "Synthetic public relevance intents only; no real-model/newplan/generalconsumer acceptance."
+  },
+  "binary_sha256": "0f3d97835d1d8623c1015ba57ca066703934d127115fe731a7b580ac6a8bc346",
+  "source_sha256": {
+    "src/storage/search.rs": "3541d1c05733a7df19b962345ee53e7bd6d45bf5b9e25d75d127cc73f7ce30c9",
+    "src/storage/search/tests.rs": "999c32da8de21863c24f1524d5252ac6aaea02f00be6108590df0f094b193b41",
+    "src/storage/query_normalize.rs": "7cbd526169b6627fb29807a448018883dae6fb7f425603ecd034b792503a7075",
+    "src/storage/query_normalize/tests.rs": "9797945573c32e3fc00b59884a6375f88ccb1d9169ae39297da356e907750a82",
+    "docs/research/issue-314/cases.json": "e8632e9573ae8098eae6326d81129ef56c44732a6f48ed90a505d6069ff73bdb"
+  },
+  "commands": [
+    {
+      "name": "metadata",
+      "exit_code": 0,
+      "seconds_including_build": 0.48168187495321035
+    },
+    {
+      "name": "fts_suite",
+      "exit_code": 0,
+      "seconds_including_build": 16.07191562501248
+    }
+  ],
+  "raw_logs_sha256": {
+    "fts_suite.stdout": "4e0bfbec52bd0169e3cd38d1b4e3096c85c8f6c6dac3b61e77d4a111c8280f16",
+    "fts_suite.stderr": "eb47b86000622e3d934308922985087c017ad938c9644c8ff3d42e08bc703cea",
+    "observations.json": "c57635a886c27040bcae1218c97b894ff92ffd2e78f95f78689910bc90764faf",
+    "metadata.stdout": "15b4807633c106a42721dd93bf72f273ed00a143742f4baede1519e1ef2f0af5"
+  },
+  "patch_composition": "Each EOF-addition patch applied independently to original fixed tests, original prefix verified unchanged, then addedblocks concatenated; sequential git apply rejected secondpatch and did not start Cargo in that failed setup. Public historical patches unchanged.",
+  "scope": "Fresh native model-free consumer test suite connected by Cargo path patch to current integrated producer. Not performance improvement, no GPU/model, no consumer production migration."
+}

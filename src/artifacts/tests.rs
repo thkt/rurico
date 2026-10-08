@@ -27,7 +27,7 @@ fn verify_as_embed_returns_missing_file_for_absent_model() {
     let dir = tempfile::tempdir().unwrap();
     fs::write(dir.path().join("config.json"), b"{}").unwrap();
     fs::write(dir.path().join("tokenizer.json"), b"{}").unwrap();
-    let paths = ModelPaths::from_dir(dir.path()); // model.safetensors does not exist
+    let paths = ModelPaths::from_dir(dir.path());
     let err = verify_as_embed(paths).unwrap_err();
     assert!(
         matches!(err, ArtifactError::MissingFile { ref path } if path.ends_with("model.safetensors")),
@@ -71,44 +71,71 @@ fn verify_as_embed_returns_invalid_config_for_zero_hidden_size() {
     );
 }
 
-#[test]
-fn verify_embed_kind_rejects_reranker_keys() {
-    let dir = tempfile::tempdir().unwrap();
-    write_fake_safetensors(
-        &dir.path().join("model.safetensors"),
-        &["classifier.weight", "head.dense.weight", "head.norm.weight"],
-    );
-    let paths = ModelPaths::from_dir(dir.path());
-    let err = verify_embed_kind(&paths).unwrap_err();
-    assert!(
-        matches!(
-            err,
-            ArtifactError::WrongModelKind {
-                expected: "embed model",
-                ..
-            }
-        ),
-        "{err}"
-    );
+// Independent of RERANKER_KEY_PREFIXES: removing a production prefix must not
+// also remove its test case. These fixtures certify kind signatures, not the
+// complete config-derived tensor schema checked by the weight loaders.
+const HEAD_KEYS: [(&str, &str); 3] = [
+    ("classifier.", "classifier.weight"),
+    ("head.dense.", "head.dense.weight"),
+    ("head.norm.", "head.norm.weight"),
+];
+
+fn assert_kind_rejection(err: ArtifactError, expected_kind: &str, reason: &str, prefix: &str) {
+    match err {
+        ArtifactError::WrongModelKind {
+            expected,
+            keys_hint,
+        } => {
+            assert_eq!(expected, expected_kind);
+            assert!(
+                keys_hint.contains(reason) && keys_hint.contains(&format!("'{prefix}'")),
+                "expected {reason} for {prefix}, got: {keys_hint}"
+            );
+        }
+        other => panic!("expected {expected_kind} rejection for {prefix}, got: {other}"),
+    }
 }
 
 #[test]
-fn verify_reranker_kind_rejects_missing_classifier_key() {
-    let dir = tempfile::tempdir().unwrap();
-    // embed-only keys — no classifier/head
-    write_fake_safetensors(&dir.path().join("model.safetensors"), &[FAKE_BACKBONE_KEY]);
-    let paths = ModelPaths::from_dir(dir.path());
-    let err = verify_reranker_kind(&paths).unwrap_err();
-    assert!(
-        matches!(
-            err,
-            ArtifactError::WrongModelKind {
-                expected: "reranker model",
-                ..
-            }
-        ),
-        "{err}"
-    );
+fn verify_embed_kind_rejects_each_head_prefix() {
+    for (prefix, key) in HEAD_KEYS {
+        let dir = tempfile::tempdir().unwrap();
+        write_fake_safetensors(
+            &dir.path().join("model.safetensors"),
+            &[FAKE_BACKBONE_KEY, key],
+        );
+        let paths = ModelPaths::from_dir(dir.path());
+        assert_kind_rejection(
+            verify_embed_kind(&paths)
+                .expect_err(&format!("embed must reject forbidden prefix {prefix}")),
+            "embed model",
+            "found reranker key",
+            prefix,
+        );
+    }
+}
+
+#[test]
+fn verify_reranker_kind_rejects_each_missing_head_prefix() {
+    for (missing_prefix, missing_key) in HEAD_KEYS {
+        let dir = tempfile::tempdir().unwrap();
+        let mut keys = vec![FAKE_BACKBONE_KEY];
+        keys.extend(
+            HEAD_KEYS
+                .iter()
+                .filter_map(|&(_, key)| (key != missing_key).then_some(key)),
+        );
+        write_fake_safetensors(&dir.path().join("model.safetensors"), &keys);
+        let paths = ModelPaths::from_dir(dir.path());
+        assert_kind_rejection(
+            verify_reranker_kind(&paths).expect_err(&format!(
+                "reranker must reject missing prefix {missing_prefix}"
+            )),
+            "reranker model",
+            "missing required key",
+            missing_prefix,
+        );
+    }
 }
 
 #[test]
@@ -134,8 +161,6 @@ fn verify_reranker_kind_accepts_model_with_all_required_keys() {
     let paths = ModelPaths::from_dir(dir.path());
     assert!(verify_reranker_kind(&paths).is_ok());
 }
-
-// ── From<ModelIoError> unit tests ──────────────────────────────────────
 
 #[test]
 fn from_model_io_error_maps_config_variant() {
@@ -166,8 +191,6 @@ fn from_model_io_error_maps_download_variant() {
         "{err}"
     );
 }
-
-// ── TC-001/TC-002: safetensors error path tests ─────────────────────────
 
 #[test]
 fn read_safetensors_keys_errors_on_oversized_header() {
@@ -201,8 +224,6 @@ fn read_safetensors_keys_errors_on_invalid_json_header() {
     );
 }
 
-// ── TC-002 / TC-003: verify_as_embed / verify_as_reranker happy-path ────
-
 use crate::test_support::{MINIMAL_TOKENIZER_JSON, VALID_CONFIG_JSON};
 
 fn write_valid_config(dir: &Path) {
@@ -233,21 +254,22 @@ fn verify_as_embed_succeeds_with_valid_embed_artifacts() {
 #[test]
 fn verify_as_embed_rejects_unrelated_safetensors() {
     let dir = tempfile::tempdir().unwrap();
-    // No "layers." prefix keys — should fail the positive check.
     write_fake_safetensors(&dir.path().join("model.safetensors"), &["foo.weight"]);
     write_valid_config(dir.path());
     write_valid_tokenizer(dir.path());
     let paths = ModelPaths::from_dir(dir.path());
+    let err = verify_as_embed(paths).unwrap_err();
     assert!(
-        verify_as_embed(paths).is_err(),
-        "verify_as_embed should reject unrelated safetensors"
+        matches!(err, ArtifactError::WrongModelKind {
+            expected: "embed model", ref keys_hint,
+        } if keys_hint.contains("missing required key with any of prefixes")),
+        "expected missing backbone rejection, got: {err}"
     );
 }
 
 #[test]
 fn verify_as_reranker_succeeds_with_valid_reranker_artifacts() {
     let dir = tempfile::tempdir().unwrap();
-    // Realistic key set: backbone + classifier/head (both required).
     write_fake_safetensors(
         &dir.path().join("model.safetensors"),
         &[
@@ -269,7 +291,6 @@ fn verify_as_reranker_succeeds_with_valid_reranker_artifacts() {
 #[test]
 fn verify_as_reranker_rejects_classifier_only_safetensors() {
     let dir = tempfile::tempdir().unwrap();
-    // Classifier/head keys present but backbone absent — should fail positive backbone check.
     write_fake_safetensors(
         &dir.path().join("model.safetensors"),
         &["classifier.weight", "head.dense.weight", "head.norm.weight"],
@@ -277,9 +298,12 @@ fn verify_as_reranker_rejects_classifier_only_safetensors() {
     write_valid_config(dir.path());
     write_valid_tokenizer(dir.path());
     let paths = ModelPaths::from_dir(dir.path());
+    let err = verify_as_reranker(paths).unwrap_err();
     assert!(
-        verify_as_reranker(paths).is_err(),
-        "verify_as_reranker should reject safetensors without backbone keys"
+        matches!(err, ArtifactError::WrongModelKind {
+            expected: "reranker model", ref keys_hint,
+        } if keys_hint.contains("missing required key with any of prefixes")),
+        "expected missing backbone rejection, got: {err}"
     );
 }
 
@@ -307,8 +331,6 @@ fn verify_as_reranker_succeeds_with_hf_wrapped_backbone() {
     );
 }
 
-// ── delete_files tests ───────────────────────────────────────────────
-
 #[test]
 fn delete_files_removes_all_three_artifact_files() {
     let dir = tempfile::tempdir().unwrap();
@@ -334,18 +356,12 @@ fn delete_files_returns_error_when_file_already_removed() {
     let paths = ModelPaths::from_dir(dir.path());
     let artifacts = verify_as_embed(paths).unwrap();
 
-    // Pre-remove model so delete_files hits a missing-file error
     fs::remove_file(dir.path().join("model.safetensors")).unwrap();
 
     assert!(artifacts.delete_files().is_err());
 }
 
-// T-105-011: delete_files_continues_after_first_failure
-//
-// The continues-on-error contract documented on `delete_files`: when the
-// first file is already absent, the remaining files MUST still be
-// attempted (and removed) so a re-download from a fresh cache cannot be
-// blocked by a half-cleaned directory.
+// Continue after a missing file so cache cleanup cannot remain partial.
 #[test]
 fn delete_files_continues_after_first_failure() {
     let dir = tempfile::tempdir().unwrap();
@@ -355,8 +371,6 @@ fn delete_files_continues_after_first_failure() {
     let paths = ModelPaths::from_dir(dir.path());
     let artifacts = verify_as_embed(paths).unwrap();
 
-    // Pre-remove model so delete_files hits an error on the first file
-    // and must continue with the remaining two.
     fs::remove_file(dir.path().join("model.safetensors")).unwrap();
 
     let err = artifacts
@@ -374,11 +388,8 @@ fn delete_files_continues_after_first_failure() {
     );
 }
 
-// ── CandidateArtifacts<K> verify dispatch ───────────────────────────────
-
 use crate::artifacts::CandidateArtifacts;
 
-// T-001: CandidateArtifacts<EmbedKind>::verify happy path
 #[test]
 fn candidate_verify_embed_kind_succeeds_with_valid_artifacts() {
     let dir = tempfile::tempdir().unwrap();
@@ -395,7 +406,6 @@ fn candidate_verify_embed_kind_succeeds_with_valid_artifacts() {
     );
 }
 
-// T-002: CandidateArtifacts<RerankerKind>::verify happy path
 #[test]
 fn candidate_verify_reranker_kind_succeeds_with_valid_artifacts() {
     let dir = tempfile::tempdir().unwrap();
@@ -420,55 +430,69 @@ fn candidate_verify_reranker_kind_succeeds_with_valid_artifacts() {
     );
 }
 
-// T-003: CandidateArtifacts<EmbedKind>::verify rejects reranker weights
-//        → ArtifactError::WrongModelKind { expected: "embed model", .. }
+// The public verify dispatch must preserve the helper's kind rejection after
+// successful file/config/tokenizer checks, without attempting a weight load.
 #[test]
-fn candidate_verify_embed_kind_rejects_reranker_weights() {
-    let dir = tempfile::tempdir().unwrap();
-    // Reranker classifier/head keys without backbone — a reranker-shaped
-    // weights file passed to the embed-kind verifier.
-    write_fake_safetensors(
-        &dir.path().join("model.safetensors"),
-        &["classifier.weight", "head.dense.weight", "head.norm.weight"],
-    );
-    write_valid_config(dir.path());
-    write_valid_tokenizer(dir.path());
+fn candidate_verify_embed_kind_rejects_each_head_prefix() {
+    for (prefix, key) in HEAD_KEYS {
+        let dir = tempfile::tempdir().unwrap();
+        write_fake_safetensors(
+            &dir.path().join("model.safetensors"),
+            &[FAKE_BACKBONE_KEY, key],
+        );
+        write_valid_config(dir.path());
+        write_valid_tokenizer(dir.path());
 
-    let candidate: CandidateArtifacts<EmbedKind> = CandidateArtifacts::from_dir(dir.path());
-    let err = candidate.verify().unwrap_err();
-    assert!(
-        matches!(
-            err,
-            ArtifactError::WrongModelKind {
-                expected: "embed model",
-                ..
-            }
-        ),
-        "expected WrongModelKind {{ expected: \"embed model\", .. }}, got: {err}"
-    );
+        let candidate: CandidateArtifacts<EmbedKind> = CandidateArtifacts::from_dir(dir.path());
+        assert_kind_rejection(
+            candidate.verify().expect_err(&format!(
+                "embed candidate must reject forbidden prefix {prefix}"
+            )),
+            "embed model",
+            "found reranker key",
+            prefix,
+        );
+    }
 }
 
-// T-004: CandidateArtifacts<RerankerKind>::verify rejects backbone-only weights
-//        → ArtifactError::WrongModelKind { expected: "reranker model", .. }
+#[test]
+fn candidate_verify_reranker_kind_rejects_each_missing_head_prefix() {
+    for (missing_prefix, missing_key) in HEAD_KEYS {
+        let dir = tempfile::tempdir().unwrap();
+        let mut keys = vec![FAKE_BACKBONE_KEY];
+        keys.extend(
+            HEAD_KEYS
+                .iter()
+                .filter_map(|&(_, key)| (key != missing_key).then_some(key)),
+        );
+        write_fake_safetensors(&dir.path().join("model.safetensors"), &keys);
+        write_valid_config(dir.path());
+        write_valid_tokenizer(dir.path());
+
+        let candidate: CandidateArtifacts<RerankerKind> = CandidateArtifacts::from_dir(dir.path());
+        assert_kind_rejection(
+            candidate.verify().expect_err(&format!(
+                "reranker candidate must reject missing prefix {missing_prefix}"
+            )),
+            "reranker model",
+            "missing required key",
+            missing_prefix,
+        );
+    }
+}
+
 #[test]
 fn candidate_verify_reranker_kind_rejects_backbone_only_weights() {
     let dir = tempfile::tempdir().unwrap();
-    // Backbone-only — an embed-shaped weights file passed to the
-    // reranker-kind verifier.
     write_fake_safetensors(&dir.path().join("model.safetensors"), &[FAKE_BACKBONE_KEY]);
     write_valid_config(dir.path());
     write_valid_tokenizer(dir.path());
 
     let candidate: CandidateArtifacts<RerankerKind> = CandidateArtifacts::from_dir(dir.path());
-    let err = candidate.verify().unwrap_err();
-    assert!(
-        matches!(
-            err,
-            ArtifactError::WrongModelKind {
-                expected: "reranker model",
-                ..
-            }
-        ),
-        "expected WrongModelKind {{ expected: \"reranker model\", .. }}, got: {err}"
+    assert_kind_rejection(
+        candidate.verify().unwrap_err(),
+        "reranker model",
+        "missing required key",
+        "classifier.",
     );
 }

@@ -6,7 +6,13 @@ fn run(text: &str) -> String {
 
 #[test]
 fn pre_phase_5_disabled_matches_disabled() {
-    assert_eq!(pre_phase_5_disabled(), QueryNormalizationConfig::disabled());
+    let expected = QueryNormalizationConfig {
+        nfkc: false,
+        ascii_lowercase: false,
+        collapse_whitespace: false,
+    };
+    assert_eq!(pre_phase_5_disabled(), expected);
+    assert_eq!(QueryNormalizationConfig::disabled(), expected);
 }
 
 #[test]
@@ -31,8 +37,7 @@ fn hiragana_unchanged() {
 
 #[test]
 fn katakana_unchanged() {
-    // NFKC does not map Hiragana ↔ Katakana — only halfwidth katakana
-    // (`ｱ` = U+FF71) folds to fullwidth katakana (`ア` = U+30A2).
+    // NFKC folds halfwidth katakana but does not map Hiragana ↔ Katakana.
     assert_eq!(run("カタカナ"), "カタカナ");
 }
 
@@ -43,7 +48,6 @@ fn halfwidth_katakana_to_fullwidth() {
 
 #[test]
 fn ideographic_space_collapsed() {
-    // U+3000 (ideographic space) NFKC-folds to U+0020, then collapses.
     assert_eq!(run("foo　bar"), "foo bar");
 }
 
@@ -106,6 +110,20 @@ fn nfkc_only_skips_lowercase_and_whitespace() {
     };
     assert_eq!(normalize_for_fts("ＡＢＣ", &config), "ABC");
     assert_eq!(normalize_for_fts("foo  bar", &config), "foo  bar");
+    // Maybe inputs can compose, reorder, or already be normalized. Byte
+    // prefixes include multibyte characters; expectations are literal.
+    for (input, expected, borrowed) in [
+        ("日本語 e\u{301}", "日本語 é", false),
+        ("e\u{301}x", "éx", false),
+        ("x\u{301}\u{327}", "x\u{327}\u{301}", false),
+        ("x\u{301}", "x\u{301}", true),
+        ("é\u{301}", "é\u{301}", true),
+    ] {
+        let actual = normalize_for_fts_cow(input, &config);
+        assert_eq!(actual, expected);
+        assert_eq!(matches!(actual, Cow::Borrowed(_)), borrowed);
+        assert_eq!(normalize_for_fts(input, &config), expected);
+    }
 }
 
 #[test]
@@ -126,7 +144,24 @@ fn whitespace_only_skips_nfkc_and_lowercase() {
         ascii_lowercase: false,
         collapse_whitespace: true,
     };
-    assert_eq!(normalize_for_fts("  React   App  ", &config), "React App");
+    // Fixed expectations also pin borrowing and equal words at different
+    // positions: only the exact canonical separator may keep the input.
+    for (input, expected, borrowed) in [
+        ("", "", true),
+        ("日本語", "日本語", true),
+        ("React App", "React App", true),
+        ("a a", "a a", true),
+        ("a  a", "a a", false),
+        ("  React   App  ", "React App", false),
+        ("日本語\u{2003}日本語", "日本語 日本語", false),
+        ("日本語 ", "日本語", false),
+        (" \t\n　", "", false),
+    ] {
+        let actual = normalize_for_fts_cow(input, &config);
+        assert_eq!(actual, expected);
+        assert_eq!(matches!(actual, Cow::Borrowed(_)), borrowed);
+        assert_eq!(normalize_for_fts(input, &config), expected);
+    }
 }
 
 #[test]
@@ -139,6 +174,31 @@ fn config_round_trips_through_serde() {
 
 #[test]
 fn fullwidth_punctuation_folds_under_nfkc() {
-    // Fullwidth `！` (U+FF01) NFKC-folds to ASCII `!` (U+0021).
     assert_eq!(run("hello！"), "hello!");
+}
+
+#[test]
+fn mixed_symbols_and_unicode_preserve_each_configuration() {
+    // Literal expectations pin composition, ASCII-only case, Unicode spaces,
+    // and punctuation independently of the implementation's transformations.
+    let expected = [
+        "  Ａ e\u{301}\u{2003}B%_\\  ",
+        "Ａ e\u{301} B%_\\",
+        "  Ａ e\u{301}\u{2003}b%_\\  ",
+        "Ａ e\u{301} b%_\\",
+        "  A é B%_\\  ",
+        "A é B%_\\",
+        "  a é b%_\\  ",
+        "a é b%_\\",
+    ];
+    for (bits, expected) in expected.into_iter().enumerate() {
+        let config = QueryNormalizationConfig {
+            nfkc: bits & 4 != 0,
+            ascii_lowercase: bits & 2 != 0,
+            collapse_whitespace: bits & 1 != 0,
+        };
+        let actual = normalize_for_fts("  Ａ e\u{301}\u{2003}B%_\\  ", &config);
+        assert_eq!(actual, expected, "{config:?}");
+        assert_eq!(normalize_for_fts(&actual, &config), actual);
+    }
 }

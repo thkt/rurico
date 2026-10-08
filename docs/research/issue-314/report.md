@@ -2,8 +2,9 @@
 
 既存の文字列APIを保ち、明示的な入力型からliteral・phrase・展開groupを組み立てる追加APIを推奨する。
 入力の引用符やORを自動で検索言語へ昇格させない。今回の調査は製品採用ではない。
-amici固定版のparser本文と既存round-trip、合成入力26観測はホスト証拠で確認した。
-これは旧wireの観測した範囲に限る。内部引用符のnative実測でもliteral欠落を確認した。新APIや全consumerの互換性は保証しない。
+公開head `6b5a3855f35120c39423a1a49c656f5b58c98ee3`までの固定amici観測は歴史証拠として残す。
+最新mainとの統合版では製品search・normalizerのCPU限定検証と、固定consumerのnative FTS suiteを再実行した。
+内部引用符・group終端の欠陥を含む旧観測から、新APIや全consumerの互換性は保証しない。
 
 合成phrase例は、現行経路でunicode61が2件、trigramが0件、明示phraseなら両方1件だった。
 25件上限は両tokenizerで61文書中50件を返し、同頻度の語と稀な語に11件の取りこぼしが残った。
@@ -12,10 +13,12 @@ amici固定版のparser本文と既存round-trip、合成入力26観測はホス
 ## 根拠の版と適用範囲
 
 要求と合意の正本は[Issue #314](https://github.com/thkt/rurico/issues/314)（提供本文の更新時刻2026-10-07T17:05:41Z）。
-開始commitは`24725a72be44300afc24186b82b14bcb3f5f9d3d`で、ローカル`origin/main`も同じだった。
-ネットワーク経由の最新main取得はできていない。ホストが準備した開始版を対象にし、別版へ黙って切り替えない。
+初回調査の開始commitは`24725a72be44300afc24186b82b14bcb3f5f9d3d`。当時の追加main取得は通信制約で未完了だった。
+競合修正は公開head `6b5a3855f35120c39423a1a49c656f5b58c98ee3`から始め、ホスト取得済みmain
+`56f412c8401d6a3b501d7effb0aff18df1f344e5`（#377 merge）と三者統合した。共通祖先は初回調査の開始commit。
 Cargo.lockのGit blobは`ead843554d0d5f2019f6f15b29a12c02100fdbab`、
-SHA-256は`743d754ae4fb6f0f44d169feab408a1b80caa50d17c38b058ec156c66811bf30`。変更していない。
+SHA-256は`743d754ae4fb6f0f44d169feab408a1b80caa50d17c38b058ec156c66811bf30`。最新main・統合版も同じlockだった。
+upstreamの製品改善、検証、文書、依存定義を取り込み、#314から依存版を変更していない。
 
 | 出典と版 | 状態・適用する判断 |
 | --- | --- |
@@ -45,7 +48,7 @@ READMEの[FTS説明](../../../README.md#fts-クエリパイプライン)、CONTR
 precisionはTP/(TP+FP)、recallはTP/(TP+FN)。分母0はnullにし、空結果をprecision=1としない。
 順位や実モデルのRecall@kは測っていない。
 
-以下の「現行」は現在のSQLとfixtureのlegacy tokenを参照例で実行した結果。
+以下の「現行」は初回調査のSQLとfixtureのlegacy tokenによる観測。最新main統合後も参照例のwire・hit・品質は一致した。
 参照例のvocab不在modeはlookupを省いてliteral fallbackを実MATCHする。SQLiteのmissing-table例外自体は
 追加Rust群が実際に存在しない表名で確認し、既存のSQLite障害テストも維持する。
 製品の公開入口との照合は追加したRustテストが標準checkで実行する。
@@ -193,63 +196,84 @@ unigramの位置phraseや原文post-filterは混入を減らす候補だが、�
 
 ## 検証の価値と未確認範囲
 
-既存の引用・operator・日本語展開・正規化・SQLite障害の検証を維持した。
-追加Rust一群は共有fixtureからphraseの誤認、上限境界の稀語欠落、短語のLIKE escape脱落を製品入口で照合する。
-同頻度の現行順序を固定するassertionは置かず、選択数と稀語除外を確認する。
-既存が既に守るoperator literal等は研究測定では比較するが、新しいRust群で重複実行しない。
+既存の引用・operator literal・日本語展開・正規化・SQLite障害の検証を再利用した。
+共有fixtureとのRust照合はphraseの誤認、25候補境界の稀語欠落、vocab不在時の取りこぼしを製品入口で確認する。
+同頻度の順序は現行契約にないため固定せず、25候補・50 hit・稀語除外だけを確認する。
 
-Pythonの二群は、新serializer/adapterでのphraseの無断downgrade、quote/groupの崩れ、
-lookaheadの境界誤判定、tie keyの脱落、fallback原因の混同、非missing障害の隠蔽を防ぐ。
-モデル・network・時間閾値を使わず、二群のunittestは0.001秒で成功した。
-研究runnerも68件のwire/hit観測と3構成の書込み比較を完了した。68件は独立反復数ではない。
-既存テストの削除や意味変更はなく、失う既存検出条件はない。
-Rust一群は上記ホストログで0.032秒。長期保守費用は未測定。新しい公開APIの製品検証は追加していない。
-内部引用符は既存のproducerテストが守るが、下流parserの欠落は検出しない。
-[引用符の追加再現](consumer-quotes.patch)は固定consumerの一時testsだけへ追加する。
-同じ3文書で正常な`say`と内部引用符入力を対照し、回復構造、cleaner、直接MATCHとの差を記録する。
-これは欠陥の観測であり、広いhitを望ましい製品仕様とする回帰テストではない。
-既存26観測を再実行するだけでは埋まらない条件を補うため維持する。引用符の再現filterは1件・テスト0.01秒（build込み6.319秒）。不安定さは未測定で、
-モデル・通信・時間閾値には依存しない。恒久テストへの採用はconsumer修正の合意時に検討する。
+最新mainの `expand_special_chars_escaped` はtrigramの実vocabとwire・hitを使い、
+`%`・`_`のwildcard化とbackslashの消失を独立した期待値で検出する。
+同じ失敗条件を守る共有fixture側の3入力を通常Rust照合から外した。
+失う検出条件は、この3入力と研究原本のwire/hitをRustで直接結び付ける照合である。
+製品のescape検証と、研究runnerでの同じ入力の実MATCHは残る。unicode61側の記号分割も研究測定と既存literalテストで確認する。
+検索意味・期待値を変えてcheckを通す整理ではない。
 
-### ホスト確認と残る検証
+Python二群はserializer/adapterのphraseの無断downgrade、quote/groupの崩れ、
+lookahead境界の誤判定、tie keyの脱落、fallback原因の混同、非missing障害の隠蔽を防ぐ。
+既存の製品検証では未採用planのこれらの診断を検査しないため維持する。
+固定consumerの引用符・group終端の再現patchも、既存round-tripでは検出しない条件を補うため残す。
+そのassertionは固定版の欠陥観測を確認するもので、望ましい製品仕様への採用ではない。
 
-ホストではPython二群と68観測・3構成の再実行が終了0。
-固定consumerの既存round-trip1件と追加MATCH26観測は終了0だった。
-終了0は観測の実行成功であり、そこで失うliteralやgroupまで受け入れたという意味ではない。
-最終のconsumer binaryでは、追加再現とSQLite版確認を含む初回のFTS suite12件が終了0（0.03秒）。内部引用符再現追加後の同じconsumer依存解決でFTS suite13件も終了0（0.03秒）だった。
-既存commentsの古いテストIDと装飾を整理し、assertionと処理は変更していない。
-source・依存・結果の範囲は[検証要約](host-verification.json)を参照する。
+### 最新mainとの統合版の確認
 
-標準setupの`cargo fetch --locked`、`bash scripts/check.sh`、変更文書を含む独立評価、同じheadの
-CI test/coverage/security/zizmorは、この要約を反映した版で別途確認する。
-当初の日本語lintはcache権限・offline依存不足で失敗した。ホストでは固定版lintを実行できた。
-長い技術比較による語彙反復と読解負荷の情報指摘を確認し、範囲や未確認事項を省略せず整えた。
-媒体は不要。captureはnullのまま、ブラウザーやサーバーは起動していない。
+[CPU限定検証](integration-verification.json)は製品search・query_normalize本体と既存testsをbyte単位でコピーし、
+同じCargo.lockに対応する既存rlibのhashを#312のmanifestへ照合してコンパイルした。
+整理前後を同じrustfmt、Rust 1.99.0、`-O -C lto`、依存・入力で各1回実行し、両方55件成功だった。
+テスト部分は0.06秒／0.02秒、process壁時計は0.472秒／0.257秒。
+ビルド・文書更新の費用を含む改善量でも、ばらつき・flake率の測定でもない。速度改善を主張しない。
+実装本体は両比較版で同一、テスト差分は重複fixture選択とコメント、文書差分は現在の手順と版の説明である。
+保守費用は未測定だが、wildcardの期待値を二箇所で保守する必要を減らした。
 
-実モデル付き新planの品質、実データ、producer並行性、全文法・全consumer互換性はこの合成比較では保証しない。
-#307の過去観測はその対象版・条件の証拠として残し、今回の測定結果や新planの採用へ昇格させない。
-新しい許容差・検索言語・consumer移行は採用していない。
+最初の依存選択は複数serde rlibで停止した。続く一時harnessの2ビルドはmoduleパスの指定誤りで失敗した。
+通常のmodule配置に直して再実行し、同じ製品sourceと期待値で成功した。失敗ログもcheckout外で保持している。
+この限定実行はworkspace全体・MLX・FFIのcheckを代替しない。
 
-### 再評価への引き継ぎ
+[統合版のPython原本](results-integrated.json)はPython 3.14.8／SQLite 3.53.1で68意味観測と3ngram構成を再実行した。
+wire・hit・品質・展開診断、およびngramの時間以外の測定値は[初回原本](results.json)と一致した。
+Python二群は0.003秒で成功した。書込み時間は新たな1回の観測で、順位・資源上限の採用には使わない。
+製品入口は上記Rustで別に照合しており、Pythonのlegacy tokenを製品のsanitizerと同一視しない。
 
-R1-1は確認前の状態説明を後半の証拠追加時に更新しなかったことが原因だった。
-冒頭、製品入口、実行時間の説明とREADMEの見出し参照を更新した。
-初回の停止応答・results.json・追加ホスト原本は維持し、現行説明だけを修正した。
-R1-1は文書修正済みだが独立再評価待ち。R1-2はsourceで欠陥を確認し、影響と再現定義を補ったが、
-固定consumerのnative実測4観測と13件のsuiteが終了0となった。R1-2の不足した証拠を補ったが、独立再評価のacceptedを自己判断で代替しない。
-今回の局所checkは新しいpatchの適用確認、追加Rust構文・整形、差分の空白検査で成功した。
-文書lintはこのnative結果更新後に再実行する。修正後の全体check・独立評価は未実行。文書の版・数量・条件・参照は上記原資料と手動で照合した。
+共有済み#307/#315報告は初回基準、公開head、最新main、統合版とも指定blobと一致する。
+#312では内部Cow、query内memo、長語のschema検査が追加された。検索時planの比較と索引構成識別の役割は変わらない。
+新plan、ngram、新検索言語、品質許容差、資源上限、strip、consumer移行は採用していない。
 
-前runの停止記録にある12記録と追加証拠の20ログはSHA-256が一致した。
-保存成果物・生応答には内部引用符の観測がなく、追加26観測にも含まれない。
-#307/#315の指定blobは現在ファイルと一致し、適用範囲と未採用状態を維持する。
-追加証拠のpassedは受入として扱わず、固定版のsource、path依存解決、lock、実行ログに照合した。
-この照合は新しい引用符再現の実行を代替しない。
+### 歴史証拠と現在のホスト引き継ぎ
 
-追加filterは1件・4観測、終了0、buildを含む6.319秒、テスト時間0.01秒だった。[検証要約](consumer-quotes-verification.json)に固定consumer版・同じlock・製品source不変・binary hashを紐付けた。最終suiteは13件・終了0。最初のsuite実行では入力fixtureの環境変数に存在しない出力pathを指定して1件失敗したため、生ログを残して入力を修正し、同じsource・binaryで再実行した。広いhitを望ましい仕様とする製品テストは追加していない。
+公開head以前の固定consumer `547f9ee2ed734a2eab316fdbd62f194849875ee4`では、
+[26fixture](consumer-cases.json)、[内部引用符4観測](consumer-quotes-host.json)、[group終端2観測](consumer-group-host.json)を確認した。
+最終native FTS suiteは14件成功、SQLite 3.53.2、consumer自身のresolved lockを使用した。
+[公開済み報告](https://github.com/thkt/rurico/blob/6b5a3855f35120c39423a1a49c656f5b58c98ee3/docs/research/issue-314/report.md)と
+[公開済み再現手順](https://github.com/thkt/rurico/blob/6b5a3855f35120c39423a1a49c656f5b58c98ee3/docs/research/issue-314/README.md)はその版の説明として保持する。
+[初回要約](host-verification.json)、[引用符要約](consumer-quotes-verification.json)、[group要約](consumer-group-verification.json)と
+Pythonの[ホスト原本](results-host.json)を変更せず、固定版の証拠として残す。
+これらのsource/binary hashは最新main統合版のhashと異なる。旧accepted・check・CIを今回へ流用しない。
 
-生ログはcheckout外の新しい原本に保存した。報告・要約を更新した版で変更文書と全体checkを独立評価へ戻す。全体checkは設定を変えずホストが実行する。実データ・実モデル・並行性・全consumerは引き続き未確認。
+初回評価後の文書不整合は、確認前の状態を証拠追加後も現在の状態として残したことが原因だった。
+現在の操作説明を本節とREADMEへ更新し、旧観測は対象版付きで保持する。
+空の評価履歴へ旧指摘IDのupdatesを返した応答は契約検査でinvalid_reviewとなった。
+次のfresh独立評価は `updates=[]`、現在の指摘はIDなし `newItems` とし、Issue全体と今回の修正要求、変更文書を確認する。
+前評価のacceptedを今回の評価へ変換しない。
 
-今回の追加評価応答は、fresh host-returnで評価履歴が空なのに旧runのR1-1/R1-2をupdatesとして返したため、契約検査でinvalid_reviewとなった。応答・停止記録は保存し、acceptedとして扱わない。内容上の残る文書不整合を修正し、冗長な同一Planのserializeを一度の局所変数へまとめた。wireの正確さと実MATCHの検査は残し、Phrase拒否を弱めていない。group終端の欠落は固定版の新しいnative原本で補った。次のfresh独立評価では、空の評価履歴に対して旧指摘IDの更新を返さず、現在の対象に対する初回評価として完全なitemsを返す必要がある。
+sandboxではGit共有領域へ書き込めず、統合済みファイルとpatch・tree/hashを保持した。
+ホストでは最新mainを再取得し、作業ファイルを保全して通常の未commit mergeを整えた。
+`MERGE_HEAD`は上記mainで、未解決indexはない。mainの製品source・追加検証・依存定義を保持している。
 
-最終のconsumer FTS suiteは14件成功・終了0。引用符4観測、group終端2観測、既存fixture26観測を同じbinaryで実行した。[版・実行要約](consumer-group-verification.json)に同じconsumer lock、製品source不変、binary hashを記録した。追加group filterは1件、build込み6.919秒、テスト部分0.01秒。調査用Python二群も終了0で、実行時間の改善量やflake率は測っていない。
+新しい一時コピーで固定amiciの製品sourceを原本へ照合し、統合後のproducerへpath解決した。
+[新しいconsumer要約](consumer-integrated-verification.json)のnative FTS suiteは14件成功し、
+26fixture・quote4・group2のwire・回復構造・cleaner・直接/consumer MATCH・合成品質は旧原本と一致した。
+consumer自身のresolved packagesとlockも前回と一致し、SQLiteは3.53.2だった。
+rurico自身のlockとは分け、consumerの製品parserを変更していない。
+内部quoteによるhit拡大と、引用内group終端での空結果は引き続き欠陥の観測であり、採用仕様ではない。
+
+再現patchはすべて同じ原本末尾への追加なので、順番に`git apply`する試行は2枚目で失敗した。
+一枚ずつ個別コピーへ適用し、原本が不変であることを確認して追加blockを合成した。
+READMEの手順もこの条件へ直し、歴史的patchと旧ログは保持した。
+標準checkはこのconsumer確認を実行せず、captureもnullなので、この新しい証拠を別に保存した。
+変更文書を含む標準checkとfresh独立評価はこの統合状態から改めて実行する。
+
+sandboxでの固定版日本語lintはSudachiPy依存不足で実行できず、手動確認までだった。
+ホストで同じ固定版lintを実行できた。出典・版・数量・未確認範囲を保ち、
+情報的な語彙反復・読解負荷の指摘は、条件や技術語を削る理由にしていない。
+変更文書もfresh独立評価の対象に含める。
+
+実データ、実モデル付き新planの品質、並行性、全文法・全consumer互換性、長期保守費用は未確認。
+#307の数値と検索品質を新planの実測へ読み替えない。媒体は不要。GPU・実モデル測定は今回の確認には含めていない。

@@ -106,8 +106,12 @@ custom producerやmockで内容を検証して構築するには、
 別document・query・呼出し間でも同じモデル次元を返す契約は、引き続き `Embed` 実装の責任となる。
 内容検証だけではモデルの識別や保存索引との互換性を保証しない。
 fixtureの `load` は同じ検証をdocumentごとに使い、不正内容を `InvalidData` として拒否する。
-形式は維持し、document間の次元照合・生成構成の識別・総byte上限は保証しない。
-`save` は従来どおり値をそのまま保存するため、新しいfixtureの生成には検証付きconstructorを使う。
+document間の次元照合やmodel/index互換性は保証しない。
+`save` は互換用のlegacy writerとして維持する。新規生成には由来を明示する`save_versioned`を使う。
+`load`はlegacyとversion 1を64 MiB上限で読み、余剰byteも拒否する。
+`load_fixture`は上限を指定でき、legacyの由来不明を`generation: None`として保持する。
+`compare`は両側の内容を検証し、不正内容・shape差・非有限metricを`CompareError`で返す。
+形式・生成条件・呼出し移行は[fixtureの説明](tests/fixtures/phase2_baseline/README.md)を参照。
 MLXは [ADR-0002](docs/decisions/0002-gpu-side-pooling-embed.md) の境界に従い、
 readback済みbufferの既存走査で共通の有限性検査を行う。構築時の再走査は追加しない。
 
@@ -203,10 +207,12 @@ match prepare_match_query(&conn, user_input, "fts_chunks_vocab", &normalization)
 
 `NEAR()` グループ、`^`/`+`/`-` プレフィックス、各語の端の括弧は除去される。コロン・語中のハイフン・入力の引用符はliteralの文字として保持し、最終出力で `"` を `""` にエスケープする。不均衡な引用符を補完したり、入力の引用符からphrase境界を解釈したりはせず、語の区切りは空白のままとする。`AND`/`OR`/`NOT` のようなoperator-like keywordは、前後に非operatorの語がある場合のみliteral termとして引用符で囲まれ、Boolean演算子にはならない。前後が欠けたdangling operator（例: 先頭の `NOT`、NEAR除去後に孤立した `OR`）は除去される。短い語（1-2文字）は指定した vocab テーブルがあればprefix展開されるが、operator-like keywordは展開しない。vocab テーブルが存在しない場合だけはそのまま引用に劣化し、それ以外の SQLite 障害は `SanitizeError::VocabLookupFailed` を返す。展開なしの短語がhitするかはtokenizerに依存し、trigramでは3文字未満のliteralはhitしない。
 
+短語のprefix照会では `%`・`_`・backslashをLIKEのwildcardやescapeとして解釈せず、literalとして扱う。同じ短語の照会結果は1回の `prepare_match_query` 内でだけ再利用し、次の呼出しはDB更新を反映する。長語のみの場合もvocabのidentifier・schemaを検査し、別接続で呼出し前に確定したschema変更によるエラーも省略しない。内部の正規化は変更不要な入力を借用するが、公開の `normalize_for_fts` は引き続き `String` を返す。測定条件と限界は [Issue #312の検証記録](docs/benchmarks/issue-312/README.md) を参照。
+
 amiciの `parse_fts_segments` が読むwire-formatは、固定語の `"..."`（内部引用符は `""`）、展開語群の `("..." OR "...")`、語・語群間の明示的な ` AND ` を維持する。[#297](https://github.com/thkt/rurico/issues/297)では、入力 `rate-limit` の出力を `"""rate-limit"""` から `"rate-limit"` へ修正した。構文形状や公開APIは変えないが、literalの内容と検索結果は修正される。amici側の互換性は依存rev更新時に既存のround-trip testで確認する（[契約の参照元 #249](https://github.com/thkt/rurico/issues/249)）。
 
 phrase・短語上限・型付きquery planの未採用比較は[Issue #314の調査](docs/research/issue-314/README.md)を参照する。現行入力の引用符とORのliteral扱いは変えていない。
-固定amici版のparserには内部引用符を途中で区切る欠陥があるため、上記wire形状の維持や既存round-trip成功だけではliteral内容の保持を保証しない。
+固定amici版のparserには内部引用符を途中で区切る欠陥と、引用内の`)`をgroup終端と誤認する欠陥があるため、上記wire形状の維持や既存round-trip成功だけではliteral内容の保持を保証しない。
 [consumerへの影響と検証範囲](docs/research/issue-314/report.md#315との分担とconsumerへの影響)に固定版のnative実測で確認した欠落と、未確認の適用範囲を記載している。
 
 ### query normalization 単体利用
@@ -301,6 +307,12 @@ let aggregated = aggregator.aggregate(&merged);
 | `MaxChunkAggregator`          | parent ごとに最高スコアの chunk を残し、`chunk_id = None` で parent 単位に折りたたむ   |
 | `DedupeAggregator`            | parent ごとに先頭 1 件のみ残す（順序保持の dedupe）                                    |
 | `TopKAverageAggregator { k }` | parent ごとに上位 `k` chunk スコアの平均を採用（`TopKAverageAggregator::new(k)` も可） |
+
+Stage 3 の標準入力は、Stage 2 が返すスコア降順、`doc_id` 昇順、`chunk_id` 昇順の結果である。
+`IdentityAggregator` と `DedupeAggregator` は入力順を保持するため、降順出力の保証はこの整列済み入力を前提とする。
+任意の未整列入力を渡しても整列せず、Dedupe は最高スコアではなく最初の hit を選ぶ。
+`MaxChunkAggregator` と `TopKAverageAggregator` は未整列入力でも集約後にスコア降順、`doc_id` 昇順へ整列し、`chunk_id = None` を返す。
+MaxChunk の最高スコアが同点の場合は、入力で最初の hit の `source_scores` を保持する。
 
 独自の `Aggregator` を実装する場合は `group_by_parent(&merged) -> HashMap<&str, Vec<&MergedHit>>` で parent 単位にバケットできる。
 
