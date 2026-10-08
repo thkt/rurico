@@ -1,41 +1,35 @@
 use super::*;
 
-// T-007: age_zero_returns_one
 #[test]
 fn age_zero_returns_one() {
     let result = recency_decay(0.0, 30.0);
     assert!((result - 1.0).abs() < f64::EPSILON);
 }
 
-// T-008: one_half_life_returns_half
 #[test]
 fn one_half_life_returns_half() {
     let result = recency_decay(30.0, 30.0);
     assert!((result - 0.5).abs() < 0.01);
 }
 
-// T-009: two_half_lives_returns_quarter
 #[test]
 fn two_half_lives_returns_quarter() {
     let result = recency_decay(60.0, 30.0);
     assert!((result - 0.25).abs() < 0.01);
 }
 
-// T-010: zero_half_life_returns_zero
 #[test]
 fn zero_half_life_returns_zero() {
     let result = recency_decay(0.0, 0.0);
     assert!((result - 0.0).abs() < f64::EPSILON);
 }
 
-// T-010b: negative_half_life_returns_zero
 #[test]
 fn negative_half_life_returns_zero() {
     let result = recency_decay(5.0, -1.0);
     assert!((result - 0.0).abs() < f64::EPSILON);
 }
 
-// T-010c: negative_age_clamped_to_one
 #[test]
 fn negative_age_clamped_to_one() {
     let result = recency_decay(-5.0, 30.0);
@@ -74,16 +68,13 @@ fn chunk_hit(doc_id: &str, chunk_id: &str, score: f64) -> MergedHit {
     }
 }
 
-// T-067-001: identity_returns_input_unchanged
 #[test]
 fn identity_returns_input_unchanged() {
-    let aggregator = IdentityAggregator;
-    let input = vec![hit("d1", 0.9), hit("d2", 0.7), hit("d1", 0.5)];
-    let output = aggregator.aggregate(&input);
-    assert_eq!(output, input, "Identity must preserve input verbatim");
+    // Deliberately unsorted: Identity must not silently sort arbitrary input.
+    let input = vec![hit("d2", 0.5), hit("d1", 1.0), hit("d2", 0.75)];
+    assert_eq!(IdentityAggregator.aggregate(&input), input);
 }
 
-// T-067-002: max_chunk_collapses_duplicates_to_max_score
 #[test]
 fn max_chunk_collapses_duplicates_to_max_score() {
     let aggregator = MaxChunkAggregator;
@@ -101,52 +92,66 @@ fn max_chunk_collapses_duplicates_to_max_score() {
     );
 }
 
-// T-067-003: dedupe_keeps_first_occurrence_per_doc_id
 #[test]
 fn dedupe_keeps_first_occurrence_per_doc_id() {
-    let aggregator = DedupeAggregator;
+    // First occurrence is neither score order nor doc order, and is not max.
     let input = vec![
-        hit("d1", 0.9),
-        hit("d2", 0.7),
-        hit("d1", 0.5),
-        hit("d3", 0.6),
-        hit("d2", 0.4),
+        hit_with_sources("d2", 0.25, &[(CandidateSource::Fts, 0.25)]),
+        hit("d1", 1.0),
+        hit_with_sources("d2", 0.75, &[(CandidateSource::Vector, 0.75)]),
+        hit("d3", 0.5),
     ];
-    let output = aggregator.aggregate(&input);
     assert_eq!(
-        output,
-        vec![hit("d1", 0.9), hit("d2", 0.7), hit("d3", 0.6)],
-        "Dedupe should keep input rank-order and drop later duplicates"
+        DedupeAggregator.aggregate(&input),
+        vec![
+            hit_with_sources("d2", 0.25, &[(CandidateSource::Fts, 0.25)]),
+            hit("d1", 1.0),
+            hit("d3", 0.5),
+        ]
     );
 }
 
-// T-067-004: topk_average_averages_top_k_per_doc_id
-//
 // Uses IEEE-754-exact dyadic fractions (1.0, 0.5, 0.25, 0.125) so the
 // observed averages compare bit-equal to the expected values.
 #[test]
 fn topk_average_averages_top_k_per_doc_id() {
-    let aggregator = TopKAverageAggregator::new(2);
-    let input = vec![
-        hit("d1", 1.0),
-        hit("d1", 0.5),
-        hit("d1", 0.25),
-        hit("d2", 0.5),
-        hit("d2", 0.25),
+    // Unsorted chunks; excluded d1 FTS values and d2 Vector keys must not leak.
+    let mut input = vec![
+        hit_with_sources("d1", 0.25, &[(CandidateSource::Fts, 8.0)]),
+        hit_with_sources("d2", 0.25, &[(CandidateSource::Fts, 0.25)]),
+        hit_with_sources("d2", 0.125, &[(CandidateSource::Vector, 8.0)]),
+        hit_with_sources(
+            "d1",
+            1.0,
+            &[(CandidateSource::Fts, 0.5), (CandidateSource::Vector, 0.5)],
+        ),
         hit("d3", 0.125),
+        hit_with_sources("d4", 1.0, &[(CandidateSource::Fts, 1.0)]),
+        hit_with_sources("d4", 0.5, &[(CandidateSource::Fts, 0.5)]),
+        hit_with_sources("d1", 0.5, &[(CandidateSource::Vector, 0.5)]),
+        hit_with_sources("d2", 0.5, &[(CandidateSource::Fts, 0.5)]),
     ];
-    let output = aggregator.aggregate(&input);
-    // d1 top-2 = (1.0 + 0.5) / 2  = 0.75
-    // d2 top-2 = (0.5 + 0.25) / 2 = 0.375
-    // d3 top-1 = 0.125            = 0.125
+    for (index, h) in input.iter_mut().enumerate() {
+        h.chunk_id = Some(format!("c{index}"));
+    }
+    // d1: scores (1 + .5)/2=.75, FTS (.5+0)/2=.25, Vector (.5+.5)/2=.5.
+    // d4: FTS (1+.5)/2=.75, tied with d1 but ordered by doc_id.
+    // d2: (.5+.25)/2=.375, d3: one chunk=.125, sources remain absent.
     assert_eq!(
-        output,
-        vec![hit("d1", 0.75), hit("d2", 0.375), hit("d3", 0.125)],
-        "TopK avg should take top-k scores per doc_id and sort by mean desc"
+        TopKAverageAggregator::new(2).aggregate(&input),
+        vec![
+            hit_with_sources(
+                "d1",
+                0.75,
+                &[(CandidateSource::Fts, 0.25), (CandidateSource::Vector, 0.5)]
+            ),
+            hit_with_sources("d4", 0.75, &[(CandidateSource::Fts, 0.75)]),
+            hit_with_sources("d2", 0.375, &[(CandidateSource::Fts, 0.375)]),
+            hit("d3", 0.125),
+        ]
     );
 }
 
-// T-067-005: topk_average_with_zero_k_returns_empty
 #[test]
 fn topk_average_with_zero_k_returns_empty() {
     let aggregator = TopKAverageAggregator::new(0);
@@ -155,23 +160,27 @@ fn topk_average_with_zero_k_returns_empty() {
     assert!(output.is_empty(), "k=0 should return empty");
 }
 
-// T-067-006: max_chunk_unique_input_only_resorts
-//
-// Documents the structural-identity fact called out in the module doc:
-// when input doc_ids are already unique (current pipeline shape), the
-// observable difference between MaxChunk and Identity is only the sort.
+// With unique parent ids, MaxChunk still sorts arbitrary input and strips
+// child ids. All output chunk_ids are None, so parent ties use doc_id.
 #[test]
 fn max_chunk_unique_input_only_resorts() {
-    let aggregator = MaxChunkAggregator;
-    let input = vec![hit("d1", 0.9), hit("d2", 0.7), hit("d3", 0.5)];
-    let output = aggregator.aggregate(&input);
+    let input = vec![
+        chunk_hit("d3", "c2", 0.5),
+        chunk_hit("d2", "c0", 0.75),
+        chunk_hit("d1", "c1", 0.75),
+        chunk_hit("d4", "c0", 1.0),
+    ];
     assert_eq!(
-        output, input,
-        "MaxChunk on already-unique input must equal input"
+        MaxChunkAggregator.aggregate(&input),
+        vec![
+            hit("d4", 1.0),
+            hit("d1", 0.75),
+            hit("d2", 0.75),
+            hit("d3", 0.5),
+        ]
     );
 }
 
-// T-068-001: identity_preserves_source_scores
 #[test]
 fn identity_preserves_source_scores() {
     let aggregator = IdentityAggregator;
@@ -187,28 +196,28 @@ fn identity_preserves_source_scores() {
     );
 }
 
-// T-068-002: max_chunk_keeps_max_scoring_hits_source_scores
 #[test]
 fn max_chunk_keeps_max_scoring_hits_source_scores() {
-    let aggregator = MaxChunkAggregator;
+    let mut first = hit_with_sources("d1", 0.75, &[(CandidateSource::Vector, 0.75)]);
+    first.chunk_id = Some("z".into());
+    let mut tied = hit_with_sources("d1", 0.75, &[(CandidateSource::Fts, 0.75)]);
+    tied.chunk_id = Some("a".into());
     let input = vec![
-        hit_with_sources("d1", 0.5, &[(CandidateSource::Fts, 0.5)]),
-        hit_with_sources("d1", 0.9, &[(CandidateSource::Vector, 0.9)]),
+        hit_with_sources("d1", 0.25, &[(CandidateSource::Fts, 0.25)]),
+        first,
+        tied,
     ];
-    let output = aggregator.aggregate(&input);
-    assert_eq!(output.len(), 1);
+    // Equal scores keep the first maximum, even if its chunk_id sorts later.
     assert_eq!(
-        output[0].source_scores.get(&CandidateSource::Vector),
-        Some(&0.9),
-        "MaxChunk must keep source_scores from the max-scoring hit (the Vector contribution)"
-    );
-    assert!(
-        !output[0].source_scores.contains_key(&CandidateSource::Fts),
-        "MaxChunk must drop source_scores from non-winning hits"
+        MaxChunkAggregator.aggregate(&input),
+        vec![hit_with_sources(
+            "d1",
+            0.75,
+            &[(CandidateSource::Vector, 0.75)]
+        ),]
     );
 }
 
-// T-068-003: dedupe_keeps_first_hits_source_scores
 #[test]
 fn dedupe_keeps_first_hits_source_scores() {
     let aggregator = DedupeAggregator;
@@ -225,26 +234,6 @@ fn dedupe_keeps_first_hits_source_scores() {
     );
 }
 
-// T-068-004: topk_average_averages_source_scores
-//
-// Uses dyadic fractions so the averaged source_scores compare bit-equal.
-#[test]
-fn topk_average_averages_source_scores() {
-    let aggregator = TopKAverageAggregator::new(2);
-    let input = vec![
-        hit_with_sources("d1", 1.0, &[(CandidateSource::Fts, 1.0)]),
-        hit_with_sources("d1", 0.5, &[(CandidateSource::Fts, 0.5)]),
-    ];
-    let output = aggregator.aggregate(&input);
-    assert_eq!(output.len(), 1);
-    // (1.0 + 0.5) / 2 = 0.75
-    assert_eq!(
-        output[0].source_scores.get(&CandidateSource::Fts),
-        Some(&0.75),
-        "TopKAverage must average source_scores across the top-k hits"
-    );
-}
-
 fn candidate(source: CandidateSource, doc_id: &str, rank: usize) -> Candidate {
     Candidate {
         source,
@@ -255,8 +244,6 @@ fn candidate(source: CandidateSource, doc_id: &str, rank: usize) -> Candidate {
     }
 }
 
-// T-068-005: weighted_rrf_default_matches_unweighted_rrf
-//
 // With default config (rrf_k=60, weights=1.0), WeightedRrf must produce
 // bit-equal scores to the legacy 1/(60+rank) formula.
 #[test]
@@ -277,8 +264,6 @@ fn weighted_rrf_default_matches_unweighted_rrf() {
     assert!((output[1].score - d2_score).abs() < f64::EPSILON);
 }
 
-// T-104-001: weighted_rrf_default_breaks_ties_by_doc_id
-//
 // When two docs receive identical RRF scores, merge must order them by
 // doc_id ascending (lexicographic). Tie-break contract preserved on the
 // canonical WeightedRrf path.
@@ -302,8 +287,6 @@ fn weighted_rrf_default_breaks_ties_by_doc_id() {
     assert_eq!(output[1].doc_id, "d3");
 }
 
-// T-068-006: weighted_rrf_zero_weight_drops_source
-//
 // Disabled-source candidates must NOT leak into the merged set. If a doc
 // has only a contribution from the zero-weight source, it must be absent
 // from the output entirely — otherwise it would survive truncate-to-k and
@@ -324,8 +307,6 @@ fn weighted_rrf_zero_weight_drops_source() {
     assert!((output[0].score - 1.0 / 60.0).abs() < f64::EPSILON);
 }
 
-// T-214-001: weighted_rrf_drops_contribution_when_denominator_is_zero
-//
 // rrf_k = 0 with a rank-0 candidate makes the denominator (rrf_k + rank) zero,
 // which without the guard emits an `inf` fused score. The contribution must be
 // dropped (like a zero-weight source) so the lone candidate yields no hit.
@@ -343,8 +324,6 @@ fn weighted_rrf_drops_contribution_when_denominator_is_zero() {
     );
 }
 
-// T-214-002: weighted_rrf_drops_contribution_for_non_positive_denominator
-//
 // A negative rrf_k can zero the denominator (rank cancels it) or drive it
 // negative; both must be dropped so no negative or infinite fused score escapes.
 #[test]
@@ -364,8 +343,6 @@ fn weighted_rrf_drops_contribution_for_non_positive_denominator() {
     );
 }
 
-// T-214-003: weighted_rrf_drops_contribution_for_non_finite_rrf_k
-//
 // A NaN or infinite rrf_k makes the denominator non-finite; the guard drops the
 // contribution so no NaN/inf score escapes merge.
 #[test]
@@ -384,8 +361,6 @@ fn weighted_rrf_drops_contribution_for_non_finite_rrf_k() {
     }
 }
 
-// T-214-004: weighted_rrf_partial_drop_keeps_valid_denominator_hits
-//
 // With a negative rrf_k, only candidates whose rank pushes the denominator
 // positive survive; survivors keep finite scores while invalid ones are dropped.
 #[test]
@@ -412,8 +387,6 @@ fn weighted_rrf_partial_drop_keeps_valid_denominator_hits() {
     );
 }
 
-// T-217-001: weighted_rrf_drops_non_finite_source_weight
-//
 // A NaN or infinite source weight slips through the `weight == 0.0` guard via
 // IEEE 754 (`NaN == 0.0` is false), so `weight / denom` poisons the fused score.
 // Sibling of the #214 denominator guards: a non-finite source weight must drop
@@ -430,22 +403,17 @@ fn weighted_rrf_drops_non_finite_source_weight() {
             candidate(CandidateSource::Vector, "d2", 0),
         ];
         let output = strategy.merge(&candidates);
-        assert!(
-            !output.iter().any(|h| h.doc_id == "d1"),
-            "non-finite FTS weight {bad} must drop the FTS-only doc d1, got: {output:?}"
-        );
-        assert!(
-            output.iter().any(|h| h.doc_id == "d2"),
-            "Vector doc d2 (weight 1.0) must survive non-finite FTS weight {bad}, got: {output:?}"
-        );
-        assert!(
-            output.iter().all(|h| h.score.is_finite()),
-            "every fused score must be finite under non-finite FTS weight {bad}, got: {output:?}"
+        assert_eq!(
+            output,
+            vec![hit_with_sources(
+                "d2",
+                1.0 / 60.0,
+                &[(CandidateSource::Vector, 1.0 / 60.0)]
+            )],
         );
     }
 }
 
-// T-068-007: weighted_rrf_records_per_source_contributions
 #[test]
 fn weighted_rrf_records_per_source_contributions() {
     let strategy = WeightedRrf::default();
@@ -464,7 +432,6 @@ fn weighted_rrf_records_per_source_contributions() {
     assert!((vec.unwrap() - 1.0 / 62.0).abs() < f64::EPSILON);
 }
 
-// T-068-009: weighted_rrf_recency_zero_weight_is_noop
 #[test]
 fn weighted_rrf_recency_zero_weight_is_noop() {
     let strategy = WeightedRrf::default();
@@ -484,7 +451,6 @@ fn weighted_rrf_recency_zero_weight_is_noop() {
     );
 }
 
-// T-068-010: weighted_rrf_recency_boosts_recent_hits
 #[test]
 fn weighted_rrf_recency_boosts_recent_hits() {
     let strategy = WeightedRrf::default();
@@ -511,7 +477,6 @@ fn weighted_rrf_recency_boosts_recent_hits() {
     );
 }
 
-// T-068-011: weighted_rrf_recency_skips_missing_age
 #[test]
 fn weighted_rrf_recency_skips_missing_age() {
     let strategy = WeightedRrf::default();
@@ -536,8 +501,6 @@ fn weighted_rrf_recency_skips_missing_age() {
     assert!((d2.score - 1.0 / 61.0).abs() < f64::EPSILON);
 }
 
-// T-217-002: weighted_rrf_recency_non_finite_weight_returns_unboosted
-//
 // A NaN or infinite recency weight slips through the `recency.weight == 0.0`
 // early return (`NaN == 0.0` is false), so every hit gets `weight * decay`
 // added and the score goes non-finite. A non-finite recency weight disables the
@@ -563,8 +526,6 @@ fn weighted_rrf_recency_non_finite_weight_returns_unboosted() {
     }
 }
 
-// T-217-003: weighted_rrf_recency_nan_half_life_keeps_finite_score
-//
 // half_life=NaN slips through `half_life_days <= 0.0` (`NaN <= 0.0` is false),
 // so recency_decay returns NaN and `score += weight * NaN` poisons the hit.
 // With a finite recency weight, the boost-clamp must skip the non-finite boost
@@ -581,14 +542,15 @@ fn weighted_rrf_recency_nan_half_life_keeps_finite_score() {
         half_life_days: f64::NAN,
     };
     let output = strategy.merge_with_recency(&candidates, &recency, |_| Some(10.0));
-    assert!(
-        output.iter().all(|h| h.score.is_finite()),
-        "NaN half_life must skip the boost and keep every score finite, got: {output:?}"
+    assert_eq!(
+        output,
+        vec![
+            hit_with_sources("d1", 1.0 / 60.0, &[(CandidateSource::Fts, 1.0 / 60.0)]),
+            hit_with_sources("d2", 1.0 / 61.0, &[(CandidateSource::Fts, 1.0 / 61.0)])
+        ]
     );
 }
 
-// T-217-004: weighted_rrf_recency_inf_half_life_inf_age_keeps_finite_score
-//
 // half_life=+inf is harmless with a finite age (decay = exp(-0.0) = 1.0), but
 // age=+inf makes recency_decay compute (-inf / +inf).exp() = NaN, so the boost
 // goes non-finite. The boost-clamp on `weight * decay` must absorb this and
@@ -602,14 +564,16 @@ fn weighted_rrf_recency_inf_half_life_inf_age_keeps_finite_score() {
         half_life_days: f64::INFINITY,
     };
     let output = strategy.merge_with_recency(&candidates, &recency, |_| Some(f64::INFINITY));
-    assert!(
-        output.iter().all(|h| h.score.is_finite()),
-        "+inf half_life with +inf age must clamp the NaN boost and keep scores finite, got: {output:?}"
+    assert_eq!(
+        output,
+        vec![hit_with_sources(
+            "d1",
+            1.0 / 60.0,
+            &[(CandidateSource::Fts, 1.0 / 60.0)]
+        )]
     );
 }
 
-// T-217-005: weighted_rrf_recency_inf_half_life_finite_age_keeps_full_boost
-//
 // Regression guard (green before and after the fix): half_life=+inf with a
 // finite age decays to exp(-0.0)=1.0, so the hit must receive the full
 // recency.weight (1.0) boost on top of its RRF score (1/60). This pins that the
@@ -633,43 +597,46 @@ fn weighted_rrf_recency_inf_half_life_finite_age_keeps_full_boost() {
     );
 }
 
-// T-076-001: weighted_rrf_fuses_chunks_separately_when_chunk_id_differs
-//
 // Issue #76 / ADR 0004 line 180: when chunk-level retrieval is active,
 // distinct child chunks of the same parent doc MUST survive Stage 2
 // fusion. Otherwise Stage 3 aggregators have nothing to collapse and
 // every strategy is structurally identical to identity.
 #[test]
 fn weighted_rrf_fuses_chunks_separately_when_chunk_id_differs() {
-    let strategy = WeightedRrf::default();
-    let candidates = vec![
-        Candidate {
-            source: CandidateSource::Fts,
-            doc_id: "d1".to_owned(),
-            chunk_id: Some("c0".to_owned()),
-            score: 0.0,
-            rank: 0,
-        },
-        Candidate {
-            source: CandidateSource::Fts,
-            doc_id: "d1".to_owned(),
-            chunk_id: Some("c1".to_owned()),
-            score: 0.0,
-            rank: 1,
-        },
-    ];
-    let output = strategy.merge(&candidates);
+    let candidates: Vec<_> = [
+        ("d2", Some("z"), 0),
+        ("d1", Some("z"), 0),
+        ("d1", Some("a"), 0),
+        ("d1", None, 0),
+        ("d0", Some("a"), 1),
+    ]
+    .into_iter()
+    .map(|(doc, chunk, rank)| {
+        let mut c = candidate(CandidateSource::Fts, doc, rank);
+        c.chunk_id = chunk.map(str::to_owned);
+        c
+    })
+    .collect();
+    let mut a = hit_with_sources("d1", 1.0 / 60.0, &[(CandidateSource::Fts, 1.0 / 60.0)]);
+    a.chunk_id = Some("a".into());
+    let mut z = a.clone();
+    z.chunk_id = Some("z".into());
+    let mut d2 = z.clone();
+    d2.doc_id = "d2".into();
+    let mut low = hit_with_sources("d0", 1.0 / 61.0, &[(CandidateSource::Fts, 1.0 / 61.0)]);
+    low.chunk_id = Some("a".into());
     assert_eq!(
-        output.len(),
-        2,
-        "two distinct chunks of d1 must survive Stage 2 fusion"
+        WeightedRrf::default().merge(&candidates),
+        vec![
+            hit_with_sources("d1", 1.0 / 60.0, &[(CandidateSource::Fts, 1.0 / 60.0)]),
+            a,
+            z,
+            d2,
+            low,
+        ]
     );
-    let chunk_ids: Vec<Option<&str>> = output.iter().map(|h| h.chunk_id.as_deref()).collect();
-    assert!(chunk_ids.contains(&Some("c0")), "c0 must be present");
-    assert!(chunk_ids.contains(&Some("c1")), "c1 must be present");
 }
 
-// T-076-002: identity_preserves_chunk_level_distinctness
 #[test]
 fn identity_preserves_chunk_level_distinctness() {
     let aggregator = IdentityAggregator;
@@ -683,8 +650,6 @@ fn identity_preserves_chunk_level_distinctness() {
     assert_eq!(output, input, "Identity must preserve chunk_ids verbatim");
 }
 
-// T-076-003: max_chunk_collapses_sibling_chunks_to_parent
-//
 // Two chunks of d1 (scores 0.5 + 0.9), one chunk of d2 (0.7). MaxChunk
 // must keep d1's higher-scoring chunk (0.9), drop the sibling, and emit
 // parent-granular hits (chunk_id=None).
@@ -711,7 +676,6 @@ fn max_chunk_collapses_sibling_chunks_to_parent() {
     assert_eq!(output[1].chunk_id, None);
 }
 
-// T-076-004: dedupe_collapses_chunks_to_first_parent
 #[test]
 fn dedupe_collapses_chunks_to_first_parent() {
     let aggregator = DedupeAggregator;
@@ -732,32 +696,6 @@ fn dedupe_collapses_chunks_to_first_parent() {
     assert_eq!(output[1].chunk_id, None);
 }
 
-// T-076-005: topk_average_collapses_chunks_with_chunk_id_none
-//
-// TopKAverage already collapsed sibling chunks pre-#76 (the bucketing
-// happened on doc_id). The new contract is that chunk_id is reset to
-// None so Stage 4 sees parent-granular hits regardless of input
-// granularity.
-#[test]
-fn topk_average_collapses_chunks_with_chunk_id_none() {
-    let aggregator = TopKAverageAggregator::new(2);
-    let input = vec![
-        chunk_hit("d1", "c0", 1.0),
-        chunk_hit("d1", "c1", 0.5),
-        chunk_hit("d2", "c0", 0.25),
-    ];
-    let output = aggregator.aggregate(&input);
-    assert_eq!(output.len(), 2);
-    assert_eq!(output[0].doc_id, "d1");
-    assert_eq!(
-        output[0].chunk_id, None,
-        "TopKAverage emits parent-granular hits"
-    );
-    // d1 top-2 = (1.0 + 0.5) / 2 = 0.75
-    assert!((output[0].score - 0.75).abs() < f64::EPSILON);
-}
-
-// T-076-006: group_by_parent_buckets_chunks_per_doc
 #[test]
 fn group_by_parent_buckets_chunks_per_doc() {
     let input = vec![
@@ -779,7 +717,6 @@ fn group_by_parent_buckets_chunks_per_doc() {
     assert_eq!(d2_bucket.len(), 1);
 }
 
-// T-105-008a: weighted_rrf_merge_returns_empty_for_empty_candidates
 #[test]
 fn weighted_rrf_merge_returns_empty_for_empty_candidates() {
     let strategy = WeightedRrf::default();
@@ -790,7 +727,6 @@ fn weighted_rrf_merge_returns_empty_for_empty_candidates() {
     );
 }
 
-// T-105-008b: weighted_rrf_merge_with_recency_returns_empty_for_empty_candidates
 #[test]
 fn weighted_rrf_merge_with_recency_returns_empty_for_empty_candidates() {
     let strategy = WeightedRrf::default();
@@ -805,7 +741,6 @@ fn weighted_rrf_merge_with_recency_returns_empty_for_empty_candidates() {
     );
 }
 
-// T-105-009: group_by_parent_returns_empty_map_for_empty_hits
 #[test]
 fn group_by_parent_returns_empty_map_for_empty_hits() {
     let buckets = group_by_parent(&[]);
@@ -815,8 +750,6 @@ fn group_by_parent_returns_empty_map_for_empty_hits() {
     );
 }
 
-// T-105-017a: merged_hit_deserializes_when_chunk_id_field_omitted
-//
 // Backward-compat with pre-Issue #76 baseline.json files that omit the
 // chunk_id field. `serde(default)` keeps Option<String> defaulting to None
 // — pin the behaviour so a future serde attribute change does not silently
@@ -824,25 +757,14 @@ fn group_by_parent_returns_empty_map_for_empty_hits() {
 #[test]
 fn merged_hit_deserializes_when_chunk_id_field_omitted() {
     let json = r#"{"doc_id":"d1","score":0.5,"source_scores":{"fts":0.5}}"#;
-    let hit: MergedHit = serde_json::from_str(json).expect("legacy JSON must parse");
-    assert_eq!(hit.doc_id, "d1");
-    assert!((hit.score - 0.5).abs() < f64::EPSILON);
     assert_eq!(
-        hit.chunk_id, None,
-        "omitted chunk_id must default to None, not error"
-    );
-    assert_eq!(
-        hit.source_scores.get(&CandidateSource::Fts),
-        Some(&0.5),
-        "source_scores must round-trip the populated entry"
+        serde_json::from_str::<MergedHit>(json).expect("legacy JSON must parse"),
+        hit_with_sources("d1", 0.5, &[(CandidateSource::Fts, 0.5)]),
     );
 }
 
-// T-105-017b: hybrid_search_config_serde_round_trips_default
-//
-// Default config must serialize then deserialize to a value equal to the
-// starting Default — guards against an accidental serde attribute change
-// that would shift downstream JSON shape.
+// Roundtrip checks value preservation; literal wire compatibility is tested
+// separately so a simultaneous serializer/deserializer rename cannot pass.
 #[test]
 fn hybrid_search_config_serde_round_trips_default() {
     let config = HybridSearchConfig::default();
@@ -852,33 +774,48 @@ fn hybrid_search_config_serde_round_trips_default() {
     assert_eq!(parsed, config, "round-trip must preserve Default config");
 }
 
-// T-068-008: weighted_rrf_fts_heavy_weight_reorders
-//
 // Validates that non-uniform weights actually shift ranking — a doc with
 // FTS-only contribution at heavy weight beats a doc with both signals at
 // worse FTS rank.
 #[test]
 fn weighted_rrf_fts_heavy_weight_reorders() {
-    let mut config = HybridSearchConfig::default();
-    config.source_weights.insert(CandidateSource::Fts, 5.0);
-    let strategy = WeightedRrf::new(config);
     let candidates = vec![
-        // d1: FTS rank 0 only → 5/60 = 0.0833
         candidate(CandidateSource::Fts, "d1", 0),
-        // d2: FTS rank 5, Vector rank 0 → 5/65 + 1/60 = 0.0936
-        candidate(CandidateSource::Fts, "d2", 5),
+        candidate(CandidateSource::Fts, "d2", 60),
         candidate(CandidateSource::Vector, "d2", 0),
     ];
-    let output = strategy.merge(&candidates);
+    // Default: d2 = 1/120 + 1/60 beats d1 = 1/60.
     assert_eq!(
-        output[0].doc_id, "d2",
-        "d2 wins via FTS rank 5 + Vector top hit"
+        WeightedRrf::default().merge(&candidates),
+        vec![
+            hit_with_sources(
+                "d2",
+                1.0 / 120.0 + 1.0 / 60.0,
+                &[
+                    (CandidateSource::Fts, 1.0 / 120.0),
+                    (CandidateSource::Vector, 1.0 / 60.0)
+                ]
+            ),
+            hit_with_sources("d1", 1.0 / 60.0, &[(CandidateSource::Fts, 1.0 / 60.0)]),
+        ]
     );
-    // sanity: with default weights (fts=1.0), the order would still be d2 first
-    // because d2 has 1/65 + 1/60 = 0.0320 vs d1 1/60 = 0.0167
-    // So the test mainly verifies weighting works without reverting order
-    let weighted_d2_score = 5.0 / 65.0 + 1.0 / 60.0;
-    assert!((output[0].score - weighted_d2_score).abs() < f64::EPSILON);
+    let mut config = HybridSearchConfig::default();
+    config.source_weights.insert(CandidateSource::Fts, 5.0);
+    // Heavy FTS: d1 = 5/60 beats d2 = 5/120 + 1/60; Vector is unchanged.
+    assert_eq!(
+        WeightedRrf::new(config).merge(&candidates),
+        vec![
+            hit_with_sources("d1", 5.0 / 60.0, &[(CandidateSource::Fts, 5.0 / 60.0)]),
+            hit_with_sources(
+                "d2",
+                5.0 / 120.0 + 1.0 / 60.0,
+                &[
+                    (CandidateSource::Fts, 5.0 / 120.0),
+                    (CandidateSource::Vector, 1.0 / 60.0)
+                ]
+            ),
+        ]
+    );
 }
 
 // Finite inputs can overflow division before any accumulator is created.
@@ -1042,4 +979,62 @@ fn topk_average_omits_non_finite_selected_parents() {
 #[test]
 fn topk_average_empty_input_returns_empty() {
     assert!(TopKAverageAggregator::new(2).aggregate(&[]).is_empty());
+}
+
+// Fixed historical literals and expected output are independent of serde's
+// current serializer. Compare JSON values: object/map key order is not wire API.
+#[test]
+fn merged_hit_literal_wire_compatibility() {
+    let legacy = r#"{"doc_id":"d1","score":0.5}"#;
+    assert_eq!(
+        serde_json::from_str::<MergedHit>(legacy).unwrap(),
+        hit("d1", 0.5)
+    );
+    let mut chunk = hit_with_sources(
+        "d2",
+        0.75,
+        &[(CandidateSource::Fts, 0.25), (CandidateSource::Vector, 0.5)],
+    );
+    chunk.chunk_id = Some("c1".into());
+    let wire = serde_json::json!({
+        "doc_id": "d2", "chunk_id": "c1", "score": 0.75,
+        "source_scores": {"fts": 0.25, "vector": 0.5},
+    });
+    assert_eq!(
+        serde_json::from_value::<MergedHit>(wire.clone()).unwrap(),
+        chunk
+    );
+    assert_eq!(serde_json::to_value(&chunk).unwrap(), wire);
+    assert_eq!(
+        serde_json::to_value(hit("d1", 0.5)).unwrap(),
+        serde_json::json!({
+            "doc_id": "d1", "chunk_id": null, "score": 0.5, "source_scores": {},
+        })
+    );
+}
+
+#[test]
+fn hybrid_search_config_literal_wire_compatibility() {
+    let legacy = r#"{"rrf_k":60.0,"source_weights":{"fts":1.0,"vector":1.0}}"#;
+    let default = HybridSearchConfig::default();
+    assert_eq!(
+        serde_json::from_str::<HybridSearchConfig>(legacy).unwrap(),
+        default
+    );
+    assert_eq!(
+        serde_json::to_value(default).unwrap(),
+        serde_json::json!({
+            "rrf_k": 60.0, "source_weights": {"fts": 1.0, "vector": 1.0},
+        })
+    );
+    let config = HybridSearchConfig {
+        rrf_k: 2.0,
+        source_weights: HashMap::from([(CandidateSource::Fts, 3.0)]),
+    };
+    let wire = serde_json::json!({"rrf_k": 2.0, "source_weights": {"fts": 3.0}});
+    assert_eq!(
+        serde_json::from_value::<HybridSearchConfig>(wire.clone()).unwrap(),
+        config
+    );
+    assert_eq!(serde_json::to_value(config).unwrap(), wire);
 }
