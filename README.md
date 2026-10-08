@@ -298,6 +298,12 @@ let aggregated = aggregator.aggregate(&merged);
 | `DedupeAggregator`            | parent ごとに先頭 1 件のみ残す（順序保持の dedupe）                                    |
 | `TopKAverageAggregator { k }` | parent ごとに上位 `k` chunk スコアの平均を採用（`TopKAverageAggregator::new(k)` も可） |
 
+Stage 3 の標準入力は、Stage 2 が返すスコア降順、`doc_id` 昇順、`chunk_id` 昇順の結果である。
+`IdentityAggregator` と `DedupeAggregator` は入力順を保持するため、降順出力の保証はこの整列済み入力を前提とする。
+任意の未整列入力を渡しても整列せず、Dedupe は最高スコアではなく最初の hit を選ぶ。
+`MaxChunkAggregator` と `TopKAverageAggregator` は未整列入力でも集約後にスコア降順、`doc_id` 昇順へ整列し、`chunk_id = None` を返す。
+MaxChunk の最高スコアが同点の場合は、入力で最初の hit の `source_scores` を保持する。
+
 独自の `Aggregator` を実装する場合は `group_by_parent(&merged) -> HashMap<&str, Vec<&MergedHit>>` で parent 単位にバケットできる。
 
 #### スコア計算の有限性と失敗時の扱い

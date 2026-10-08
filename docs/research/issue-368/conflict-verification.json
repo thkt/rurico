@@ -1,0 +1,66 @@
+{
+  "published_head": "2f3de3907055675b276b45ae3e73db3a28e87d2a",
+  "integrated_main": "01dd1c69c633a7f2eeccd188d566ec25d0f94e93",
+  "merge_head": "01dd1c69c633a7f2eeccd188d566ec25d0f94e93",
+  "unresolved_index": false,
+  "storage_noncomment_lines_unchanged": true,
+  "storage_test_sha256": "c3cbcb008adc694d893cf3ca36eb40e04ac712642893c1ab02e55055ca5b7185",
+  "cargo_lock_sha256": "743d754ae4fb6f0f44d169feab408a1b80caa50d17c38b058ec156c66811bf30",
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "--lib",
+    "--features",
+    "test-support,test-mlx,smoke",
+    "storage::tests",
+    "--",
+    "--nocapture"
+  ],
+  "records": [
+    {
+      "variant": "normal",
+      "exit_code": 0,
+      "wall_seconds_including_build": 8.367114333086647,
+      "test_source_sha256": "c3cbcb008adc694d893cf3ca36eb40e04ac712642893c1ab02e55055ca5b7185",
+      "stdout_sha256": "af8374892b710c6297c828f9ff9c98928b2d37458b9a31116fd43ab9adecfab6",
+      "stderr_sha256": "a6acd0f462ed58470eb77916cb32ea358d38c90f409043c486233fcf298d5184"
+    },
+    {
+      "variant": "byte_reverse",
+      "exit_code": 101,
+      "wall_seconds_including_build": 3.583404375007376,
+      "test_source_sha256": "334be925685e24ddcf536575190e9cf23e7f65188a84a9ad5e99005b56247ed1",
+      "stdout_sha256": "7d33a7387016b0f20f17d748281db65cfeddd4759da48b551ff65dfcafac9520",
+      "stderr_sha256": "f86a5301980bf933c6a0a2c134ab9384d40108b4ed72cf1126dfcd782eb8c379"
+    },
+    {
+      "variant": "neighbor_reverse",
+      "exit_code": 101,
+      "wall_seconds_including_build": 3.7176944999955595,
+      "test_source_sha256": "da79c5ec5117cc6d044f8a5d2e735b6feade62b5e4e22cb1225c009682c5e515",
+      "stdout_sha256": "7d33a7387016b0f20f17d748281db65cfeddd4759da48b551ff65dfcafac9520",
+      "stderr_sha256": "1addc4b9d76dd16d7ee7a4a95e191179423b332d1f2418c85f14e5e6ce580014"
+    },
+    {
+      "variant": "rowid_outer_order",
+      "exit_code": 101,
+      "wall_seconds_including_build": 4.699317165999673,
+      "test_source_sha256": "3848416c2ff5f7b156d2b8fd37c3cb9c47828ced301a1fd791a342fa26419353",
+      "stdout_sha256": "7d33a7387016b0f20f17d748281db65cfeddd4759da48b551ff65dfcafac9520",
+      "stderr_sha256": "d8833a8a2ca28099437dd2485a785d58fbbd3c5f598f2765eb80939a0be54511"
+    },
+    {
+      "variant": "restored",
+      "exit_code": 0,
+      "wall_seconds_including_build": 2.5653026670916006,
+      "test_source_sha256": "c3cbcb008adc694d893cf3ca36eb40e04ac712642893c1ab02e55055ca5b7185",
+      "stdout_sha256": "c06882c1e4fe92c3880cb156d422a921a33ebf5f422139ee2ecfd0342d6ed960",
+      "stderr_sha256": "c3181505fbc7417094b19ff9bb6c9ba57a4ef1c0e84ce489d8baac4d5dba2c96"
+    }
+  ],
+  "failed_direct_rowid_experiment": "Direct ORDER BY rowid in vec0 KNN query is rejected by SQLite; not a successful rank-assertion mutation. Original raw evidence retained externally. Materialized CTE outer ORDER BY rowid tested instead.",
+  "runner_diagnostic": "Initial runner required panic text in stdout only; corrected to inspect stdout and stderr. Prior raw logs retained.",
+  "model_or_gpu_inference": false,
+  "scope": "Real SQL synthetic vectors; no product code change. Timings include compilation and are not performance comparisons."
+}

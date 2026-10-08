@@ -23,8 +23,6 @@ fn neighbors(conn: &Connection, bytes: &[u8], k: i64) -> rusqlite::Result<Vec<(i
 
 #[test]
 fn ensure_sqlite_vec_idempotent() {
-    // Each helper call checks registration before opening its connection;
-    // repeated registration must succeed and both connections remain usable together.
     let connections = [vector_connection(), vector_connection()];
     for conn in &connections {
         let query = [1.0_f32, -2.0, 0.5];
@@ -90,7 +88,6 @@ fn vector_bind_rejects_invalid_bytes_and_dimensions() {
             assert!(message.contains(diagnostic), "{message}");
         }
     }
-    // Invalid writes leave no candidates; a valid write/query still works.
     let count: i64 = conn
         .query_row("SELECT count(*) FROM vec_probe", [], |row| row.get(0))
         .unwrap();
