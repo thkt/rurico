@@ -112,7 +112,6 @@ fn no_norm() -> QueryNormalizationConfig {
     QueryNormalizationConfig::disabled()
 }
 
-// #297: synthetic input, serialized MATCH, and exact hits are kept together.
 // unicode61 discards punctuation; trigram exposes accidental extra quotes.
 // Each pair includes a distractor so dropping punctuation is also detectable.
 #[test]
@@ -218,10 +217,8 @@ fn prepare_match_query_japanese_expansion_executes_with_both_tokenizers() {
     }
 }
 
-// #224: a vocab-expanded group adjacent to another token must form a valid
-// FTS5 expression. Implicit AND rejects parenthesised groups as operands
-// (`(a OR b) c` is an fts5 syntax error), so the query must execute, not
-// just look right as a string.
+// FTS5 implicit AND rejects parenthesised groups as operands (`(a OR b) c`),
+// so serialized expansion must also execute successfully.
 #[test]
 fn prepare_match_query_expanded_group_is_executable() {
     let conn = setup_fts_db();
@@ -429,19 +426,16 @@ fn ok(s: &str) -> Result<SanitizedFtsQuery, SanitizeError> {
     Ok(sanitized(s))
 }
 
-// T-001: near_removal
 #[test]
 fn near_removal() {
     assert_eq!(sanitize_fts_query("NEAR(a b) hello"), ok("hello"));
 }
 
-// T-001b: near_with_distance
 #[test]
 fn near_with_distance() {
     assert_eq!(sanitize_fts_query("NEAR/3(a b c) hello"), ok("hello"));
 }
 
-// T-001c: near_unclosed_paren
 #[test]
 fn near_unclosed_paren() {
     assert_eq!(
@@ -450,36 +444,29 @@ fn near_unclosed_paren() {
     );
 }
 
-// T-004: prefix_strip
 #[test]
 fn prefix_strip() {
     assert_eq!(sanitize_fts_query("^+hello"), ok("hello"));
 }
 
-// T-011: sandwiched_operator_preserved
 #[test]
 fn sandwiched_operator_preserved() {
     assert_eq!(sanitize_fts_query("foo AND bar"), ok("foo AND bar"));
     assert_eq!(sanitize_fts_query("foo OR bar"), ok("foo OR bar"));
 }
 
-// T-012: dangling_operator_dropped
 #[test]
 fn dangling_operator_dropped() {
-    // Leading/trailing operators without both neighbours are dropped.
     assert_eq!(sanitize_fts_query("NOT secret"), ok("secret"));
     assert_eq!(sanitize_fts_query("foo OR"), ok("foo"));
 }
 
-// T-012b: consecutive_operators_between_terms
 #[test]
 fn consecutive_operators_between_terms() {
-    // Neither AND nor OR has a non-operator on both sides → both dropped.
     assert_eq!(sanitize_fts_query("foo AND OR bar"), ok("foo bar"));
     assert_eq!(sanitize_fts_query("NOT foo NOT"), ok("foo"));
 }
 
-// T-013: operator_only_returns_error
 #[test]
 fn operator_only_returns_error() {
     assert_eq!(
@@ -492,27 +479,18 @@ fn operator_only_returns_error() {
     );
 }
 
-// T-014: near_then_dangling_operator
 #[test]
 fn near_then_dangling_operator() {
-    // "foo OR NEAR(bar baz)" → NEAR stripped → "foo OR" → OR dangling → "foo"
     assert_eq!(sanitize_fts_query("foo OR NEAR(bar baz)"), ok("foo"));
 }
 
-// T-015: case_insensitive_operators
 #[test]
 fn case_insensitive_operators() {
     assert_eq!(sanitize_fts_query("foo or bar"), ok("foo or bar"));
     assert_eq!(sanitize_fts_query("Not secret"), ok("secret"));
 }
 
-// T-105-013: drop_dangling_operators_drops_operator_at_position_zero
-//
-// Boundary: a valid FTS5 operator at index 0 cannot have a left neighbour,
-// so `has_left` is false and the operator must be dropped even when a
-// non-operator follows. Pins the `i > 0` short-circuit against a future
-// off-by-one rewrite that would let leading `AND` / `OR` slip through and
-// form an invalid FTS5 expression.
+// A leading operator has no left neighbour, even when a term follows.
 #[test]
 fn drop_dangling_operators_drops_operator_at_position_zero() {
     let tokens: Vec<String> = vec!["AND".into(), "foo".into(), "bar".into()];

@@ -1,4 +1,4 @@
-//! Query normalization for FTS5 indexing and retrieval (Phase 5, Issue #69).
+//! Query normalization for FTS5 indexing and retrieval.
 //!
 //! Resolves common Japanese/Latin notation drift before sanitization and
 //! short-term expansion. Applied to **both** indexed text and query text so

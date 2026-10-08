@@ -4,7 +4,6 @@ use rusqlite::Connection;
 
 use super::query_normalize::{QueryNormalizationConfig, normalize_for_fts_cow};
 
-/// Filter out `NEAR(...)` and `NEAR/N(...)` groups from whitespace-split tokens.
 fn strip_near_groups(query: &str) -> Vec<&str> {
     let mut tokens = Vec::new();
     let mut paren_depth: usize = 0;
@@ -34,8 +33,6 @@ fn is_fts5_operator(token: &str) -> bool {
         .any(|op| token.eq_ignore_ascii_case(op))
 }
 
-/// Remove operator-like keywords that lack a non-operator neighbour on both
-/// sides. Keeps operators sandwiched between real terms.
 fn drop_dangling_operators(tokens: &[String]) -> Vec<&str> {
     tokens
         .iter()
@@ -143,7 +140,7 @@ pub fn fts_quote(s: &str) -> String {
 
 /// Normalize, sanitize, and expand short terms into a query safe for FTS5 `MATCH`.
 ///
-/// Phase 5 (#69): `normalization` is applied **before** `sanitize_fts_query`
+/// `normalization` is applied **before** `sanitize_fts_query`
 /// so full-width punctuation (e.g. `（`) folds to ASCII (`(`) prior to NEAR
 /// detection. Callers must apply the same `normalization` config to indexed
 /// text — applying only to one side leaves the FTS5 token streams disagreed
@@ -303,12 +300,7 @@ pub(crate) fn fts_expand_short_terms(
     // Join with explicit AND: FTS5 implicit adjacency rejects parenthesised
     // groups as operands (`(a OR b) c` is a syntax error); explicit AND
     // accepts them with identical semantics.
-    //
-    // Wire-format contract (amici ADR-0008): this ` AND ` separator and the
-    // `"..."` / `( ... )` / ` OR ` shapes are parsed by amici's
-    // `parse_fts_segments`. Changing them is a cross-repo contract change;
-    // amici's round-trip test surfaces drift at rev-bump time. See
-    // [`MatchFtsQuery`].
+    // See MatchFtsQuery for the cross-repo wire-format contract.
     Ok(MatchFtsQuery(parts.join(" AND ")))
 }
 

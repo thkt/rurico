@@ -6,7 +6,7 @@
 
 要求と合意の正本は [Issue #312](https://github.com/thkt/rurico/issues/312)（依頼時の更新時刻2026-10-07T17:05:19Z）。[親Issue #296](https://github.com/thkt/rurico/issues/296)（確認した更新時刻2026-10-07T17:08:32Z）のセットアップ・証拠保存方針を適用する。#314のphrase/fallback設計、DB状態をまたぐcache、consumer移行は今回の範囲外。
 
-開始commitと比較基準は `24725a72be44300afc24186b82b14bcb3f5f9d3d`。開始時のcheckoutとローカル`origin/main`は同じcommitだった。GitHub mainの追加取得は通信失敗で確認できておらず、指定された開始版を基準にした。Issueの現行根拠`c8f250d60a5afb9944b9008d22ad6f4dda2d7103`から、対象のsearch/query_normalize本体・テストと[共有済み#307報告](../../research/issue-307/report.md)には差分がない。報告の開始版blobは `7dfa0a8c4248548bb81edbf183e0ea3ee72e45c5`。その2026-09-27の固定入力・モデル・amici構成の数値は過去の証拠として維持し、今回の検索品質・性能の実測へ読み替えない。
+開始commitと比較基準は `24725a72be44300afc24186b82b14bcb3f5f9d3d`。開始時のcheckoutとローカル`origin/main`は同じcommitだった。初回のGitHub main追加取得は通信失敗だったため、指定された開始版を基準にした。その後ホストが取得したmainは同じ `24725a72be44300afc24186b82b14bcb3f5f9d3d` と確認された（今回の固定入力による引き継ぎ）。評価担当自身による取得や性能検証を意味しない。Issueの現行根拠`c8f250d60a5afb9944b9008d22ad6f4dda2d7103`から、対象のsearch/query_normalize本体・テストと[共有済み#307報告](../../research/issue-307/report.md)には差分がない。報告の開始版blobは `7dfa0a8c4248548bb81edbf183e0ea3ee72e45c5`。その2026-09-27の固定入力・モデル・amici構成の数値は過去の証拠として維持し、今回の検索品質・性能の実測へ読み替えない。
 
 [ADR-0001](../../decisions/0001-typed-fts-query-contract.md)（開始版blob `063be37733cd61524044fa9b6bd726b05589a5ab`、accepted）の型付きMATCHと、[ADR-0012](../../decisions/0012-adopt-symmetric-phase-5-query-normalization.md)（blob `27f2d15c5279aa5fcc0b81c23074571482577c2e`、accepted）のindex/query対称性・旧baseline全OFFを維持する。#297の引用修正とamici wire-formatは変更しない。親Issueに引用された旧checkコマンドは当時のfeature構成であり、現行の[CONTRIBUTING](../../../CONTRIBUTING.md#テスト)・`scripts/check.sh`にはsmokeとモデル不要laneの選択検査が追加されている。今回の契約にはその現行入口をそのまま使う。
 
@@ -18,7 +18,7 @@
 
 2026-10-08、arm64 macOS 27.0.1 (26A434)、Rust/Cargo 1.99.0、Xcode 27.0 (27A266a)、Metal 32023.921を確認した。機種・メモリ容量と背景processはsandboxから取得できなかった。計測はCPUのみで、GPU・モデル・ブラウザー・サーバーを起動していない。
 
-[probe.rs](probe.rs)は製品sourceをbyte単位でコピーした変更前後のmoduleを同じbinaryへコンパイルする。Rust側は`-O -C lto`、両版に同じ既存release dependency rlibを使った。既存buildのCargo.lockは今回とSHA-256が一致し、版は変更していない。初回測定のsource・lock・dependency・binary hashは[manifest.json](manifest.json)、R1修正版は[開始版比較manifest](repair-1/start/manifest.json)と[初回評価対象比較manifest](repair-1/prior/manifest.json)、R2修正版は[開始版比較manifest](repair-2/start/manifest.json)と[前回評価対象比較manifest](repair-2/prior/manifest.json)に保存した。R3修正版は[開始版比較manifest](repair-3/start/manifest.json)と[前回評価対象比較manifest](repair-3/prior/manifest.json)で特定する。現行R4修正版は[開始版比較manifest](repair-4/start/manifest.json)と[前回評価対象比較manifest](repair-4/prior/manifest.json)で特定する。これはworkspace全体のrelease buildやMLX測定ではない。最初のprobe linkはLTO指定不足によるApple linkerのbitcode版差で失敗し、`-C lto`を加えて新規出力先で再実行した。失敗した実行を成功として数えていない。
+[probe.rs](probe.rs)は製品sourceをbyte単位でコピーした変更前後のmoduleを同じbinaryへコンパイルする。Rust側は`-O -C lto`、両版に同じ既存release dependency rlibを使った。既存buildのCargo.lockは今回とSHA-256が一致し、版は変更していない。初回測定のsource・lock・dependency・binary hashは[manifest.json](manifest.json)、R1修正版は[開始版比較manifest](repair-1/start/manifest.json)と[初回評価対象比較manifest](repair-1/prior/manifest.json)、R2修正版は[開始版比較manifest](repair-2/start/manifest.json)と[前回評価対象比較manifest](repair-2/prior/manifest.json)に保存した。R3修正版は[開始版比較manifest](repair-3/start/manifest.json)と[前回評価対象比較manifest](repair-3/prior/manifest.json)で特定する。コメント整理前のR4測定版は[開始版比較manifest](repair-4/start/manifest.json)と[前回評価対象比較manifest](repair-4/prior/manifest.json)で特定する。これはworkspace全体のrelease buildやMLX測定ではない。最初のprobe linkはLTO指定不足によるApple linkerのbitcode版差で失敗し、`-C lto`を加えて新規出力先で再実行した。失敗した実行を成功として数えていない。
 
 SQLiteのin-memory unicode61 FTS5へ1000文書（`audit0000 authentication0000 login`等）を投入し、更新後に`autumn`を追加した同一DBを使う。vocabは2002種類。変更前後のserialized queryを更新前後で照合する。NFKC/ASCII/空白は、空・Unicode・ASCII・記号等8入力×全8設定で変更前後を照合し、固定literal期待値と冪等性は通常テストでも確認する。
 
@@ -95,6 +95,8 @@ R3の最初の測定はfmt修正前のsourceで実行したため、[そのmanif
 
 ## 四回目評価後の修正と再測定
 
+この節の「現在」「current source」や成功結果は、コメント整理前の公開head `b24ea787dcd59d33e04aa9b8255f3310f2070aa1` の歴史的byte版を指す。整理後のsource hashとは一致しない。原資料は保持し、現在版への限定適用は[コメント整理後の版照合](comment-source-check.md)を参照する。
+
 R4-1は、単語の走査を1回にした空白処理でも、`split_whitespace`で元入力から切り出した単語を`starts_with`で再比較していたことを示した。R1〜R4の評価・assessmentsと空のhandoff、attempt 3のfindingsと変更版、ホストcheck-4を現在のsourceへ照合した。attempt 3のsourceBeforeは`e1c36305a7764164e163797ac38ad57044bdf1e2f99474d04b1f1d2f1c73167b`、sourceAfterは`d7cd4fa88c31f004d371e988812add519e4b053a0a83ae5c648dcbd421d490bd`、stdout SHA-256は`d8e30e79790608c2b70ea137e2d86d7d6e9a3d3d5dc70c2fb1e1164375789770`。check-4はそのsourceAfterで終了0、stdout/stderr SHA-256はそれぞれ`b3a989a689efb8bf6899fd3785d4aa8e18a5be3f4cb83264486c93624a649cd3` / `c5b6a2f47eb29bde9ee04d1e1bae1404af8d3dfd9255075ed832b7baa7ac39ef`で評価対象記録と一致した。修正開始時の4 source・lockはR3 manifestと一致した。過去5件の修正は維持し、check成功を冗長処理の不存在へ読み替えない。
 
 `output=None`の間はoffset以前がcanonicalで、単語は同じ不変のtextを借用する。区切りを確認した後のtailとwordの開始アドレスを比較すれば、必要な位置の一致を判断できる。内容の再比較だけをこの位置比較へ置き換え、追加の状態・helper引数・工程間cacheは設けていない。先頭・末尾・Unicode空白と空入力での所有化、変更不要入力のBorrowed、NFKC→ASCII→空白の順序、公開String APIは維持する。search本体・テストは変更せず、schema検査・query内memo・引用・literal wildcard・DB更新後の観測も維持する。
@@ -124,6 +126,8 @@ python3 docs/benchmarks/issue-312/run.py --deps "$CARGO_TARGET_DIR/release/deps"
 
 `CARGO_TARGET_DIR`を設定していない場合は`--deps target/release/deps`を指定する。同じcrate名のrlibが複数ある場合は曖昧な選択を拒否する。実行中に測定対象sourceやCargo.lockが変われば失敗し、新しい版の成功記録として保存しない。生record・manifest・対象テスト結果を新規出力先へ残す。通常check・独立評価・CIと、性能測定の結果は分けて扱う。
 
+このコマンドは実行するcheckoutの現在のbyte版を測る。保存済みR4の測定対象を再現する場合は、公開head `b24ea787dcd59d33e04aa9b8255f3310f2070aa1` の未変更の別checkoutで同じ手順を使い、4 source・lock・probeをR4両manifestへ照合する。整理後のcheckoutを使った新しい結果をR4原本へ上書きしない。コメントだけの今回の変更に再測定は要求せず、[実行部分の同一性照合](comment-source-check.md)と新しい通常check・独立評価へ引き継ぐ。
+
 修正前の評価対象との比較を再現する場合は、開始commitの4 sourceとCargo.lockをcheckout外へ取得し、`repair-1/prior-source.patch`をそのコピーへ適用してから、`--baseline-dir /tmp/rurico-312-prior-source --baseline-id f3ef9e8435ad20db1ed1730b1e418c01befc6a8801fa7b47164458d21ffbf6d2`を追加する。比較用sourceのhashを初回manifestの`current/`へ照合する。追加引数なしの場合は引き続き開始commitと比較する。保存済み過去rawとmanifestを上書きしない。
 
 R2直前の評価対象を比較元にする場合は、同じ開始版コピーへ`repair-2/prior-source.patch`を適用し、`--baseline-dir`と`--baseline-id 9fed7e3b57063f54c88ccb08905114b1ca2d5c5bc2cec4089f1f1cd73328e519`を指定する。source hashはR1 manifestの`current/`へ照合する。初回/R1 probeは過去条件の再現用として保持する。
@@ -131,3 +135,13 @@ R2直前の評価対象を比較元にする場合は、同じ開始版コピー
 R3直前の評価対象を比較元にする場合は、同じ開始版コピーへ`repair-3/prior-source.patch`を適用し、`--baseline-dir`と`--baseline-id 23c720e2591c6367b914758e2014e67d7d0bf2f3b8c523b728057746afeb6865`を指定する。source hashはR2 manifestの`current/`へ照合する。R2のprobe・測定結果も過去の条件として保持する。
 
 R4直前の評価対象を比較元にする場合は、同じ開始版コピーへ`repair-4/prior-source.patch`を適用し、`--baseline-dir`と`--baseline-id a77b057b0f2e33bfb648b73b012fcf67d8da677bfea61e21e4d4b514ccc7d930`を指定する。source hashはR3 manifestの`current/`へ照合する。過去のprobe・raw・manifestは上書きしない。
+
+## コメント整理後の扱いと引き継ぎ
+
+今回の固定入力で採用されたコメント整理に従い、4 Rust sourceの古いテスト番号、関数名やassertionの反復、末尾の重複wire-format説明を整理した。公開契約、対称正規化とlegacy default、SQLiteのschema/implicit AND、fixtureが区別する失敗条件、同じ元入力を借用する位置比較の不変条件は保持した。[版照合](comment-source-check.md)で、R4測定byte版と整理後の非コメント行が一致することを確認した。コメントの削減・行数・ファイル配置を性能や保守費用の改善量へ数えず、時間比較は再実行していない。測定結果の原本・数値・版は書き換えない。
+
+親Issue [#296](https://github.com/thkt/rurico/issues/296)は過去の独立評価では取得できなかったが、ホストの追加read-only取得は成功している。提供ファイルの更新時刻は `2026-10-07T17:08:32Z`（初回記録と同じ）、本文のUTF-8 SHA-256は `5918980b98047e009322bf25711d01b7aab98802c826719ef3cc0bcab7d00ee6`。その本文にあるlocked依存、Apple Silicon/Xcode/Metal、既存check、証拠の公開先、方式・consumer・品質許容差の未採用条件を合意済みIssueと現行CONTRIBUTINGへ照合した。取得不能だった過去の実行事実は各節に残し、現在のホストで未取得とは扱わない。この確認は評価担当自身の取得成功や実モデル/検索品質の実測ではない。#307報告とaccepted ADRの対象版・適用範囲は「要求と参照版」のままで、方式採用や品質改善の許可には読み替えない。
+
+コメントはコードを言い直すだけのものが再び増え得るが、今回の整理基準と必要な理由は残した。新しいルール・専用lint・テストの追加では、今回の実行契約に検出保証を加えられない。既存のliteral vocab/実MATCHはwildcardの誤hitとescape消失の失hit、呼出し間DB更新は古い結果、同一接続/二接続のschema検証は異なるschema cache境界での誤成功を防ぐため維持する。全8設定・Maybe・空白位置とBorrowedの検証も、正規化順序・prefix/suffix欠落・不要な所有化を防ぐ。assertion・数値条件・テスト構成は変更せず、追加・削除・移動・統合したテストも失う検出条件もない。二接続のfile I/Oには同一接続で守れない保証があり、時間閾値テストは背景負荷による不安定さと保守費用に見合う追加保証がないため加えない。通常suiteの費用は未測定で、過去の対象harnessの0.02秒を現在版の所要や改善量へ流用しない。
+
+設定済み `bash scripts/check.sh` は通常の対象テスト・doctest・Clippy・fmtを含み、capture=nullはUI媒体不要というIssueに一致する。コメント整理後の全体check、変更文書を含む新しい独立評価、同じ公開headのCI（test・coverage・security・zizmor）はホストの後続工程で確認する。古いacceptedやcheck成功は流用しない。新しい評価のassessmentsとhandoffには上記限界と[既存公開添付リンク](comment-source-check.md)を明示し、PR本文へ引き継ぐ。ここではcommit・push・公開を行わず、draftを維持する。
