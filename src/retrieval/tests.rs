@@ -1,41 +1,35 @@
 use super::*;
 
-// T-007: age_zero_returns_one
 #[test]
 fn age_zero_returns_one() {
     let result = recency_decay(0.0, 30.0);
     assert!((result - 1.0).abs() < f64::EPSILON);
 }
 
-// T-008: one_half_life_returns_half
 #[test]
 fn one_half_life_returns_half() {
     let result = recency_decay(30.0, 30.0);
     assert!((result - 0.5).abs() < 0.01);
 }
 
-// T-009: two_half_lives_returns_quarter
 #[test]
 fn two_half_lives_returns_quarter() {
     let result = recency_decay(60.0, 30.0);
     assert!((result - 0.25).abs() < 0.01);
 }
 
-// T-010: zero_half_life_returns_zero
 #[test]
 fn zero_half_life_returns_zero() {
     let result = recency_decay(0.0, 0.0);
     assert!((result - 0.0).abs() < f64::EPSILON);
 }
 
-// T-010b: negative_half_life_returns_zero
 #[test]
 fn negative_half_life_returns_zero() {
     let result = recency_decay(5.0, -1.0);
     assert!((result - 0.0).abs() < f64::EPSILON);
 }
 
-// T-010c: negative_age_clamped_to_one
 #[test]
 fn negative_age_clamped_to_one() {
     let result = recency_decay(-5.0, 30.0);
@@ -74,7 +68,6 @@ fn chunk_hit(doc_id: &str, chunk_id: &str, score: f64) -> MergedHit {
     }
 }
 
-// T-067-001: identity_returns_input_unchanged
 #[test]
 fn identity_returns_input_unchanged() {
     let aggregator = IdentityAggregator;
@@ -83,7 +76,6 @@ fn identity_returns_input_unchanged() {
     assert_eq!(output, input, "Identity must preserve input verbatim");
 }
 
-// T-067-002: max_chunk_collapses_duplicates_to_max_score
 #[test]
 fn max_chunk_collapses_duplicates_to_max_score() {
     let aggregator = MaxChunkAggregator;
@@ -101,7 +93,6 @@ fn max_chunk_collapses_duplicates_to_max_score() {
     );
 }
 
-// T-067-003: dedupe_keeps_first_occurrence_per_doc_id
 #[test]
 fn dedupe_keeps_first_occurrence_per_doc_id() {
     let aggregator = DedupeAggregator;
@@ -120,8 +111,6 @@ fn dedupe_keeps_first_occurrence_per_doc_id() {
     );
 }
 
-// T-067-004: topk_average_averages_top_k_per_doc_id
-//
 // Uses IEEE-754-exact dyadic fractions (1.0, 0.5, 0.25, 0.125) so the
 // observed averages compare bit-equal to the expected values.
 #[test]
@@ -146,7 +135,6 @@ fn topk_average_averages_top_k_per_doc_id() {
     );
 }
 
-// T-067-005: topk_average_with_zero_k_returns_empty
 #[test]
 fn topk_average_with_zero_k_returns_empty() {
     let aggregator = TopKAverageAggregator::new(0);
@@ -155,23 +143,30 @@ fn topk_average_with_zero_k_returns_empty() {
     assert!(output.is_empty(), "k=0 should return empty");
 }
 
-// T-067-006: max_chunk_unique_input_only_resorts
-//
-// Documents the structural-identity fact called out in the module doc:
-// when input doc_ids are already unique (current pipeline shape), the
-// observable difference between MaxChunk and Identity is only the sort.
+// MaxChunk uses numerical > while TopK uses total_cmp; their signed-zero
+// provenance differs for signed zero.
 #[test]
-fn max_chunk_unique_input_only_resorts() {
-    let aggregator = MaxChunkAggregator;
-    let input = vec![hit("d1", 0.9), hit("d2", 0.7), hit("d3", 0.5)];
-    let output = aggregator.aggregate(&input);
+fn max_chunk_and_topk_choose_distinct_provenance_for_signed_zero() {
+    let zeros = [
+        hit_with_sources("zero", -0.0, &[(CandidateSource::Fts, 1.0)]),
+        hit_with_sources("zero", 0.0, &[(CandidateSource::Vector, 2.0)]),
+    ];
+    let maximum = MaxChunkAggregator.aggregate(&zeros);
+    assert!(maximum[0].score.is_sign_negative());
     assert_eq!(
-        output, input,
-        "MaxChunk on already-unique input must equal input"
+        maximum[0].source_scores,
+        HashMap::from([(CandidateSource::Fts, 1.0)])
+    );
+    assert_eq!(
+        TopKAverageAggregator::new(1).aggregate(&zeros),
+        vec![hit_with_sources(
+            "zero",
+            0.0,
+            &[(CandidateSource::Vector, 2.0)]
+        ),]
     );
 }
 
-// T-068-001: identity_preserves_source_scores
 #[test]
 fn identity_preserves_source_scores() {
     let aggregator = IdentityAggregator;
@@ -187,7 +182,6 @@ fn identity_preserves_source_scores() {
     );
 }
 
-// T-068-002: max_chunk_keeps_max_scoring_hits_source_scores
 #[test]
 fn max_chunk_keeps_max_scoring_hits_source_scores() {
     let aggregator = MaxChunkAggregator;
@@ -208,7 +202,6 @@ fn max_chunk_keeps_max_scoring_hits_source_scores() {
     );
 }
 
-// T-068-003: dedupe_keeps_first_hits_source_scores
 #[test]
 fn dedupe_keeps_first_hits_source_scores() {
     let aggregator = DedupeAggregator;
@@ -225,8 +218,6 @@ fn dedupe_keeps_first_hits_source_scores() {
     );
 }
 
-// T-068-004: topk_average_averages_source_scores
-//
 // Uses dyadic fractions so the averaged source_scores compare bit-equal.
 #[test]
 fn topk_average_averages_source_scores() {
@@ -255,8 +246,6 @@ fn candidate(source: CandidateSource, doc_id: &str, rank: usize) -> Candidate {
     }
 }
 
-// T-068-005: weighted_rrf_default_matches_unweighted_rrf
-//
 // With default config (rrf_k=60, weights=1.0), WeightedRrf must produce
 // bit-equal scores to the legacy 1/(60+rank) formula.
 #[test]
@@ -277,8 +266,6 @@ fn weighted_rrf_default_matches_unweighted_rrf() {
     assert!((output[1].score - d2_score).abs() < f64::EPSILON);
 }
 
-// T-104-001: weighted_rrf_default_breaks_ties_by_doc_id
-//
 // When two docs receive identical RRF scores, merge must order them by
 // doc_id ascending (lexicographic). Tie-break contract preserved on the
 // canonical WeightedRrf path.
@@ -302,8 +289,6 @@ fn weighted_rrf_default_breaks_ties_by_doc_id() {
     assert_eq!(output[1].doc_id, "d3");
 }
 
-// T-068-006: weighted_rrf_zero_weight_drops_source
-//
 // Disabled-source candidates must NOT leak into the merged set. If a doc
 // has only a contribution from the zero-weight source, it must be absent
 // from the output entirely — otherwise it would survive truncate-to-k and
@@ -324,8 +309,6 @@ fn weighted_rrf_zero_weight_drops_source() {
     assert!((output[0].score - 1.0 / 60.0).abs() < f64::EPSILON);
 }
 
-// T-214-001: weighted_rrf_drops_contribution_when_denominator_is_zero
-//
 // rrf_k = 0 with a rank-0 candidate makes the denominator (rrf_k + rank) zero,
 // which without the guard emits an `inf` fused score. The contribution must be
 // dropped (like a zero-weight source) so the lone candidate yields no hit.
@@ -343,8 +326,6 @@ fn weighted_rrf_drops_contribution_when_denominator_is_zero() {
     );
 }
 
-// T-214-002: weighted_rrf_drops_contribution_for_non_positive_denominator
-//
 // A negative rrf_k can zero the denominator (rank cancels it) or drive it
 // negative; both must be dropped so no negative or infinite fused score escapes.
 #[test]
@@ -364,8 +345,6 @@ fn weighted_rrf_drops_contribution_for_non_positive_denominator() {
     );
 }
 
-// T-214-003: weighted_rrf_drops_contribution_for_non_finite_rrf_k
-//
 // A NaN or infinite rrf_k makes the denominator non-finite; the guard drops the
 // contribution so no NaN/inf score escapes merge.
 #[test]
@@ -384,8 +363,6 @@ fn weighted_rrf_drops_contribution_for_non_finite_rrf_k() {
     }
 }
 
-// T-214-004: weighted_rrf_partial_drop_keeps_valid_denominator_hits
-//
 // With a negative rrf_k, only candidates whose rank pushes the denominator
 // positive survive; survivors keep finite scores while invalid ones are dropped.
 #[test]
@@ -412,8 +389,6 @@ fn weighted_rrf_partial_drop_keeps_valid_denominator_hits() {
     );
 }
 
-// T-217-001: weighted_rrf_drops_non_finite_source_weight
-//
 // A NaN or infinite source weight slips through the `weight == 0.0` guard via
 // IEEE 754 (`NaN == 0.0` is false), so `weight / denom` poisons the fused score.
 // Sibling of the #214 denominator guards: a non-finite source weight must drop
@@ -445,7 +420,6 @@ fn weighted_rrf_drops_non_finite_source_weight() {
     }
 }
 
-// T-068-007: weighted_rrf_records_per_source_contributions
 #[test]
 fn weighted_rrf_records_per_source_contributions() {
     let strategy = WeightedRrf::default();
@@ -464,7 +438,6 @@ fn weighted_rrf_records_per_source_contributions() {
     assert!((vec.unwrap() - 1.0 / 62.0).abs() < f64::EPSILON);
 }
 
-// T-068-009: weighted_rrf_recency_zero_weight_is_noop
 #[test]
 fn weighted_rrf_recency_zero_weight_is_noop() {
     let strategy = WeightedRrf::default();
@@ -484,7 +457,6 @@ fn weighted_rrf_recency_zero_weight_is_noop() {
     );
 }
 
-// T-068-010: weighted_rrf_recency_boosts_recent_hits
 #[test]
 fn weighted_rrf_recency_boosts_recent_hits() {
     let strategy = WeightedRrf::default();
@@ -511,7 +483,6 @@ fn weighted_rrf_recency_boosts_recent_hits() {
     );
 }
 
-// T-068-011: weighted_rrf_recency_skips_missing_age
 #[test]
 fn weighted_rrf_recency_skips_missing_age() {
     let strategy = WeightedRrf::default();
@@ -536,8 +507,6 @@ fn weighted_rrf_recency_skips_missing_age() {
     assert!((d2.score - 1.0 / 61.0).abs() < f64::EPSILON);
 }
 
-// T-217-002: weighted_rrf_recency_non_finite_weight_returns_unboosted
-//
 // A NaN or infinite recency weight slips through the `recency.weight == 0.0`
 // early return (`NaN == 0.0` is false), so every hit gets `weight * decay`
 // added and the score goes non-finite. A non-finite recency weight disables the
@@ -563,15 +532,13 @@ fn weighted_rrf_recency_non_finite_weight_returns_unboosted() {
     }
 }
 
-// T-217-003: weighted_rrf_recency_nan_half_life_keeps_finite_score
-//
-// half_life=NaN slips through `half_life_days <= 0.0` (`NaN <= 0.0` is false),
-// so recency_decay returns NaN and `score += weight * NaN` poisons the hit.
-// With a finite recency weight, the boost-clamp must skip the non-finite boost
-// and retain each hit's RRF score, keeping every score finite.
+// NaN passes the <= 0 check; its non-finite decay must leave the hit intact.
 #[test]
-fn weighted_rrf_recency_nan_half_life_keeps_finite_score() {
-    let strategy = WeightedRrf::default();
+fn weighted_rrf_recency_nan_half_life_keeps_unboosted_hits() {
+    let strategy = WeightedRrf::new(HybridSearchConfig {
+        rrf_k: 4.0,
+        ..Default::default()
+    });
     let candidates = vec![
         candidate(CandidateSource::Fts, "d1", 0),
         candidate(CandidateSource::Fts, "d2", 1),
@@ -581,35 +548,38 @@ fn weighted_rrf_recency_nan_half_life_keeps_finite_score() {
         half_life_days: f64::NAN,
     };
     let output = strategy.merge_with_recency(&candidates, &recency, |_| Some(10.0));
-    assert!(
-        output.iter().all(|h| h.score.is_finite()),
-        "NaN half_life must skip the boost and keep every score finite, got: {output:?}"
+    assert_eq!(
+        output,
+        vec![
+            hit_with_sources("d1", 0.25, &[(CandidateSource::Fts, 0.25)]),
+            hit_with_sources("d2", 0.2, &[(CandidateSource::Fts, 0.2)])
+        ]
     );
 }
 
-// T-217-004: weighted_rrf_recency_inf_half_life_inf_age_keeps_finite_score
-//
-// half_life=+inf is harmless with a finite age (decay = exp(-0.0) = 1.0), but
-// age=+inf makes recency_decay compute (-inf / +inf).exp() = NaN, so the boost
-// goes non-finite. The boost-clamp on `weight * decay` must absorb this and
-// keep scores finite.
+// Infinite age / infinite half-life produces NaN, so only the boost is skipped.
 #[test]
-fn weighted_rrf_recency_inf_half_life_inf_age_keeps_finite_score() {
-    let strategy = WeightedRrf::default();
+fn weighted_rrf_recency_inf_half_life_inf_age_keeps_unboosted_hits() {
+    let strategy = WeightedRrf::new(HybridSearchConfig {
+        rrf_k: 4.0,
+        ..Default::default()
+    });
     let candidates = vec![candidate(CandidateSource::Fts, "d1", 0)];
     let recency = RecencyConfig {
         weight: 1.0,
         half_life_days: f64::INFINITY,
     };
     let output = strategy.merge_with_recency(&candidates, &recency, |_| Some(f64::INFINITY));
-    assert!(
-        output.iter().all(|h| h.score.is_finite()),
-        "+inf half_life with +inf age must clamp the NaN boost and keep scores finite, got: {output:?}"
+    assert_eq!(
+        output,
+        vec![hit_with_sources(
+            "d1",
+            0.25,
+            &[(CandidateSource::Fts, 0.25)]
+        )]
     );
 }
 
-// T-217-005: weighted_rrf_recency_inf_half_life_finite_age_keeps_full_boost
-//
 // Regression guard (green before and after the fix): half_life=+inf with a
 // finite age decays to exp(-0.0)=1.0, so the hit must receive the full
 // recency.weight (1.0) boost on top of its RRF score (1/60). This pins that the
@@ -633,8 +603,6 @@ fn weighted_rrf_recency_inf_half_life_finite_age_keeps_full_boost() {
     );
 }
 
-// T-076-001: weighted_rrf_fuses_chunks_separately_when_chunk_id_differs
-//
 // Issue #76 / ADR 0004 line 180: when chunk-level retrieval is active,
 // distinct child chunks of the same parent doc MUST survive Stage 2
 // fusion. Otherwise Stage 3 aggregators have nothing to collapse and
@@ -669,7 +637,6 @@ fn weighted_rrf_fuses_chunks_separately_when_chunk_id_differs() {
     assert!(chunk_ids.contains(&Some("c1")), "c1 must be present");
 }
 
-// T-076-002: identity_preserves_chunk_level_distinctness
 #[test]
 fn identity_preserves_chunk_level_distinctness() {
     let aggregator = IdentityAggregator;
@@ -683,81 +650,75 @@ fn identity_preserves_chunk_level_distinctness() {
     assert_eq!(output, input, "Identity must preserve chunk_ids verbatim");
 }
 
-// T-076-003: max_chunk_collapses_sibling_chunks_to_parent
-//
-// Two chunks of d1 (scores 0.5 + 0.9), one chunk of d2 (0.7). MaxChunk
-// must keep d1's higher-scoring chunk (0.9), drop the sibling, and emit
-// parent-granular hits (chunk_id=None).
+// Unsorted parents tie on the maximum. Equal sibling scores retain the
+// first chunk's sources, while parent output ties use doc_id ascending.
 #[test]
 fn max_chunk_collapses_sibling_chunks_to_parent() {
-    let aggregator = MaxChunkAggregator;
-    let input = vec![
-        chunk_hit("d1", "c0", 0.5),
-        chunk_hit("d2", "c0", 0.7),
-        chunk_hit("d1", "c1", 0.9),
-    ];
-    let output = aggregator.aggregate(&input);
-    assert_eq!(output.len(), 2, "MaxChunk collapses d1's two chunks");
-    assert_eq!(output[0].doc_id, "d1", "d1 wins ranking via its 0.9 chunk");
-    assert!(
-        (output[0].score - 0.9).abs() < f64::EPSILON,
-        "d1 score must be 0.9 (max of its chunks)"
-    );
+    let mut first = chunk_hit("d2", "z", 1.0);
+    first.source_scores = HashMap::from([(CandidateSource::Vector, 0.5)]);
+    let mut later = chunk_hit("d2", "a", 1.0);
+    later.source_scores = HashMap::from([(CandidateSource::Fts, 0.75)]);
+    let mut best = chunk_hit("d1", "c1", 1.0);
+    best.source_scores = HashMap::from([(CandidateSource::Fts, 0.25)]);
+    let input = vec![first, chunk_hit("d1", "c0", 0.5), later, best];
     assert_eq!(
-        output[0].chunk_id, None,
-        "MaxChunk emits parent-granular hits (chunk_id=None)"
+        MaxChunkAggregator.aggregate(&input),
+        vec![
+            hit_with_sources("d1", 1.0, &[(CandidateSource::Fts, 0.25)]),
+            hit_with_sources("d2", 1.0, &[(CandidateSource::Vector, 0.5)]),
+        ]
     );
-    assert_eq!(output[1].doc_id, "d2");
-    assert_eq!(output[1].chunk_id, None);
 }
 
-// T-076-004: dedupe_collapses_chunks_to_first_parent
 #[test]
 fn dedupe_collapses_chunks_to_first_parent() {
-    let aggregator = DedupeAggregator;
-    let input = vec![
-        chunk_hit("d1", "c0", 0.9),
-        chunk_hit("d2", "c0", 0.7),
-        chunk_hit("d1", "c1", 0.5),
-    ];
-    let output = aggregator.aggregate(&input);
-    assert_eq!(output.len(), 2, "Dedupe drops d1's second chunk");
-    assert_eq!(output[0].doc_id, "d1");
+    let mut first = chunk_hit("d2", "z", 0.25);
+    first.source_scores = HashMap::from([(CandidateSource::Vector, 0.125)]);
+    let mut later = chunk_hit("d2", "a", 1.0);
+    later.source_scores = HashMap::from([(CandidateSource::Fts, 0.5)]);
+    let input = vec![first, chunk_hit("d1", "c0", 0.5), later];
     assert_eq!(
-        output[0].chunk_id, None,
-        "Dedupe emits parent-granular hits (chunk_id=None)"
+        DedupeAggregator.aggregate(&input),
+        vec![
+            hit_with_sources("d2", 0.25, &[(CandidateSource::Vector, 0.125)]),
+            hit("d1", 0.5),
+        ]
     );
-    assert!((output[0].score - 0.9).abs() < f64::EPSILON);
-    assert_eq!(output[1].doc_id, "d2");
-    assert_eq!(output[1].chunk_id, None);
 }
 
-// T-076-005: topk_average_collapses_chunks_with_chunk_id_none
-//
-// TopKAverage already collapsed sibling chunks pre-#76 (the bucketing
-// happened on doc_id). The new contract is that chunk_id is reset to
-// None so Stage 4 sees parent-granular hits regardless of input
-// granularity.
+// Direct production call: sort unsorted scores, retain input order at the
+// tied k boundary even when chunk IDs disagree, and average selected sources.
 #[test]
 fn topk_average_collapses_chunks_with_chunk_id_none() {
-    let aggregator = TopKAverageAggregator::new(2);
+    let mut boundary = chunk_hit("d1", "z", 0.5);
+    boundary.source_scores = HashMap::from([(CandidateSource::Vector, 0.25)]);
+    let mut best = chunk_hit("d1", "high", 1.0);
+    best.source_scores = HashMap::from([(CandidateSource::Fts, 0.5)]);
+    let mut excluded = chunk_hit("d1", "a", 0.5);
+    excluded.source_scores = HashMap::from([(CandidateSource::Fts, 0.5)]);
     let input = vec![
-        chunk_hit("d1", "c0", 1.0),
-        chunk_hit("d1", "c1", 0.5),
+        chunk_hit("d1", "low", 0.125),
         chunk_hit("d2", "c0", 0.25),
+        boundary,
+        best,
+        excluded,
     ];
-    let output = aggregator.aggregate(&input);
-    assert_eq!(output.len(), 2);
-    assert_eq!(output[0].doc_id, "d1");
     assert_eq!(
-        output[0].chunk_id, None,
-        "TopKAverage emits parent-granular hits"
+        TopKAverageAggregator::new(2).aggregate(&input),
+        vec![
+            hit_with_sources(
+                "d1",
+                0.75,
+                &[
+                    (CandidateSource::Fts, 0.25),
+                    (CandidateSource::Vector, 0.125)
+                ],
+            ),
+            hit("d2", 0.25),
+        ]
     );
-    // d1 top-2 = (1.0 + 0.5) / 2 = 0.75
-    assert!((output[0].score - 0.75).abs() < f64::EPSILON);
 }
 
-// T-076-006: group_by_parent_buckets_chunks_per_doc
 #[test]
 fn group_by_parent_buckets_chunks_per_doc() {
     let input = vec![
@@ -779,7 +740,6 @@ fn group_by_parent_buckets_chunks_per_doc() {
     assert_eq!(d2_bucket.len(), 1);
 }
 
-// T-105-008a: weighted_rrf_merge_returns_empty_for_empty_candidates
 #[test]
 fn weighted_rrf_merge_returns_empty_for_empty_candidates() {
     let strategy = WeightedRrf::default();
@@ -790,7 +750,6 @@ fn weighted_rrf_merge_returns_empty_for_empty_candidates() {
     );
 }
 
-// T-105-008b: weighted_rrf_merge_with_recency_returns_empty_for_empty_candidates
 #[test]
 fn weighted_rrf_merge_with_recency_returns_empty_for_empty_candidates() {
     let strategy = WeightedRrf::default();
@@ -805,7 +764,6 @@ fn weighted_rrf_merge_with_recency_returns_empty_for_empty_candidates() {
     );
 }
 
-// T-105-009: group_by_parent_returns_empty_map_for_empty_hits
 #[test]
 fn group_by_parent_returns_empty_map_for_empty_hits() {
     let buckets = group_by_parent(&[]);
@@ -815,8 +773,6 @@ fn group_by_parent_returns_empty_map_for_empty_hits() {
     );
 }
 
-// T-105-017a: merged_hit_deserializes_when_chunk_id_field_omitted
-//
 // Backward-compat with pre-Issue #76 baseline.json files that omit the
 // chunk_id field. `serde(default)` keeps Option<String> defaulting to None
 // — pin the behaviour so a future serde attribute change does not silently
@@ -838,8 +794,6 @@ fn merged_hit_deserializes_when_chunk_id_field_omitted() {
     );
 }
 
-// T-105-017b: hybrid_search_config_serde_round_trips_default
-//
 // Default config must serialize then deserialize to a value equal to the
 // starting Default — guards against an accidental serde attribute change
 // that would shift downstream JSON shape.
@@ -852,8 +806,6 @@ fn hybrid_search_config_serde_round_trips_default() {
     assert_eq!(parsed, config, "round-trip must preserve Default config");
 }
 
-// T-068-008: weighted_rrf_fts_heavy_weight_reorders
-//
 // Validates that non-uniform weights actually shift ranking — a doc with
 // FTS-only contribution at heavy weight beats a doc with both signals at
 // worse FTS rank.
@@ -1042,4 +994,35 @@ fn topk_average_omits_non_finite_selected_parents() {
 #[test]
 fn topk_average_empty_input_returns_empty() {
     assert!(TopKAverageAggregator::new(2).aggregate(&[]).is_empty());
+}
+
+// Repeated same-source entries add today; neither other sources nor distinct
+// chunks are duplicates of that entry. Expectations do not call a merge oracle.
+#[test]
+fn weighted_rrf_adds_duplicates_without_combining_sources_or_chunks() {
+    let strategy = WeightedRrf::new(HybridSearchConfig {
+        rrf_k: 4.0,
+        ..HybridSearchConfig::default()
+    });
+    let mut input = vec![
+        candidate(CandidateSource::Fts, "a", 0),
+        candidate(CandidateSource::Vector, "a", 0),
+        candidate(CandidateSource::Fts, "a", 0),
+        candidate(CandidateSource::Fts, "a", 0),
+    ];
+    for (entry, chunk) in input.iter_mut().zip(["one", "one", "one", "two"]) {
+        entry.chunk_id = Some(chunk.into());
+    }
+    let mut one = hit_with_sources(
+        "a",
+        0.75,
+        &[(CandidateSource::Fts, 0.5), (CandidateSource::Vector, 0.25)],
+    );
+    one.chunk_id = Some("one".into());
+    let mut two = hit_with_sources("a", 0.25, &[(CandidateSource::Fts, 0.25)]);
+    two.chunk_id = Some("two".into());
+    let expected = vec![one, two];
+    assert_eq!(strategy.merge(&input), expected);
+    input.reverse();
+    assert_eq!(strategy.merge(&input), expected);
 }

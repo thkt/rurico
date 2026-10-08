@@ -289,7 +289,7 @@ let aggregated = aggregator.aggregate(&merged);
 
 #### Aggregator の使い分け
 
-`MergedHit.chunk_id` が `Some(_)` のとき（chunk-level retrieval）に意味のある集約を提供する。`None` のままだと Stage 2 fusion が `doc_id` だけで折りたたんでいるため、すべての aggregator が identity と等価になる。
+`MergedHit.chunk_id` が `Some(_)` のとき（chunk-level retrieval）に意味のある集約を提供する。`None` のままで Stage 2 が parent ごとに一件を返し、整列済みの有限スコアを渡す場合、`k > 0` の各 aggregator は identity と等価になる。任意の未整列入力や `k = 0` にはこの説明を適用しない。
 
 | Aggregator                    | 振る舞い                                                                               |
 | ----------------------------- | -------------------------------------------------------------------------------------- |
@@ -297,6 +297,10 @@ let aggregated = aggregator.aggregate(&merged);
 | `MaxChunkAggregator`          | parent ごとに最高スコアの chunk を残し、`chunk_id = None` で parent 単位に折りたたむ   |
 | `DedupeAggregator`            | parent ごとに先頭 1 件のみ残す（順序保持の dedupe）                                    |
 | `TopKAverageAggregator { k }` | parent ごとに上位 `k` chunk スコアの平均を採用（`TopKAverageAggregator::new(k)` も可） |
+
+Stage 2 と同じ score 降順・doc_id 昇順・chunk_id 昇順の入力を pipeline の前提とする。Identity と Dedupe は再整列せず、直接渡した未整列入力も順序を保つ。Dedupe は parent の先頭だけを選び、後続の高スコアに置換しない。MaxChunk は同点なら先頭 chunk の score と source map を残す。TopKAverage は parent 内を score の `total_cmp` 降順で安定整列し、同点の選択境界でも入力順を保つ。選択 chunk の source contribution だけを平均し、欠落 source はゼロとして数える。MaxChunk と TopKAverage の出力は parent 単位で score 降順・doc_id 昇順になる。
+
+重複候補の契約案と内部最適化の未採用比較は [Issue #313 の調査](docs/research/issue-313/README.md) を参照。
 
 独自の `Aggregator` を実装する場合は `group_by_parent(&merged) -> HashMap<&str, Vec<&MergedHit>>` で parent 単位にバケットできる。
 

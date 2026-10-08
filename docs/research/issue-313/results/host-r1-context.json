@@ -1,0 +1,41 @@
+{
+  "start_commit": "24725a72be44300afc24186b82b14bcb3f5f9d3d",
+  "source_sha256": {
+    "Cargo.lock": "743d754ae4fb6f0f44d169feab408a1b80caa50d17c38b058ec156c66811bf30",
+    "src/retrieval.rs": "25dfaf86deb246ba6aed09566b87f3f79afc6eb029d5340b8da84327d492317a",
+    "src/retrieval/tests.rs": "2c8dfe46fdcdde7a42dd705b70c6b2605387d964c510f77e7df70c9e0a552ddb",
+    "docs/research/issue-313/probe/Cargo.toml": "a3dd62570f1d47e9ecbacd80629290c629605c6a6c0aea773c2c906f8821ccf4",
+    "docs/research/issue-313/probe/Cargo.lock": "478b40da5c9f50fd4cf08511b8c1be204a6dc0a89c3025876be606b6cc59a013",
+    "docs/research/issue-313/probe/src/main.rs": "06f57384d67406f16eb4b8ff559e7d5c2f89c49da3e112bc2c56506866317134",
+    "docs/research/issue-313/run.py": "5ef85ad2a6ba7f10fcb479f868f5ed21bcfd616e40a17209f2d5a07b36fd4b99"
+  },
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "machine": "arm64",
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "cargo": "cargo 1.99.0 (5f94df478 2026-08-27)",
+  "profile": "release (standalone Cargo defaults, not product LTO)",
+  "timing": "counting System allocator; includes counter overhead; 1 warmup then 7 calls per process",
+  "peak": "additional live requested heap bytes per call; process max RSS separately includes setup/warmup",
+  "input": "small:10 parents x 3 chunks; large:1000 x 100; 2 sources; k=3; deterministic tied dyadic scores",
+  "ownership": "equal prepared input Vec for both identity paths; input preparation and result drop excluded",
+  "isolation": "not established by runner; host must record concurrent load and reservation separately",
+  "build_command": [
+    "cargo",
+    "build",
+    "--offline",
+    "--locked",
+    "--manifest-path",
+    "docs/research/issue-313/probe/Cargo.toml",
+    "--release",
+    "--target-dir",
+    "NEW_EXTERNAL_BUILD_DIR"
+  ],
+  "host_conditions": {
+    "machine": "Mac15,3",
+    "chip": "Apple M3",
+    "ram_bytes": 25769803776,
+    "external_work_pause": "not confirmed",
+    "load_isolation": "not confirmed; other local implementation actors active",
+    "interpretation": "CPU-only observations; no causal speed improvement claim"
+  }
+}

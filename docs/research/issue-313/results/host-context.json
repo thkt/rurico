@@ -1,0 +1,39 @@
+{
+  "start_commit": "24725a72be44300afc24186b82b14bcb3f5f9d3d",
+  "source_sha256": {
+    "Cargo.lock": "743d754ae4fb6f0f44d169feab408a1b80caa50d17c38b058ec156c66811bf30",
+    "src/retrieval.rs": "ffcecc8c89fb093125d4a9622d0e835f8a2f99cf6928eb14e8301df1af670cd5",
+    "src/retrieval/tests.rs": "09f5c147996802ba8e3bf4c91884aa6df03ad0e97467fb6daf6f19a71aaac4d7",
+    "docs/research/issue-313/probe/Cargo.toml": "a3dd62570f1d47e9ecbacd80629290c629605c6a6c0aea773c2c906f8821ccf4",
+    "docs/research/issue-313/probe/Cargo.lock": "478b40da5c9f50fd4cf08511b8c1be204a6dc0a89c3025876be606b6cc59a013",
+    "docs/research/issue-313/probe/src/main.rs": "1c939131c4bd5f22381d7a9c884b3f8231a7374ec2f000db3fbed0f59cc2e144",
+    "docs/research/issue-313/run.py": "5ef85ad2a6ba7f10fcb479f868f5ed21bcfd616e40a17209f2d5a07b36fd4b99"
+  },
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "machine": "arm64",
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "cargo": "cargo 1.99.0 (5f94df478 2026-08-27)",
+  "profile": "release (standalone Cargo defaults, not product LTO)",
+  "timing": "counting System allocator; includes counter overhead; 1 warmup then 7 calls per process",
+  "peak": "additional live requested heap bytes per call; process max RSS separately includes setup/warmup",
+  "input": "small:10 parents x 3 chunks; large:1000 x 100; 2 sources; k=3; deterministic tied dyadic scores",
+  "ownership": "equal prepared input Vec for both identity paths; input preparation and result drop excluded",
+  "isolation": "not established by runner; host must record concurrent load and reservation separately",
+  "build_command": [
+    "cargo",
+    "build",
+    "--offline",
+    "--locked",
+    "--manifest-path",
+    "docs/research/issue-313/probe/Cargo.toml",
+    "--release"
+  ],
+  "public_command_note": "Repository-relative template; exact private args remain outsidecheckout.",
+  "host_hardware": {
+    "model": "Mac15,3",
+    "cpu": "Apple M3",
+    "memory_bytes": 25769803776,
+    "source": "current host read-only sysctl; no new capacity SLA"
+  },
+  "external_load": "No ownGPU/model inference launched. External terminal/GPU pause unconfirmed; causal speed improvement/isolation not established."
+}

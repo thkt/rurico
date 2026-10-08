@@ -1,0 +1,12 @@
+{
+  "scope": "Final edition narrows baseline contract ownership to Issue362, adds signed-zero and prototype literal checks; obsolete comments removed. Earlier comment-only proof describes its historical edition, not current test statements.",
+  "tests": 54,
+  "test_clippy_release_exit_code": 0,
+  "measured_binary_sha256": "801f71f4b26e24bbf0250d7f62581e4bffa84d355acf04f2fb16e8d17da3fa8b",
+  "rebuilt_binary_sha256": "801f71f4b26e24bbf0250d7f62581e4bffa84d355acf04f2fb16e8d17da3fa8b",
+  "source_sha256": {
+    "src/retrieval.rs": "ffcecc8c89fb093125d4a9622d0e835f8a2f99cf6928eb14e8301df1af670cd5",
+    "src/retrieval/tests.rs": "b97f9196c8a0aa290be4aab4a3b65b39c41ec6346e6327cf11054d72d03680c3",
+    "docs/research/issue-313/probe/src/main.rs": "3b0372b3da7dad71a713bb1a37a0dbb95246f3ac78ae5e4d05f60af1d89fa2db"
+  }
+}

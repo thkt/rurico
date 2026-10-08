@@ -1,0 +1,17 @@
+{
+  "source_after": {
+    "Cargo.lock": "743d754ae4fb6f0f44d169feab408a1b80caa50d17c38b058ec156c66811bf30",
+    "src/retrieval.rs": "25dfaf86deb246ba6aed09566b87f3f79afc6eb029d5340b8da84327d492317a",
+    "src/retrieval/tests.rs": "2c8dfe46fdcdde7a42dd705b70c6b2605387d964c510f77e7df70c9e0a552ddb",
+    "docs/research/issue-313/probe/Cargo.toml": "a3dd62570f1d47e9ecbacd80629290c629605c6a6c0aea773c2c906f8821ccf4",
+    "docs/research/issue-313/probe/Cargo.lock": "478b40da5c9f50fd4cf08511b8c1be204a6dc0a89c3025876be606b6cc59a013",
+    "docs/research/issue-313/probe/src/main.rs": "06f57384d67406f16eb4b8ff559e7d5c2f89c49da3e112bc2c56506866317134",
+    "docs/research/issue-313/run.py": "5ef85ad2a6ba7f10fcb479f868f5ed21bcfd616e40a17209f2d5a07b36fd4b99"
+  },
+  "binary_sha256": "af3e40373e9df405dd9be77b62f2c4322fa89a4cdb0f749b019de9438a2010e5",
+  "elapsed_seconds": 16.685261249542236,
+  "calls": 252,
+  "processes": 36,
+  "summary_sha256": "537a2e49263e3a86430ef7cb273edf48e59ec90d464961d9303560aec31327c6",
+  "raw_sha256": "1f37716ec73efe70e20e0eb80e66d5853d7767490ab6c7ee42a91480e06cf7ed"
+}
