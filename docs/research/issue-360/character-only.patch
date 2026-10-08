@@ -1,0 +1,15 @@
+--- a/src/text.rs
++++ b/src/text.rs
+@@ -16,11 +16,7 @@
+             break;
+         }
+         let boundary = remaining.floor_char_boundary(max_bytes);
+-        let split_at = remaining[..boundary]
+-            .rfind("\n\n")
+-            .map(|p| p + 2)
+-            .or_else(|| remaining[..boundary].rfind('\n').map(|p| p + 1))
+-            .unwrap_or(boundary);
++        let split_at = boundary;
+         fragments.push(&remaining[..split_at]);
+         remaining = &remaining[split_at..];
+     }

@@ -1,0 +1,32 @@
+{
+  "published_head": "883b4a53e25451cfffa78e5e08d7ea84a0787482",
+  "integrated_main": "01dd1c69c633a7f2eeccd188d566ec25d0f94e93",
+  "start_commit": "24725a72be44300afc24186b82b14bcb3f5f9d3d",
+  "source_sha256": {
+    "Cargo.lock": "743d754ae4fb6f0f44d169feab408a1b80caa50d17c38b058ec156c66811bf30",
+    "src/retrieval.rs": "4d5f2fa3cd1d58dfb0a7f76ac846c84178ecab077d9f79dc87c4ddc42e6b4785",
+    "src/retrieval/tests.rs": "b3a166f24955c30b3deeaac1ded951f68622c7eabc9ff904bf33640f77290147",
+    "docs/research/issue-313/probe/Cargo.toml": "a3dd62570f1d47e9ecbacd80629290c629605c6a6c0aea773c2c906f8821ccf4",
+    "docs/research/issue-313/probe/Cargo.lock": "478b40da5c9f50fd4cf08511b8c1be204a6dc0a89c3025876be606b6cc59a013",
+    "docs/research/issue-313/probe/src/main.rs": "06f57384d67406f16eb4b8ff559e7d5c2f89c49da3e112bc2c56506866317134",
+    "docs/research/issue-313/run.py": "5ef85ad2a6ba7f10fcb479f868f5ed21bcfd616e40a17209f2d5a07b36fd4b99",
+    "docs/research/issue-307/requirements.txt": "877c16142a03c672cd8a49be180eada258f04f0606ee812843d46a54e9df4490"
+  },
+  "runtime_noncomment_lines_sha256": "2d306c389585056d77e5672a9823ec7089733ea3892886e71ce4e0e77e5bd9d3",
+  "runtime_equal_to_published_and_main": true,
+  "runtime_comparison": "nonempty noncomment lines before cfg(test); cfg(test) path remains for standalone probe compilation",
+  "probe_unchanged_from_published": true,
+  "measured_sha256": "af3e40373e9df405dd9be77b62f2c4322fa89a4cdb0f749b019de9438a2010e5",
+  "rebuilt_sha256": "af3e40373e9df405dd9be77b62f2c4322fa89a4cdb0f749b019de9438a2010e5",
+  "equal": true,
+  "tests": 53,
+  "test_clippy_release_exit_code": 0,
+  "baseline_candidate_verify_exit_code": 0,
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "cargo": "cargo 1.99.0 (5f94df478 2026-08-27)",
+  "target": "aarch64-apple-darwin",
+  "profile": "standalone Cargo release defaults; same probe lock and source",
+  "measurement": "No new timings/RSS; byte-identical binary maps integration source to host-r1 measurements. External load remains unisolated.",
+  "product_check": "pending configured host check; no old check or independent evaluation carried forward",
+  "git_integration": "Host fetched origin/main at 01dd1c6, performed standard no-commit merge, restored saved integrated files byte-for-byte, resolved all index conflicts; MERGE_HEAD equals01dd1c6. No commit or remote merge."
+}

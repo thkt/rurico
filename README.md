@@ -298,7 +298,14 @@ let aggregated = aggregator.aggregate(&merged);
 | `DedupeAggregator`            | parent ごとに先頭 1 件のみ残す（順序保持の dedupe）                                    |
 | `TopKAverageAggregator { k }` | parent ごとに上位 `k` chunk スコアの平均を採用（`TopKAverageAggregator::new(k)` も可） |
 
-Stage 2 と同じ score 降順・doc_id 昇順・chunk_id 昇順の入力を pipeline の前提とする。Identity と Dedupe は再整列せず、直接渡した未整列入力も順序を保つ。Dedupe は parent の先頭だけを選び、後続の高スコアに置換しない。MaxChunk は同点なら先頭 chunk の score と source map を残す。TopKAverage は parent 内を score の `total_cmp` 降順で安定整列し、同点の選択境界でも入力順を保つ。選択 chunk の source contribution だけを平均し、欠落 source はゼロとして数える。MaxChunk と TopKAverage の出力は parent 単位で score 降順・doc_id 昇順になる。
+Stage 3 の標準入力は、Stage 2 が返す有限な score と source contribution を持つ、score 降順・`doc_id` 昇順・`chunk_id` 昇順の結果である。
+Identity と Dedupe は入力順を保持するため、降順出力の保証はこの整列済み入力を前提とする。
+任意の未整列入力を渡しても整列せず、Dedupe は最初の hit を選び、後続の高スコアに置換しない。
+
+MaxChunk は最高スコアが同点なら最初の chunk の score と source map を残す。
+TopKAverage は parent 内を score の `total_cmp` 降順で安定整列し、同点の選択境界でも入力順を保つ。
+選択 chunk の source contribution だけを平均し、欠落 source はゼロとして数える。
+MaxChunk と TopKAverage の出力は `chunk_id = None` の parent 単位で score 降順・`doc_id` 昇順になる。
 
 重複候補の契約案と内部最適化の未採用比較は [Issue #313 の調査](docs/research/issue-313/README.md) を参照。
 

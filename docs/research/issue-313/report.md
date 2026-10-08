@@ -4,11 +4,13 @@
 
 修正前の内部比較では、固定slotはallocation回数を減らさず、要求byte総数と追加live heap peakが小さくなった。固定slotの重み取得を呼出し内で一度にまとめた現在版でも、36 process・252 callとRSSを再測定した。修正前の数値は履歴として分ける。所有権を渡すidentity候補は、準備済みVecを移譲する区間では追加allocationがなかった。今回のTopK選択候補は小入力・大量入力ともallocationが増えたため、現候補の採用は推奨しない。ホストで36 process・252 callとprocess peak RSSを取得した。外部作業の停止と負荷隔離は未確認で、時間差を候補による速度改善とは判断しない。製品方式は未採用で、全体checkと独立評価はこの報告の更新後に行う。
 
+現在の修正は公開head `883b4a5` にmain `01dd1c6` のファイルを統合した未commit版である。旧R1測定binaryとnative再buildの一致を確認した。統合版の検証、テスト整理、次の評価担当への引き継ぎは[末尾の現行状態](#最新mainとの統合と今回のfindings)を参照する。旧check・acceptedは現在版へ引き継がない。
+
 ## 根拠の版と適用条件
 
 要求・権限は [#313](https://github.com/thkt/rurico/issues/313)（ユーザーから渡された更新時刻2026-10-07T17:05:22Z）と [親#296](https://github.com/thkt/rurico/issues/296)を正本とする。調査結果の提示までが今回の範囲で、方式採用とconsumer移行は次の判断である。
 
-開始版とローカル`origin/main`は `24725a72be44300afc24186b82b14bcb3f5f9d3d`。ホスト準備でremote mainも同じcommitと確認した。root Cargo.lockのSHA-256は `743d754ae4fb6f0f44d169feab408a1b80caa50d17c38b058ec156c66811bf30` で、変更していない。2026-10-08見直し版`c8f250d60a5afb9944b9008d22ad6f4dda2d7103`と開始版の`src/retrieval.rs`・`src/retrieval/tests.rs`に差はない。#298の修正はそのまま利用し、除算・合算・recency・平均を再実装していない。
+初回開始版と当時のローカル`origin/main`は `24725a72be44300afc24186b82b14bcb3f5f9d3d`。初回のホスト準備でremote mainも同じcommitと確認した。root Cargo.lockのSHA-256は `743d754ae4fb6f0f44d169feab408a1b80caa50d17c38b058ec156c66811bf30`。今回取り込むmainでも変更はない。2026-10-08見直し版`c8f250d60a5afb9944b9008d22ad6f4dda2d7103`と開始版の`src/retrieval.rs`・`src/retrieval/tests.rs`に差はなかった。#298の修正はそのまま利用し、除算・合算・recency・平均を再実装していない。
 
 初回根拠版 `32513da690653a8baf30d2af4ae77d2129838f55` から開始版へのretrieval差分は、quotient/totalsの非有限除外、recencyの有限additionとchunk tie、overflowを避ける平均・source平均の変更だった。ADR-0004にこの版間の差はない。初回の倍増観測は今回の小例で再確認し、旧版の数値境界を現行の契約として利用しない。
 
@@ -34,7 +36,7 @@
 
 MaxChunkでは`-0.0`と`+0.0`が数値的に等しく先頭を残すが、TopKでは`total_cmp`により`+0.0`を先に選ぶ。両者のk=1相当の処理を無条件に置換できない。recencyはscoreだけを変えるため、source合計がscoreと一致する前提も置けない。空mapはsource情報不明であり、sourceの寄与がゼロだったという証拠ではない。
 
-現在の製品テストで、Dedupeが後続の高スコアで先頭を置き換えないこと、MaxChunkの複数parent同点がdoc_id昇順になり先頭chunkのsourceを保持すること、TopKが未整列入力を並べ替え、異なるchunk ID/sourceの同点k境界で入力順のsourceを選ぶことを固定期待値で確認する。PR #374の成果をこのcheckoutの保証へ算入しない。signed zeroの検証は数値比較とtotal_cmpの違いを守るため保持する。調査用TopK選択候補にも独立したdyadic固定値があり、候補と製品baselineの一致だけに依存しない。期待値を製品のsort/mergeから生成していない。TopKの極値・非有限値・欠落source、RRFのoverflow、recencyのoverflow/tieは既存回帰検証を保持した。
+現在の製品テストで、Dedupeが後続の高スコアで先頭を置き換えないこと、MaxChunkの複数parent同点がdoc_id昇順になり先頭chunkのsourceを保持すること、TopKが未整列入力を並べ替え、異なるchunk ID/sourceの同点k境界で入力順のsourceを選ぶことを固定期待値で確認する。最新mainのPR #374のテストは今回のcheckoutへ取り込み、入力と期待値を照合して重複例を統合した。signed zeroの検証は数値比較とtotal_cmpの違いを守るため保持する。調査用TopK選択候補にも独立したdyadic固定値があり、候補と製品baselineの一致だけに依存しない。期待値を製品のsort/mergeから生成していない。TopKの極値・非有限値・欠落source、RRFのoverflow、recencyのoverflow/tieは既存回帰検証を保持した。
 
 ## consumer入力の照合と限界
 
@@ -132,7 +134,7 @@ RSSは入力準備・ランタイムも含むprocess peakで、測定区間の�
 
 担当AIは追加測定後の報告をコード・要求・原数値へ照合し、変更文書を既存の独立評価に含める。rootの全体checkは設定通りホストで実行する。UI媒体は不要で、captureなしの契約を変更しない。commit・push・公開・方式採用は行っていない。
 
-## ホスト復帰のassessmentsとhandoff（2026-10-08、R1修正）
+## ホスト復帰のassessmentsとhandoff（2026-10-08、R1修正時の履歴）
 
 評価対象 `a6e23a563d78851085f6c3fc8c17df75702e753f0f52c2d4e724f14266134278` の独立評価R1を現在のsourceと照合した。初回停止記録・実装の生応答・成果物diffと、追加ホスト証拠の93ファイルを読み、記載hashの一致を確認した。評価履歴と過去の修正記録は空であり、今回R1-1〜R1-3を初めて修正した。証拠のpassedは実行結果で、受入は引き継がない。旧runの記録は変更していない。
 
@@ -175,10 +177,60 @@ R1修正後の日本語確認も固定版 `9a78a42964096da509b8f3e011f0085a5f080
 
 R1の局所統合で設定検索の重複を除き、欠落source・非有限値・加算順・subtotal検査を維持した。今回のallocation回数・要求byte・追加heap peakは修正前と同じで、固定slotとVec移譲の条件付き提案、TopK候補見送りの推奨を維持する。RSSはprocess全体、allocator counterは区間内の要求量であり、両者を同一視しない。54テスト・clippyが成功したが、製品の全体check・新しい独立評価はこの追記後に行う。
 
-## 非有限recencyの既存検証の強化
+## 非有限recencyの既存検証の強化（公開head 883b4a5までの履歴）
 
 追加評価の応答はR1-1〜R1-3の解消を述べたが、新しいrunの空の評価履歴に旧IDのupdatesを返したためinvalid_reviewとなった。応答・停止記録は保持し、acceptedとは扱わない。次のfresh初回評価ではupdatesを空とし、現在の具体的な指摘はnewItemsに返す契約を明記して独立評価へ戻す。
 
 内容上の新しい指摘は、NaN half-lifeとinfinite age／half-lifeの2テストが、空出力でもall(finite)を満たす見逃しだった。既存2件を、rrf_k=4の固定期待hit（ID・順序・score・source map）全体との比較へ強めた。RRF score 0.25／0.2とsource subtotalを独立した期待値にし、別の有限scoreへの置換とhitの脱落も区別する。テスト件数は54件のまま、モデル・待機・製品数値処理は増やしていない。NaNが<=0検査を通る理由とinf/infでdecayがNaNになる理由のコメントを残し、古い装飾・重複説明を整理した。
 
 最終cfg(test)版の54テスト・clippy・fmt・release再buildが成功し、測定binary `af3e40373e9df405dd9be77b62f2c4322fa89a4cdb0f749b019de9438a2010e5`とのSHA-256一致を確認した。[現在sourceの対応](results/recency-source-check.json)は測定時のhashと混ぜず別に記録する。型付きsourceの全体check・独立評価はこの追記後に行う。
+
+## 最新mainとの統合と今回のfindings
+
+公開head `883b4a53e25451cfffa78e5e08d7ea84a0787482` と旧runのpublished URLをGitHubのPR #380へ照合した。作者はthkt、draft、baseはmain `01dd1c69c633a7f2eeccd188d566ec25d0f94e93` だった。今回の修正はこの公開headから始めた。初回のsandbox作業では、shellのDNS制限と共有Git管理領域の読取専用制限があったため、GitHub connectorから版固定の変更blobを取得し、Git blob hashを照合して、開始版24725a7を共通基点とするファイル統合を行った。その時点ではindexを更新せず、Git状態の準備をホストへ引き継いだ。その後の未commit merge準備と競合解消は[ホスト確認](#ホストでのgit統合確認)で完了している。merge commit・push・公開は行っていない。
+
+mainの#372/#373/#374の検証・文書と、#378のfilelock 4.0.8を取り込んだ。#362の過去の変異結果は保持し、現行のrecency filter名だけ再実行説明へ追記した。root Cargo.lockは初回版と同じhashで、requirementsはmainの版を保持した。これらを今回の製品方式の採用とは扱わない。#307の報告blobは指定の `7dfa0a8c4248548bb81edbf183e0ea3ee72e45c5` のままで、依存更新を過去の数値・品質測定の変更として解釈しない。
+
+今回の製品実行処理は、公開head・取り込んだmainと、空行・コメントと末尾のcfg(test)宣言を除く行が一致した。調査用slotの重み取得は呼出し開始時に一度行い、候補の加算順・subtotalの有限性・sourceのpresenceを維持する。probeとrunnerは公開headから変更していない。新規build先でaarch64-apple-darwinのreleaseを再buildし、R1測定binaryとbyte単位のhashが一致した。[新しいsource対応記録](results/main-integration-source-check.json)は、初回開始commit、公開head、統合main、現在のsource/lock hashを別々に保存する。旧測定のhashは書き換えていない。大小入力でbaseline/candidate出力も一致したため、この統合ではCPU再測定を要しない。binaryが変わる次の修正では、READMEのrunnerを新規保存先・build先で再実行する。
+
+### テスト整理の理由と残る検出条件
+
+#374の固定期待値を現在のcheckoutへ取り込んだ上で、Dedupeの先頭選択・source保持・child除去を、未整列の4件入力へ統合した。後続の高スコアと異なるsourceを与え、最高値への置換や出力の再整列、child IDの残留、source混入を全hit比較で検出する。MaxChunkは複数parentの同点順と先頭最大chunkのsource保持を1つの固定例へ統合した。unique-parentの未整列入力は別の短絡経路の誤りを防ぐため残した。
+
+TopKは#374の未採用chunkのsource混入、欠落sourceの除数、少数chunk、parent同点順を確認する例を再利用した。今回の異なるchunk IDを持つ同点k境界例は、sourceの選択を変えてしまうtie-breakを検出するため残した。候補経路は独立した固定期待値と製品baselineとの比較を両方維持する。signed zeroはMaxChunkの数値比較とTopKのtotal_cmpの違いを守る。NaN half-lifeとinf/infのrecencyは、固定した全hit・score・source mapとの比較を保持し、空出力や別の有限値でも成功する見逃しを防ぐ。
+
+重なるDedupeのsourceだけの例とparent-collapse例、MaxChunkの旧sibling-collapse例を統合した。#374が統合済みのTopKの平均・source平均・parent化の別例も復活させない。失うものは旧filter名と旧小入力での個別観測であり、反復時だけの失敗を観測する機会は減る。全hit比較によるsource/parent化、未整列・同点の保証は残る。極値・非有限・欠落source・recency・serde literalの別条件は削除していない。モデル、ネットワーク、待機を追加せず、保守する入力と期待値の重複を減らした。恒常的なmutation基盤やlint規則は追加していない。
+
+公開headと統合版のsourceをそれぞれ隔離コピー・新規build先に置き、同じoffline/lockedのCPU crate、同じtoolchain、test-threads=1で実行した。公開headは54件、統合版は53件が成功し、どちらもharnessの表示時間は0.00秒だった。表示精度が粗く単発のため、速度やflake率の改善を示さない。製品実行処理・probe・公開API/JSONは同じで、変更はテストの入力・期待値の統合と文書の現行状態更新である。行の圧縮やファイル移動を改善として数えない。
+
+統合版でDedupeをMaxChunkへ置換、MaxChunkのparent同点順を逆転、TopKにchunk ID tie-breakを追加した3つの隔離コピーを実行し、それぞれ現在の固定期待値のassertionで失敗した（終了101）。buildや環境の失敗ではなかった。正常版53件、clippy、fmt、空白検査、release再buildと大小入力の一致も確認した。R1の252 call・36 processを独立に再集計し、全12組の時間・allocation・heap peak・RSSが保存summaryと一致した。原ログと診断コピーはcheckout外の新規領域へ保存し、旧ログ・旧評価応答は変更していない。
+
+### 次の評価担当へのhandoff
+
+今回の実装findingsを旧acceptedのassessmentsへ読み替えない。新しい初回独立評価はupdates=[]とし、現在の指摘はIDを付けずnewItemsへ返す。旧host-returnのR1 IDsとinvalid_reviewは履歴であり、新runのupdates対象にしない。PR全体をIssue #313へ、公開head以後の修正を採用済み要求へそれぞれ照合する。変更したREADME・報告・mainから取り込んだ文書も評価対象に含める。旧成功を統合版のcheck・評価・CIへ転用しない。
+
+公開用assessmentsとhandoffには、加算契約維持と未採用のbest rank／拒否、固定slot・Vec移譲の条件付き提案、TopK現案の見送りを残す。大小入力の12組・36 process・252 callは旧R1測定の結果であり、今回のnative binary一致によって適用性を示したものと明記する。入力準備、受渡し区間、全pipeline費用、allocator counter、heap peakとprocess RSSを区別する。時間差は外部負荷未隔離の観測で、速度改善の因果的証拠にしない。
+
+以前の公開本文のリンクである[883b4a5版の報告](https://github.com/thkt/rurico/blob/883b4a53e25451cfffa78e5e08d7ea84a0787482/docs/research/issue-313/report.md)と[883b4a5版の再現手順](https://github.com/thkt/rurico/blob/883b4a53e25451cfffa78e5e08d7ea84a0787482/docs/research/issue-313/README.md)は、公開済みの履歴参照として説明に残す。取得した旧本文にはアップロード済み媒体のリンクはなかった。captureは不要で、設定を変更しない。
+
+固定amici `547f9ee2…`と#307 manifestとの照合は限定した静的根拠として残す。全consumer、実データ、multi-query/prefix合成、Vec再利用、実モデル品質、flake率・実行時間削減は未確認である。GPU／実モデルは測定枠の回答待ちで今回実行していない。新しい許容差、資源上限、model、重複方式の採用、consumer移行は追加しない。
+
+Git上の統合照合はホストで完了した。現在の`MERGE_HEAD`はmain `01dd1c6`で、未解決indexはなく、mainの変更と採用済み修正の保持を確認している。未commit mergeの準備・競合解消を残る受入検証として要求しない。merge commitは未作成であり、公開branchの祖先関係の確定は後続の公開工程で確認する。今回の指示ではcommit・push・公開を行わず、PR本文更新・最新headのCI・ready切替の旧成功も主張しない。
+
+文書修正後の標準checkは設定済み `bash scripts/check.sh` をホストが実行し、変更文書を含む独立評価も更新する。今回のbinaryは測定版と一致するため、通常checkに含まれないRSS測定を追加の待ち条件にしない。後続の公開工程では最新baseの変化を照合し、変化があればsource・probe・比較データの対応を再確認する。baseや実行処理が変わればnative再buildのhashを再照合し、binaryが変わる場合だけREADMEのCPU runnerを新規保存先・build先で再実行する。
+
+初回のsandbox作業の終了前にGitHubからmainとPR #380を再取得し、上記base・head・作者・draftが変わっていないことを確認した。当時の日本語確認は固定版 `9a78a42964096da509b8f3e011f0085a5f080151` のHEAD一致と作業差分なしを確認し、クイック手順の意味確認と手動チェックリストを適用した。そのlintはoffline cacheのsudachipy不足で終了1となり未完了だった。結論、版、数量、条件、権限、未確認事項、参照は取得sourceと原数値へ手動で照合した。その後ホストでlintを実行した記録も保持し、いずれの結果も今回の文書修正後の成功へ転用しない。
+
+### ホストでのGit統合確認
+
+最新`origin/main`は`01dd1c69c633a7f2eeccd188d566ec25d0f94e93`だった。
+作業差分をcheckout外へ保存し、標準の未commit mergeを作成した。
+READMEとretrieval関連の3ファイルの競合を統合済み内容で解消し、
+保存した変更・追加ファイルとのbyte一致と未解決indexがないことを確認した。
+`MERGE_HEAD`は上記mainで、mainのlock・requirements・追加検証を保持している。
+この段階でcommit・push・remote mergeは行っていない。
+この統合状態でホストの標準checkは成功した（Rust 407件成功・37件skip、Python 4件、doc test 3件、fmt／clippy）。変更文書を含む初回独立評価は、READMEとhandoffが完了済みのGit操作を待機条件としていたためneeds_changesだった。check成功や証拠のpassedは独立した受入を意味しない。
+
+原因は、ホスト完了の追記時に冒頭とhandoffの停止時説明を更新しなかったことだった。READMEの現行状態と本handoffを未commit merge・競合解消済みへ書き直し、初回の停止経緯は履歴として区別した。現在状態の変更時には追記だけでなく、既存の操作説明と残る待機条件も照合する。コード・テスト・測定原本は変更しておらず、上記checkを文書修正後の成功には転用しない。担当ホストは設定済みcheckと変更文書を含む独立評価を更新する。
+
+今回の文書修正も日本語確認の固定版と手動チェックリストで意味を照合した。新規cacheでのoffline lintはsudachipyを取得できず終了1となり、未完了である。文書の意味確認は既存の独立評価へ戻し、lintを追加の合否条件にしない。

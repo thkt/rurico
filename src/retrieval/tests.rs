@@ -54,11 +54,7 @@ fn hit_with_sources(id: &str, score: f64, sources: &[(CandidateSource, f64)]) ->
     }
 }
 
-/// Build a chunk-level [`MergedHit`].
-///
-/// The chunk-level aggregator tests assert how each strategy handles
-/// distinct child chunks of the same parent doc — the helpers above keep
-/// `chunk_id = None` for backward-compat with the pre-#76 tests.
+/// Build a child hit for parent-collapse and provenance assertions.
 fn chunk_hit(doc_id: &str, chunk_id: &str, score: f64) -> MergedHit {
     MergedHit {
         doc_id: doc_id.to_owned(),
@@ -70,10 +66,9 @@ fn chunk_hit(doc_id: &str, chunk_id: &str, score: f64) -> MergedHit {
 
 #[test]
 fn identity_returns_input_unchanged() {
-    let aggregator = IdentityAggregator;
-    let input = vec![hit("d1", 0.9), hit("d2", 0.7), hit("d1", 0.5)];
-    let output = aggregator.aggregate(&input);
-    assert_eq!(output, input, "Identity must preserve input verbatim");
+    // Deliberately unsorted: Identity must not silently sort arbitrary input.
+    let input = vec![hit("d2", 0.5), hit("d1", 1.0), hit("d2", 0.75)];
+    assert_eq!(IdentityAggregator.aggregate(&input), input);
 }
 
 #[test]
@@ -95,19 +90,23 @@ fn max_chunk_collapses_duplicates_to_max_score() {
 
 #[test]
 fn dedupe_keeps_first_occurrence_per_doc_id() {
-    let aggregator = DedupeAggregator;
-    let input = vec![
-        hit("d1", 0.9),
-        hit("d2", 0.7),
-        hit("d1", 0.5),
-        hit("d3", 0.6),
-        hit("d2", 0.4),
+    // First occurrence is neither score order nor doc order, and is not max.
+    let mut input = vec![
+        hit_with_sources("d2", 0.25, &[(CandidateSource::Fts, 0.25)]),
+        hit("d1", 1.0),
+        hit_with_sources("d2", 0.75, &[(CandidateSource::Vector, 0.75)]),
+        hit("d3", 0.5),
     ];
-    let output = aggregator.aggregate(&input);
+    for (entry, chunk) in input.iter_mut().zip(["z", "c0", "a", "c1"]) {
+        entry.chunk_id = Some(chunk.into());
+    }
     assert_eq!(
-        output,
-        vec![hit("d1", 0.9), hit("d2", 0.7), hit("d3", 0.6)],
-        "Dedupe should keep input rank-order and drop later duplicates"
+        DedupeAggregator.aggregate(&input),
+        vec![
+            hit_with_sources("d2", 0.25, &[(CandidateSource::Fts, 0.25)]),
+            hit("d1", 1.0),
+            hit("d3", 0.5),
+        ]
     );
 }
 
@@ -115,23 +114,40 @@ fn dedupe_keeps_first_occurrence_per_doc_id() {
 // observed averages compare bit-equal to the expected values.
 #[test]
 fn topk_average_averages_top_k_per_doc_id() {
-    let aggregator = TopKAverageAggregator::new(2);
-    let input = vec![
-        hit("d1", 1.0),
-        hit("d1", 0.5),
-        hit("d1", 0.25),
-        hit("d2", 0.5),
-        hit("d2", 0.25),
+    // Unsorted chunks; excluded d1 FTS values and d2 Vector keys must not leak.
+    let mut input = vec![
+        hit_with_sources("d1", 0.25, &[(CandidateSource::Fts, 8.0)]),
+        hit_with_sources("d2", 0.25, &[(CandidateSource::Fts, 0.25)]),
+        hit_with_sources("d2", 0.125, &[(CandidateSource::Vector, 8.0)]),
+        hit_with_sources(
+            "d1",
+            1.0,
+            &[(CandidateSource::Fts, 0.5), (CandidateSource::Vector, 0.5)],
+        ),
         hit("d3", 0.125),
+        hit_with_sources("d4", 1.0, &[(CandidateSource::Fts, 1.0)]),
+        hit_with_sources("d4", 0.5, &[(CandidateSource::Fts, 0.5)]),
+        hit_with_sources("d1", 0.5, &[(CandidateSource::Vector, 0.5)]),
+        hit_with_sources("d2", 0.5, &[(CandidateSource::Fts, 0.5)]),
     ];
-    let output = aggregator.aggregate(&input);
-    // d1 top-2 = (1.0 + 0.5) / 2  = 0.75
-    // d2 top-2 = (0.5 + 0.25) / 2 = 0.375
-    // d3 top-1 = 0.125            = 0.125
+    for (index, h) in input.iter_mut().enumerate() {
+        h.chunk_id = Some(format!("c{index}"));
+    }
+    // d1: scores (1 + .5)/2=.75, FTS (.5+0)/2=.25, Vector (.5+.5)/2=.5.
+    // d4: FTS (1+.5)/2=.75, tied with d1 but ordered by doc_id.
+    // d2: (.5+.25)/2=.375, d3: one chunk=.125, sources remain absent.
     assert_eq!(
-        output,
-        vec![hit("d1", 0.75), hit("d2", 0.375), hit("d3", 0.125)],
-        "TopK avg should take top-k scores per doc_id and sort by mean desc"
+        TopKAverageAggregator::new(2).aggregate(&input),
+        vec![
+            hit_with_sources(
+                "d1",
+                0.75,
+                &[(CandidateSource::Fts, 0.25), (CandidateSource::Vector, 0.5)]
+            ),
+            hit_with_sources("d4", 0.75, &[(CandidateSource::Fts, 0.75)]),
+            hit_with_sources("d2", 0.375, &[(CandidateSource::Fts, 0.375)]),
+            hit("d3", 0.125),
+        ]
     );
 }
 
@@ -143,27 +159,24 @@ fn topk_average_with_zero_k_returns_empty() {
     assert!(output.is_empty(), "k=0 should return empty");
 }
 
-// MaxChunk uses numerical > while TopK uses total_cmp; their signed-zero
-// provenance differs for signed zero.
+// With unique parent ids, MaxChunk still sorts arbitrary input and strips
+// child ids. All output chunk_ids are None, so parent ties use doc_id.
 #[test]
-fn max_chunk_and_topk_choose_distinct_provenance_for_signed_zero() {
-    let zeros = [
-        hit_with_sources("zero", -0.0, &[(CandidateSource::Fts, 1.0)]),
-        hit_with_sources("zero", 0.0, &[(CandidateSource::Vector, 2.0)]),
+fn max_chunk_unique_input_only_resorts() {
+    let input = vec![
+        chunk_hit("d3", "c2", 0.5),
+        chunk_hit("d2", "c0", 0.75),
+        chunk_hit("d1", "c1", 0.75),
+        chunk_hit("d4", "c0", 1.0),
     ];
-    let maximum = MaxChunkAggregator.aggregate(&zeros);
-    assert!(maximum[0].score.is_sign_negative());
     assert_eq!(
-        maximum[0].source_scores,
-        HashMap::from([(CandidateSource::Fts, 1.0)])
-    );
-    assert_eq!(
-        TopKAverageAggregator::new(1).aggregate(&zeros),
-        vec![hit_with_sources(
-            "zero",
-            0.0,
-            &[(CandidateSource::Vector, 2.0)]
-        ),]
+        MaxChunkAggregator.aggregate(&input),
+        vec![
+            hit("d4", 1.0),
+            hit("d1", 0.75),
+            hit("d2", 0.75),
+            hit("d3", 0.5),
+        ]
     );
 }
 
@@ -182,57 +195,22 @@ fn identity_preserves_source_scores() {
     );
 }
 
+// Parent output ties use doc_id; equal sibling maxima keep the first source map.
 #[test]
 fn max_chunk_keeps_max_scoring_hits_source_scores() {
-    let aggregator = MaxChunkAggregator;
-    let input = vec![
-        hit_with_sources("d1", 0.5, &[(CandidateSource::Fts, 0.5)]),
-        hit_with_sources("d1", 0.9, &[(CandidateSource::Vector, 0.9)]),
-    ];
-    let output = aggregator.aggregate(&input);
-    assert_eq!(output.len(), 1);
+    let mut first = chunk_hit("d2", "z", 1.0);
+    first.source_scores = HashMap::from([(CandidateSource::Vector, 0.5)]);
+    let mut later = chunk_hit("d2", "a", 1.0);
+    later.source_scores = HashMap::from([(CandidateSource::Fts, 0.75)]);
+    let mut best = chunk_hit("d1", "c1", 1.0);
+    best.source_scores = HashMap::from([(CandidateSource::Fts, 0.25)]);
+    let input = vec![first, chunk_hit("d1", "c0", 0.5), later, best];
     assert_eq!(
-        output[0].source_scores.get(&CandidateSource::Vector),
-        Some(&0.9),
-        "MaxChunk must keep source_scores from the max-scoring hit (the Vector contribution)"
-    );
-    assert!(
-        !output[0].source_scores.contains_key(&CandidateSource::Fts),
-        "MaxChunk must drop source_scores from non-winning hits"
-    );
-}
-
-#[test]
-fn dedupe_keeps_first_hits_source_scores() {
-    let aggregator = DedupeAggregator;
-    let input = vec![
-        hit_with_sources("d1", 0.9, &[(CandidateSource::Fts, 0.9)]),
-        hit_with_sources("d1", 0.5, &[(CandidateSource::Vector, 0.5)]),
-    ];
-    let output = aggregator.aggregate(&input);
-    assert_eq!(output.len(), 1);
-    assert_eq!(
-        output[0].source_scores.get(&CandidateSource::Fts),
-        Some(&0.9),
-        "Dedupe must keep first occurrence's source_scores"
-    );
-}
-
-// Uses dyadic fractions so the averaged source_scores compare bit-equal.
-#[test]
-fn topk_average_averages_source_scores() {
-    let aggregator = TopKAverageAggregator::new(2);
-    let input = vec![
-        hit_with_sources("d1", 1.0, &[(CandidateSource::Fts, 1.0)]),
-        hit_with_sources("d1", 0.5, &[(CandidateSource::Fts, 0.5)]),
-    ];
-    let output = aggregator.aggregate(&input);
-    assert_eq!(output.len(), 1);
-    // (1.0 + 0.5) / 2 = 0.75
-    assert_eq!(
-        output[0].source_scores.get(&CandidateSource::Fts),
-        Some(&0.75),
-        "TopKAverage must average source_scores across the top-k hits"
+        MaxChunkAggregator.aggregate(&input),
+        vec![
+            hit_with_sources("d1", 1.0, &[(CandidateSource::Fts, 0.25)]),
+            hit_with_sources("d2", 1.0, &[(CandidateSource::Vector, 0.5)]),
+        ]
     );
 }
 
@@ -246,8 +224,7 @@ fn candidate(source: CandidateSource, doc_id: &str, rank: usize) -> Candidate {
     }
 }
 
-// With default config (rrf_k=60, weights=1.0), WeightedRrf must produce
-// bit-equal scores to the legacy 1/(60+rank) formula.
+// Default weights retain the legacy 1/(60+rank) formula.
 #[test]
 fn weighted_rrf_default_matches_unweighted_rrf() {
     let strategy = WeightedRrf::default();
@@ -405,17 +382,13 @@ fn weighted_rrf_drops_non_finite_source_weight() {
             candidate(CandidateSource::Vector, "d2", 0),
         ];
         let output = strategy.merge(&candidates);
-        assert!(
-            !output.iter().any(|h| h.doc_id == "d1"),
-            "non-finite FTS weight {bad} must drop the FTS-only doc d1, got: {output:?}"
-        );
-        assert!(
-            output.iter().any(|h| h.doc_id == "d2"),
-            "Vector doc d2 (weight 1.0) must survive non-finite FTS weight {bad}, got: {output:?}"
-        );
-        assert!(
-            output.iter().all(|h| h.score.is_finite()),
-            "every fused score must be finite under non-finite FTS weight {bad}, got: {output:?}"
+        assert_eq!(
+            output,
+            vec![hit_with_sources(
+                "d2",
+                1.0 / 60.0,
+                &[(CandidateSource::Vector, 1.0 / 60.0)]
+            )],
         );
     }
 }
@@ -532,7 +505,7 @@ fn weighted_rrf_recency_non_finite_weight_returns_unboosted() {
     }
 }
 
-// NaN passes the <= 0 check; its non-finite decay must leave the hit intact.
+// NaN passes the <= 0 check; its non-finite decay must leave each hit intact.
 #[test]
 fn weighted_rrf_recency_nan_half_life_keeps_unboosted_hits() {
     let strategy = WeightedRrf::new(HybridSearchConfig {
@@ -603,38 +576,41 @@ fn weighted_rrf_recency_inf_half_life_finite_age_keeps_full_boost() {
     );
 }
 
-// Issue #76 / ADR 0004 line 180: when chunk-level retrieval is active,
-// distinct child chunks of the same parent doc MUST survive Stage 2
-// fusion. Otherwise Stage 3 aggregators have nothing to collapse and
-// every strategy is structurally identical to identity.
+// Parent and distinct child hits survive fusion; tied results use doc/chunk order.
 #[test]
 fn weighted_rrf_fuses_chunks_separately_when_chunk_id_differs() {
-    let strategy = WeightedRrf::default();
-    let candidates = vec![
-        Candidate {
-            source: CandidateSource::Fts,
-            doc_id: "d1".to_owned(),
-            chunk_id: Some("c0".to_owned()),
-            score: 0.0,
-            rank: 0,
-        },
-        Candidate {
-            source: CandidateSource::Fts,
-            doc_id: "d1".to_owned(),
-            chunk_id: Some("c1".to_owned()),
-            score: 0.0,
-            rank: 1,
-        },
-    ];
-    let output = strategy.merge(&candidates);
+    let candidates: Vec<_> = [
+        ("d2", Some("z"), 0),
+        ("d1", Some("z"), 0),
+        ("d1", Some("a"), 0),
+        ("d1", None, 0),
+        ("d0", Some("a"), 1),
+    ]
+    .into_iter()
+    .map(|(doc, chunk, rank)| {
+        let mut c = candidate(CandidateSource::Fts, doc, rank);
+        c.chunk_id = chunk.map(str::to_owned);
+        c
+    })
+    .collect();
+    let mut a = hit_with_sources("d1", 1.0 / 60.0, &[(CandidateSource::Fts, 1.0 / 60.0)]);
+    a.chunk_id = Some("a".into());
+    let mut z = a.clone();
+    z.chunk_id = Some("z".into());
+    let mut d2 = z.clone();
+    d2.doc_id = "d2".into();
+    let mut low = hit_with_sources("d0", 1.0 / 61.0, &[(CandidateSource::Fts, 1.0 / 61.0)]);
+    low.chunk_id = Some("a".into());
     assert_eq!(
-        output.len(),
-        2,
-        "two distinct chunks of d1 must survive Stage 2 fusion"
+        WeightedRrf::default().merge(&candidates),
+        vec![
+            hit_with_sources("d1", 1.0 / 60.0, &[(CandidateSource::Fts, 1.0 / 60.0)]),
+            a,
+            z,
+            d2,
+            low,
+        ]
     );
-    let chunk_ids: Vec<Option<&str>> = output.iter().map(|h| h.chunk_id.as_deref()).collect();
-    assert!(chunk_ids.contains(&Some("c0")), "c0 must be present");
-    assert!(chunk_ids.contains(&Some("c1")), "c1 must be present");
 }
 
 #[test]
@@ -648,75 +624,6 @@ fn identity_preserves_chunk_level_distinctness() {
     let output = aggregator.aggregate(&input);
     assert_eq!(output.len(), 3, "Identity must keep all chunk-level hits");
     assert_eq!(output, input, "Identity must preserve chunk_ids verbatim");
-}
-
-// Unsorted parents tie on the maximum. Equal sibling scores retain the
-// first chunk's sources, while parent output ties use doc_id ascending.
-#[test]
-fn max_chunk_collapses_sibling_chunks_to_parent() {
-    let mut first = chunk_hit("d2", "z", 1.0);
-    first.source_scores = HashMap::from([(CandidateSource::Vector, 0.5)]);
-    let mut later = chunk_hit("d2", "a", 1.0);
-    later.source_scores = HashMap::from([(CandidateSource::Fts, 0.75)]);
-    let mut best = chunk_hit("d1", "c1", 1.0);
-    best.source_scores = HashMap::from([(CandidateSource::Fts, 0.25)]);
-    let input = vec![first, chunk_hit("d1", "c0", 0.5), later, best];
-    assert_eq!(
-        MaxChunkAggregator.aggregate(&input),
-        vec![
-            hit_with_sources("d1", 1.0, &[(CandidateSource::Fts, 0.25)]),
-            hit_with_sources("d2", 1.0, &[(CandidateSource::Vector, 0.5)]),
-        ]
-    );
-}
-
-#[test]
-fn dedupe_collapses_chunks_to_first_parent() {
-    let mut first = chunk_hit("d2", "z", 0.25);
-    first.source_scores = HashMap::from([(CandidateSource::Vector, 0.125)]);
-    let mut later = chunk_hit("d2", "a", 1.0);
-    later.source_scores = HashMap::from([(CandidateSource::Fts, 0.5)]);
-    let input = vec![first, chunk_hit("d1", "c0", 0.5), later];
-    assert_eq!(
-        DedupeAggregator.aggregate(&input),
-        vec![
-            hit_with_sources("d2", 0.25, &[(CandidateSource::Vector, 0.125)]),
-            hit("d1", 0.5),
-        ]
-    );
-}
-
-// Direct production call: sort unsorted scores, retain input order at the
-// tied k boundary even when chunk IDs disagree, and average selected sources.
-#[test]
-fn topk_average_collapses_chunks_with_chunk_id_none() {
-    let mut boundary = chunk_hit("d1", "z", 0.5);
-    boundary.source_scores = HashMap::from([(CandidateSource::Vector, 0.25)]);
-    let mut best = chunk_hit("d1", "high", 1.0);
-    best.source_scores = HashMap::from([(CandidateSource::Fts, 0.5)]);
-    let mut excluded = chunk_hit("d1", "a", 0.5);
-    excluded.source_scores = HashMap::from([(CandidateSource::Fts, 0.5)]);
-    let input = vec![
-        chunk_hit("d1", "low", 0.125),
-        chunk_hit("d2", "c0", 0.25),
-        boundary,
-        best,
-        excluded,
-    ];
-    assert_eq!(
-        TopKAverageAggregator::new(2).aggregate(&input),
-        vec![
-            hit_with_sources(
-                "d1",
-                0.75,
-                &[
-                    (CandidateSource::Fts, 0.25),
-                    (CandidateSource::Vector, 0.125)
-                ],
-            ),
-            hit("d2", 0.25),
-        ]
-    );
 }
 
 #[test]
@@ -780,23 +687,14 @@ fn group_by_parent_returns_empty_map_for_empty_hits() {
 #[test]
 fn merged_hit_deserializes_when_chunk_id_field_omitted() {
     let json = r#"{"doc_id":"d1","score":0.5,"source_scores":{"fts":0.5}}"#;
-    let hit: MergedHit = serde_json::from_str(json).expect("legacy JSON must parse");
-    assert_eq!(hit.doc_id, "d1");
-    assert!((hit.score - 0.5).abs() < f64::EPSILON);
     assert_eq!(
-        hit.chunk_id, None,
-        "omitted chunk_id must default to None, not error"
-    );
-    assert_eq!(
-        hit.source_scores.get(&CandidateSource::Fts),
-        Some(&0.5),
-        "source_scores must round-trip the populated entry"
+        serde_json::from_str::<MergedHit>(json).expect("legacy JSON must parse"),
+        hit_with_sources("d1", 0.5, &[(CandidateSource::Fts, 0.5)]),
     );
 }
 
-// Default config must serialize then deserialize to a value equal to the
-// starting Default — guards against an accidental serde attribute change
-// that would shift downstream JSON shape.
+// Roundtrip checks value preservation; literal wire compatibility is tested
+// separately so a simultaneous serializer/deserializer rename cannot pass.
 #[test]
 fn hybrid_search_config_serde_round_trips_default() {
     let config = HybridSearchConfig::default();
@@ -811,26 +709,43 @@ fn hybrid_search_config_serde_round_trips_default() {
 // worse FTS rank.
 #[test]
 fn weighted_rrf_fts_heavy_weight_reorders() {
-    let mut config = HybridSearchConfig::default();
-    config.source_weights.insert(CandidateSource::Fts, 5.0);
-    let strategy = WeightedRrf::new(config);
     let candidates = vec![
-        // d1: FTS rank 0 only → 5/60 = 0.0833
         candidate(CandidateSource::Fts, "d1", 0),
-        // d2: FTS rank 5, Vector rank 0 → 5/65 + 1/60 = 0.0936
-        candidate(CandidateSource::Fts, "d2", 5),
+        candidate(CandidateSource::Fts, "d2", 60),
         candidate(CandidateSource::Vector, "d2", 0),
     ];
-    let output = strategy.merge(&candidates);
+    // Default: d2 = 1/120 + 1/60 beats d1 = 1/60.
     assert_eq!(
-        output[0].doc_id, "d2",
-        "d2 wins via FTS rank 5 + Vector top hit"
+        WeightedRrf::default().merge(&candidates),
+        vec![
+            hit_with_sources(
+                "d2",
+                1.0 / 120.0 + 1.0 / 60.0,
+                &[
+                    (CandidateSource::Fts, 1.0 / 120.0),
+                    (CandidateSource::Vector, 1.0 / 60.0)
+                ]
+            ),
+            hit_with_sources("d1", 1.0 / 60.0, &[(CandidateSource::Fts, 1.0 / 60.0)]),
+        ]
     );
-    // sanity: with default weights (fts=1.0), the order would still be d2 first
-    // because d2 has 1/65 + 1/60 = 0.0320 vs d1 1/60 = 0.0167
-    // So the test mainly verifies weighting works without reverting order
-    let weighted_d2_score = 5.0 / 65.0 + 1.0 / 60.0;
-    assert!((output[0].score - weighted_d2_score).abs() < f64::EPSILON);
+    let mut config = HybridSearchConfig::default();
+    config.source_weights.insert(CandidateSource::Fts, 5.0);
+    // Heavy FTS: d1 = 5/60 beats d2 = 5/120 + 1/60; Vector is unchanged.
+    assert_eq!(
+        WeightedRrf::new(config).merge(&candidates),
+        vec![
+            hit_with_sources("d1", 5.0 / 60.0, &[(CandidateSource::Fts, 5.0 / 60.0)]),
+            hit_with_sources(
+                "d2",
+                5.0 / 120.0 + 1.0 / 60.0,
+                &[
+                    (CandidateSource::Fts, 5.0 / 120.0),
+                    (CandidateSource::Vector, 1.0 / 60.0)
+                ]
+            ),
+        ]
+    );
 }
 
 // Finite inputs can overflow division before any accumulator is created.
@@ -996,8 +911,120 @@ fn topk_average_empty_input_returns_empty() {
     assert!(TopKAverageAggregator::new(2).aggregate(&[]).is_empty());
 }
 
-// Repeated same-source entries add today; neither other sources nor distinct
-// chunks are duplicates of that entry. Expectations do not call a merge oracle.
+// Fixed historical literals and expected output are independent of serde's
+// current serializer. Compare JSON values: object/map key order is not wire API.
+#[test]
+fn merged_hit_literal_wire_compatibility() {
+    let legacy = r#"{"doc_id":"d1","score":0.5}"#;
+    assert_eq!(
+        serde_json::from_str::<MergedHit>(legacy).unwrap(),
+        hit("d1", 0.5)
+    );
+    let mut chunk = hit_with_sources(
+        "d2",
+        0.75,
+        &[(CandidateSource::Fts, 0.25), (CandidateSource::Vector, 0.5)],
+    );
+    chunk.chunk_id = Some("c1".into());
+    let wire = serde_json::json!({
+        "doc_id": "d2", "chunk_id": "c1", "score": 0.75,
+        "source_scores": {"fts": 0.25, "vector": 0.5},
+    });
+    assert_eq!(
+        serde_json::from_value::<MergedHit>(wire.clone()).unwrap(),
+        chunk
+    );
+    assert_eq!(serde_json::to_value(&chunk).unwrap(), wire);
+    assert_eq!(
+        serde_json::to_value(hit("d1", 0.5)).unwrap(),
+        serde_json::json!({
+            "doc_id": "d1", "chunk_id": null, "score": 0.5, "source_scores": {},
+        })
+    );
+}
+
+#[test]
+fn hybrid_search_config_literal_wire_compatibility() {
+    let legacy = r#"{"rrf_k":60.0,"source_weights":{"fts":1.0,"vector":1.0}}"#;
+    let default = HybridSearchConfig::default();
+    assert_eq!(
+        serde_json::from_str::<HybridSearchConfig>(legacy).unwrap(),
+        default
+    );
+    assert_eq!(
+        serde_json::to_value(default).unwrap(),
+        serde_json::json!({
+            "rrf_k": 60.0, "source_weights": {"fts": 1.0, "vector": 1.0},
+        })
+    );
+    let config = HybridSearchConfig {
+        rrf_k: 2.0,
+        source_weights: HashMap::from([(CandidateSource::Fts, 3.0)]),
+    };
+    let wire = serde_json::json!({"rrf_k": 2.0, "source_weights": {"fts": 3.0}});
+    assert_eq!(
+        serde_json::from_value::<HybridSearchConfig>(wire.clone()).unwrap(),
+        config
+    );
+    assert_eq!(serde_json::to_value(config).unwrap(), wire);
+}
+
+// Numerical > retains -0.0 first; total_cmp selects +0.0 and its sources.
+#[test]
+fn max_chunk_and_topk_choose_distinct_provenance_for_signed_zero() {
+    let zeros = [
+        hit_with_sources("zero", -0.0, &[(CandidateSource::Fts, 1.0)]),
+        hit_with_sources("zero", 0.0, &[(CandidateSource::Vector, 2.0)]),
+    ];
+    let maximum = MaxChunkAggregator.aggregate(&zeros);
+    assert!(maximum[0].score.is_sign_negative());
+    assert_eq!(
+        maximum[0].source_scores,
+        HashMap::from([(CandidateSource::Fts, 1.0)])
+    );
+    assert_eq!(
+        TopKAverageAggregator::new(1).aggregate(&zeros),
+        vec![hit_with_sources(
+            "zero",
+            0.0,
+            &[(CandidateSource::Vector, 2.0)]
+        ),]
+    );
+}
+
+// Equal boundary scores keep input provenance even when chunk IDs disagree.
+#[test]
+fn topk_average_collapses_chunks_with_chunk_id_none() {
+    let mut boundary = chunk_hit("d1", "z", 0.5);
+    boundary.source_scores = HashMap::from([(CandidateSource::Vector, 0.25)]);
+    let mut best = chunk_hit("d1", "high", 1.0);
+    best.source_scores = HashMap::from([(CandidateSource::Fts, 0.5)]);
+    let mut excluded = chunk_hit("d1", "a", 0.5);
+    excluded.source_scores = HashMap::from([(CandidateSource::Fts, 0.5)]);
+    let input = vec![
+        chunk_hit("d1", "low", 0.125),
+        chunk_hit("d2", "c0", 0.25),
+        boundary,
+        best,
+        excluded,
+    ];
+    assert_eq!(
+        TopKAverageAggregator::new(2).aggregate(&input),
+        vec![
+            hit_with_sources(
+                "d1",
+                0.75,
+                &[
+                    (CandidateSource::Fts, 0.25),
+                    (CandidateSource::Vector, 0.125)
+                ],
+            ),
+            hit("d2", 0.25),
+        ]
+    );
+}
+
+// Same-source duplicates add; another source or child remains distinct.
 #[test]
 fn weighted_rrf_adds_duplicates_without_combining_sources_or_chunks() {
     let strategy = WeightedRrf::new(HybridSearchConfig {

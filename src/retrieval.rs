@@ -410,15 +410,15 @@ impl MergeStrategy for WeightedRrf {
 pub trait Aggregator {
     /// Aggregate `hits` into the form Stage 4 expects.
     ///
-    /// For pipeline use, input MUST follow [`MergeStrategy::merge`]: finite
-    /// scores and source contributions, sorted by score descending, doc_id
-    /// ascending, then chunk_id ascending. On that input, output MUST be
-    /// sorted in this order. Identity and
-    /// Dedupe preserve input order rather than sorting arbitrary input; MaxChunk
-    /// and TopKAverage sort their parent-granular outputs. The pipeline
-    /// truncates the result to `config.k` after this call, so non-sorted
-    /// output would silently drop higher-scoring hits. Output length may be
-    /// ≤ input length (dedupe / max-chunk collapse duplicates).
+    /// In the pipeline, input comes from [`MergeStrategy::merge`] sorted by
+    /// `score` descending, then `doc_id` ascending, then `chunk_id` ascending.
+    /// Output must be sorted by the same keys so downstream truncation does not drop
+    /// higher-scoring hits. [`IdentityAggregator`] and [`DedupeAggregator`]
+    /// preserve input order; their sorted-output guarantee requires sorted
+    /// Stage 2 input. On arbitrary input they do not sort or select a maximum.
+    /// [`MaxChunkAggregator`] and [`TopKAverageAggregator`] sort their output
+    /// even for unsorted input and emit parent hits (`chunk_id = None`).
+    /// Output length may be ≤ input length (dedupe / max-chunk collapse).
     fn aggregate(&self, hits: &[MergedHit]) -> Vec<MergedHit>;
 }
 
@@ -442,9 +442,10 @@ impl Aggregator for IdentityAggregator {
 ///
 /// Output `chunk_id` is `None` (parent-granular). When chunk-level retrieval
 /// is active, this collapses sibling child chunks into a single parent hit
-/// carrying the best chunk's score and `source_scores`. With equal finite
-/// scores, the first input chunk wins, including its source map. This also
-/// accepts unsorted finite input; it does not merge losing chunks' sources.
+/// carrying the best chunk's score and `source_scores`. Equal maximum scores
+/// keep the first occurrence in input order, including its `source_scores`;
+/// chunk identifiers do not break selection ties. With sorted Stage 2 input,
+/// that first occurrence has the lowest `chunk_id` among tied sibling hits.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct MaxChunkAggregator;
 
