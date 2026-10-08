@@ -352,6 +352,58 @@ Rust/Xcode/Metal、機種/OS、モデルrevision、実行コマンドと全サ�
 未実行・モデル不足・観測不能の指標は明記する。mockの順序確認や短い固定shapeの反復から、
 全shape・全モデル・長時間運転のGPUメモリ保証やリーク削減量を推定しない。
 
+### モデル種別の拒否条件（Issue #361）
+
+[Issue #361](https://github.com/thkt/rurico/issues/361) のkind検証は、
+`src/artifacts/tests.rs`で内部helperと公開`CandidateArtifacts::verify`の両方を確認する。
+有効なbackboneのprefixに禁止headを1種類ずつ加えたembedと、
+classifier・head.dense・head.normのうち1種類だけを欠くrerankerを使い、
+`WrongModelKind`の対象kind、禁止／欠落の理由、該当prefixを検査する。
+全prefixが揃う正常例、backbone不在、header破損は既存の別テストで確認する。
+ここでいう有効なbackboneはkindのprefix条件を満たすことを指し、
+config由来の全必須重み・shape・F32・data rangeの保証は、次節のloader検証が担う。
+小さな合成ファイルを再利用し、モデルのダウンロードや追加の実モデルロードは行わない。
+
+通常checkはこれらのテストを実行するが、製品コードを変異させた検出力の確認は行わない。
+検出力を確認する場合は、変更後のソースを含む一時コピーをホストに作り、まず正常版を実行する。
+コピー元は今回のcheckoutとし、commitだけをコピーして未commitの変更を落とさない。
+MLX-onlyのビルド条件は通常checkと同じにする。
+
+```sh
+rurico_kind_copy=$(mktemp -d)
+rsync -a --exclude=.git --exclude=target ./ "$rurico_kind_copy/"
+cd "$rurico_kind_copy"
+cargo nextest run --locked --workspace --features test-support,test-mlx,smoke --profile ci \
+  --run-ignored default --no-tests fail -E 'test(artifacts::tests::)' \
+  --status-level all --final-status-level all
+```
+
+一時コピーの`src/artifacts.rs`だけに、次の変異を1つずつ適用する。
+各変異の前に同ファイルを正常版から復元し、テストやfixtureは変更しない。
+
+- `verify_model_kind`の`else if !require_reranker_keys && found`分岐を、
+  その`WrongModelKind`を返すブロックごと削除する。
+  下記のembed限定実行でhelperとcandidateの2テストが拒否を期待するassertionで失敗することを確認する。
+- `RERANKER_KEY_PREFIXES`から`"head.norm."`だけを削除する。
+  下記のreranker限定実行でhelperとcandidateの2テストが、
+  normだけを欠くケースの拒否を期待するassertionで失敗することを確認する。
+
+```sh
+# head拒否分岐を削除したコピー
+cargo nextest run --locked --workspace --features test-support,test-mlx,smoke --profile ci \
+  --run-ignored default --no-tests fail -E 'test(embed_kind_rejects_each_head_prefix)' \
+  --status-level all --final-status-level all
+# 正常版を復元し、norm必須prefixだけを削除したコピー
+cargo nextest run --locked --workspace --features test-support,test-mlx,smoke --profile ci \
+  --run-ignored default --no-tests fail -E 'test(reranker_kind_rejects_each_missing_head_prefix)' \
+  --status-level all --final-status-level all
+```
+
+終了コードだけで検出成功とせず、各テスト名・該当ケース・assertionのログを残す。
+ビルドや環境の失敗は変異の検出と扱わない。最後に正常版を復元し、最初のartifact限定実行が成功することを確認する。
+開始commit、作業差分、Cargo.lock、Rust/Xcode/Metalの版、実行コマンドと結果を検証記録へ残す。
+標準checkや旧版の成功を、この変異確認の実施済み証拠として扱わない。
+
 ### 重みの読込み検証
 
 [Issue #300](https://github.com/thkt/rurico/issues/300) の CPU 検証は通常の check に含まれる。
