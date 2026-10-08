@@ -17,7 +17,8 @@ cargo fetch --locked
 bash scripts/check.sh
 ```
 
-`scripts/check.sh` は `test` job相当の検証を行う。`coverage`（変更行95%以上）、
+`scripts/check.sh` と `just check` はRustの`test` job相当の検証を行う。
+Python参照環境の導入・整合検査・既存テストはCIの独立したstepで維持する。`coverage`（変更行95%以上）、
 `security`（`cargo deny check` / `cargo audit`）、`zizmor` は別のCI jobで確認する。
 依存更新時もcoverage閾値・ignore・タイムアウトを通過目的で緩めない。
 Xcode 27 / Metal Toolchain 27A266aでの検証対象と経緯は [Issue #322](https://github.com/thkt/rurico/issues/322) を参照。
@@ -31,13 +32,19 @@ checkはGPUを利用できるsandbox外のホストで実行する。推論の�
 CI で実行されるテスト一式は以下で再現できる。
 
 ```sh
-cargo nextest run --workspace --features test-support,test-mlx
-cargo test --doc --workspace --features test-support,test-mlx
+python3 -m unittest discover -b -s scripts -p 'test_*.py'
+bash scripts/test.sh
+cargo test --locked --doc --workspace --features test-support,test-mlx,smoke
 ```
 
 `cargo nextest run` は doctest を走らせないため、`cargo test --doc` を別途実行する。nextest 未インストールの場合は `brew install cargo-nextest` または `cargo install cargo-nextest --locked`。
 
-`test-support` / `test-mlx` feature を有効にすることで、CI の clippy step (`cargo clippy --workspace --all-targets --all-features -- -D warnings`) が見ているコードを test 側でも exercise する。CI の test step もこの組み合わせで実行される。
+`test-support,test-mlx,smoke` を通常CI・標準check・`just test`で有効にする。
+現行の `--all-features` はこの3 featureをすべて有効にする指定で、
+MLXをCPU backendへ切り替える指定でもignoredテストを実行する指定でもない。
+clippyの `--all-targets --all-features` はコンパイル検査であり、テストの実行を代替しない。
+coverageも同じfeatureを使う。既存の除外regex・95%の閾値は維持し、
+追加対象を通すための除外は設けない。
 
 ### CIキャッシュの検証
 
@@ -77,11 +84,33 @@ cargo nextest run --run-ignored=ignored-only g_001_real_tokenizer_extract_prefix
 
 ### `mlx_smoke` smoke テスト
 
-`mlx_smoke` 統合テスト (`tests/mlx_smoke.rs`) と同名 binary (`src/bin/mlx_smoke.rs`) は `smoke` feature の背後にある。実推論モードとignoredの統合テストは、キャッシュ済みのruri-v3モデルとApple SiliconのMLX runtimeを要する。記録の単体テストと `summarize-records` はモデルをロードしない。標準CIは `smoke` featureを含めず、実モデル検証はホストで別に実行する。ignoredの統合テストを実行する場合は、事前に対象モデルをキャッシュしてから:
+`mlx_smoke` 統合テスト (`tests/mlx_smoke.rs`) と同名 binary (`src/bin/mlx_smoke.rs`) は `smoke` feature の背後にある。実推論モードとignoredの統合テストは、キャッシュ済みのruri-v3モデルとApple SiliconのMLX runtimeを要する。記録の単体テストと `summarize-records` はモデルをロードしない。標準CIとcheckは `smoke` featureを含め、閾値・record/集計・mode・比較器の単体テストとモデル不要のCLI統合テストを実行する。実モデル検証はホストで別に実行する。ignoredの統合テストを実行する場合は、事前に対象モデルをキャッシュしてから:
 
 ```sh
-# ruri-v3 系モデルがローカル HF cache にあることを前提に走らせる
+# ローカルHF cacheにruri-v3モデルが必要
 cargo nextest run --workspace --features smoke --test mlx_smoke --run-ignored=ignored-only
+```
+
+通常laneの入口は `bash scripts/test.sh`（引数によるfilterの転送なし）。
+呼出しごとにlocked依存と上記3 featureでCargo metadataを取得し、そのsnapshotをビルド入口にも渡す。
+テストbinaryを一度ビルドし、そのbinary metadataと同じCargo metadataを一覧取得・実行の両方に渡す。
+metadataは呼出し内の一時ディレクトリに保存し、成功・失敗時に削除する。工程をまたぐ保存は行わない。
+nextestのJSON一覧を実行と同じfeature・ci profile・ignored条件で検査し、
+binaryと統合の各suiteが存在し、モデル不要テストが各1件以上あり、filter/ignoreで除外されていないことを確認する。
+既存6件の実モデル統合テストはignoredのままかを実行前に確認する。
+一覧の検査失敗・0件・nextest失敗は非ゼロ終了となる。実行ログには対象名・PASS/SKIPと総件数を表示する。
+モデル不要テストの追加は件数の固定更新を要しない。実モデルテストを追加・改名する場合は、
+`scripts/verify-smoke-tests.py` のモデル対象一覧とテストのignored条件を照合する。
+この選択検査は推論・数値一致・性能の証拠ではない。
+
+モデル不要laneの検出力を再確認する場合は、一時コピーで
+`src/bin/mlx_smoke.rs::workload_ratio` のbatch/sequentialの除算を逆にする。
+次の対象限定実行が閾値判定のassertで失敗し、元へ戻すと成功することを、終了コードとログで確認する。
+通常laneと同じfeature・profile・ignored条件を使う。モデルDLやGPU実推論は不要だが、ビルドはMLX依存のままである。
+
+```sh
+cargo nextest run --locked --workspace --features test-support,test-mlx,smoke --profile ci \
+  --run-ignored default --bin mlx_smoke --test mlx_smoke --no-tests fail --status-level all --final-status-level all
 ```
 
 binary 版を直接呼ぶ場合:
@@ -141,10 +170,10 @@ cargo test --locked --features smoke --test mlx_smoke summarize_records
 cargo test --locked --lib measured_trait_fallback
 cargo test --locked --lib precise_metrics_keep
 cargo build --locked --release --features smoke --bin mlx_smoke
-# /tmp/rurico-306-evidence は新しい記録用ディレクトリの例
+# 新しい記録用ディレクトリを使う
 mkdir /tmp/rurico-306-evidence
 RUST_LOG=off target/release/mlx_smoke measure-records > /tmp/rurico-306-evidence/raw.jsonl
-# モデルをロードせず、生recordだけから同じ集計を再生成
+# 生recordから集計を再生成（モデル不要）
 target/release/mlx_smoke summarize-records /tmp/rurico-306-evidence/raw.jsonl > /tmp/rurico-306-evidence/summary.jsonl
 ```
 
@@ -186,7 +215,7 @@ JSONLのschema 1は次のように読む。
 
 `measure-baseline`も同じrecord形式と交互順を使うが、defaultの計測経路だけを実行し、既存の
 Phase 2閾値検査を続ける。stderrの `baseline` / `mdrow` は集計表示で、一回の推論値ではない。
-通常checkだけではsmoke feature・実モデルの検証は完了しない。フルcheckとCIを同じheadで確認し、
+通常checkはsmokeのモデル不要テストを含むが、実モデルの検証は完了しない。フルcheckとCIを同じheadで確認し、
 公開可能な小さなraw record・summary・build条件・未確認事項を `docs/benchmarks/` に保存する。
 今回の実測結果と制約は [Issue #306の検証記録](docs/benchmarks/issue-306-metrics.md) を参照。
 
@@ -239,8 +268,10 @@ commit・差分・実行ファイルhashは版の識別に使い、
 model/tokenizerのrevisionはcache lookup時の識別で、ファイル内容のhash照合や測定中の背景負荷の不在は
 raw recordだけでは証明しない。#306のモデル内容照合・負荷監視手順も併用し、ばらつきと未確認条件を残す。
 
-標準checkはsmoke featureのテストを実行せず、clippyはビルド確認に限る。
-同じ変更版と固定Cargo.lockでホストが次を追加実行する。実機ではキャッシュ済みdefaultモデルと対応Metalが必要。
+標準checkは以下のモデル不要のsmoke単体・CLI統合テストを含み、clippyはビルド確認に限る。
+後半2つのignoredテストは別の実モデル検証で、通常checkには含めない。
+同じ変更版と固定Cargo.lockでホストが実行する。後半2つのignoredテストには、
+キャッシュ済みdefaultモデルと対応Metalが必要。
 
 ```sh
 cargo test --locked --features smoke --bin mlx_smoke

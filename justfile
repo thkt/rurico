@@ -1,20 +1,14 @@
-# rurico harness shortcuts. Run `just` (or `just --list`) for the menu.
-#
-# Sections: Development checks (check/test/lint/fmt), chunk-level retrieval
-# tests, mlx_smoke (embed speed + numerical parity, ADR 0002), and probe smoke
-# (subprocess probe contract).
-
 default:
     @just --list
 
-# === Development ===
-
-# Full local CI: cargo test + clippy + fmt --check
-check: test lint fmt-check
+# Standard check, including model-free smoke tests
+check:
+    bash scripts/check.sh
 
 test:
-    cargo nextest run --workspace --all-features
-    cargo test --doc --workspace --all-features
+    python3 -m unittest discover -b -s scripts -p 'test_*.py'
+    bash scripts/test.sh
+    cargo test --locked --doc --workspace --features test-support,test-mlx,smoke
 
 lint:
     cargo clippy --workspace --all-targets --all-features -- -D warnings
@@ -25,13 +19,11 @@ fmt-check:
 fmt:
     cargo fmt
 
-# Run only the chunk-level retrieval tests (T-076-001..008, MLX-free)
+# Chunk retrieval tests without model inference (MLX build required)
 chunk-test:
     cargo nextest run --lib chunk
 
-# === embed スピード + 数値同等性ハーネス (mlx_smoke, ADR 0002) ===
-
-# Capture embed fixture → tests/fixtures/embed/{w1,w2,w3}.bin
+# Capture embed fixtures in tests/fixtures/phase2_baseline
 embed-capture:
     cargo run --bin mlx_smoke --features smoke --release -- capture-fixture
 
@@ -39,11 +31,9 @@ embed-capture:
 embed-baseline:
     cargo run --bin mlx_smoke --features smoke --release -- measure-baseline
 
-# Verify embed fixture parity (cosine_min ≥ 0.99999, max_abs_diff ≤ 1e-5)
+# Verify embed fixture numerical parity
 embed-verify:
     cargo run --bin mlx_smoke --features smoke --release -- verify-fixture
-
-# === Probe smoke (subprocess probe contract) ===
 
 probe-embed:
     cargo run --bin probe_embed_smoke --release
