@@ -157,6 +157,71 @@ fn match_ids(conn: &Connection, query: &MatchFtsQuery) -> Vec<i64> {
         .unwrap()
 }
 
+// #314 research uses the same public synthetic inputs as the SQLite probe.
+// Cross-check its legacy wire/hits against the real public producer rather
+// than treating a Python rendering of current SQL as product verification.
+#[test]
+fn research_query_plan_legacy_matches_shared_observations() {
+    let cases: serde_json::Value =
+        serde_json::from_str(include_str!("../../../docs/research/issue-314/cases.json")).unwrap();
+    let results: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../docs/research/issue-314/results.json"
+    ))
+    .unwrap();
+    for tokenizer in ["unicode61", "trigram"] {
+        for case in cases.as_array().unwrap() {
+            if !["phrase", "cap-ties", "percent", "underscore", "backslash"]
+                .contains(&case["name"].as_str().unwrap())
+            {
+                continue;
+            }
+            let conn = Connection::open_in_memory().unwrap();
+            conn.execute_batch(&format!(
+                "CREATE VIRTUAL TABLE docs USING fts5(body, tokenize='{tokenizer}');
+                 CREATE VIRTUAL TABLE vocab USING fts5vocab(docs, row);"
+            ))
+            .unwrap();
+            for body in case["bodies"].as_array().unwrap() {
+                conn.execute("INSERT INTO docs VALUES (?1)", [body.as_str().unwrap()])
+                    .unwrap();
+            }
+            for mode in ["legacy", "missing-vocab"] {
+                let observed = results["cases"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|row| {
+                        row["case"] == case["name"]
+                            && row["tokenizer"] == tokenizer
+                            && row["mode"] == mode
+                    })
+                    .unwrap();
+                let vocab = if mode == "legacy" { "vocab" } else { "absent" };
+                let query =
+                    prepare_match_query(&conn, case["input"].as_str().unwrap(), vocab, &no_norm())
+                        .unwrap();
+                let actual = match_ids(&conn, &query);
+                if case["name"] == "cap-ties" && mode == "legacy" {
+                    // cnt ties have no promised order. Do not freeze this
+                    // SQLite version's choice of the 25 terms into the API.
+                    assert_eq!(query.as_str().split(" OR ").count(), 25);
+                    assert_eq!(actual.len(), 50);
+                    assert!(!actual.contains(&61), "rare term must be below the cap");
+                } else {
+                    assert_eq!(query.as_str(), observed["wire"].as_str().unwrap());
+                    let expected: Vec<i64> = observed["hits"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|id| id.as_i64().unwrap())
+                        .collect();
+                    assert_eq!(actual, expected, "{tokenizer}, {mode}, {}", case["name"]);
+                }
+            }
+        }
+    }
+}
+
 #[test]
 fn prepare_match_query_japanese_expansion_executes_with_both_tokenizers() {
     for tokenizer in ["unicode61", "trigram"] {
@@ -340,19 +405,16 @@ fn ok(s: &str) -> Result<SanitizedFtsQuery, SanitizeError> {
     Ok(sanitized(s))
 }
 
-// T-001: near_removal
 #[test]
 fn near_removal() {
     assert_eq!(sanitize_fts_query("NEAR(a b) hello"), ok("hello"));
 }
 
-// T-001b: near_with_distance
 #[test]
 fn near_with_distance() {
     assert_eq!(sanitize_fts_query("NEAR/3(a b c) hello"), ok("hello"));
 }
 
-// T-001c: near_unclosed_paren
 #[test]
 fn near_unclosed_paren() {
     assert_eq!(
@@ -361,20 +423,17 @@ fn near_unclosed_paren() {
     );
 }
 
-// T-004: prefix_strip
 #[test]
 fn prefix_strip() {
     assert_eq!(sanitize_fts_query("^+hello"), ok("hello"));
 }
 
-// T-011: sandwiched_operator_preserved
 #[test]
 fn sandwiched_operator_preserved() {
     assert_eq!(sanitize_fts_query("foo AND bar"), ok("foo AND bar"));
     assert_eq!(sanitize_fts_query("foo OR bar"), ok("foo OR bar"));
 }
 
-// T-012: dangling_operator_dropped
 #[test]
 fn dangling_operator_dropped() {
     // Leading/trailing operators without both neighbours are dropped.
@@ -382,7 +441,6 @@ fn dangling_operator_dropped() {
     assert_eq!(sanitize_fts_query("foo OR"), ok("foo"));
 }
 
-// T-012b: consecutive_operators_between_terms
 #[test]
 fn consecutive_operators_between_terms() {
     // Neither AND nor OR has a non-operator on both sides → both dropped.
@@ -390,7 +448,6 @@ fn consecutive_operators_between_terms() {
     assert_eq!(sanitize_fts_query("NOT foo NOT"), ok("foo"));
 }
 
-// T-013: operator_only_returns_error
 #[test]
 fn operator_only_returns_error() {
     assert_eq!(
@@ -403,21 +460,18 @@ fn operator_only_returns_error() {
     );
 }
 
-// T-014: near_then_dangling_operator
 #[test]
 fn near_then_dangling_operator() {
     // "foo OR NEAR(bar baz)" → NEAR stripped → "foo OR" → OR dangling → "foo"
     assert_eq!(sanitize_fts_query("foo OR NEAR(bar baz)"), ok("foo"));
 }
 
-// T-015: case_insensitive_operators
 #[test]
 fn case_insensitive_operators() {
     assert_eq!(sanitize_fts_query("foo or bar"), ok("foo or bar"));
     assert_eq!(sanitize_fts_query("Not secret"), ok("secret"));
 }
 
-// T-105-013: drop_dangling_operators_drops_operator_at_position_zero
 //
 // Boundary: a valid FTS5 operator at index 0 cannot have a left neighbour,
 // so `has_left` is false and the operator must be dropped even when a

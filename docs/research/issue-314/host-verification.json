@@ -1,0 +1,50 @@
+{
+  "source": {
+    "rurico_start_commit": "24725a72be44300afc24186b82b14bcb3f5f9d3d",
+    "rurico_cargo_lock_sha256": "743d754ae4fb6f0f44d169feab408a1b80caa50d17c38b058ec156c66811bf30",
+    "amici_commit": "547f9ee2ed734a2eab316fdbd62f194849875ee4",
+    "amici_archive_sha256": "5d994e7a799b97ae27c63184709d7afde2f244a707ab074b77c73a52d4397d7a",
+    "amici_fts_sha256": "93bd581d91de93260f8971ee4b750dd1f592c3637a1ab69bbd4814d6f8b24e0e",
+    "amici_original_tests_sha256": "fc656f69a7fb6f3b77d2afdcff4ff0cb277d18dc4c718623cddefbfed559ee63",
+    "consumer_resolved_lock_sha256": "cb132c818a1f7d4ca9434219c227f7a4e7e2656161b501c514e98eab7a551836",
+    "path_patch": "isolated consumer only; current rurico source; original Cargo.toml unchanged; source=null and manifest_path verified privately"
+  },
+  "execution": {
+    "existing_round_trip": {
+      "filter": "parse_fts_segments_recovers_rurico_or_group_wire_format",
+      "tests": 1,
+      "exit_code": 0
+    },
+    "extra_parser_cleaner_match": {
+      "filter": "issue314_host_current_producer_parser_cleaner_match_cases",
+      "tests": 1,
+      "records": 26,
+      "exit_code": 0
+    },
+    "native_sqlite": "3.53.2",
+    "python_plan_tests": 2,
+    "python_exit_code": 0,
+    "python": "3.14.8",
+    "python_sqlite": "3.53.1",
+    "python_match_records": 68,
+    "ngram_examples": 3,
+    "python_cases_equal_original": true,
+    "ngram_structural_and_quality_equal_original": true,
+    "normalization": "all-off on both sides; no new default policy",
+    "final_fts_suite": {
+      "tests": 12,
+      "exit_code": 0,
+      "elapsed_seconds": 0.03,
+      "binary_sha256": "5a0012467905be8e845867b9bce24ddde327ac85481b156fbaf9ad84fa743148",
+      "temporary_tests_sha256": "8de7d12c5d58aa577eeb827b305ec6c2de64d5458fb9091698248bafd748e41f",
+      "scope": "Existing fixed consumer FTS tests plus temporary compatibility capture/version tests; no models"
+    }
+  },
+  "scope": "Synthetic fixed fixtures; actual current producer plus fixed consumer parser/cleaner/MATCH; explicit phrase remains an unadopted raw serialization example. No model inference, consumer migration, product API or index change. Consumer resolves its own lock: do not call this current rurico locked dependency validation. Full current check/review/CI follow separately.",
+  "artifacts": {
+    "results-host.json": "c9b308d240943708b70db256819d583023159eb2a58f631a286433854283dd06",
+    "consumer-cases.json": "4b19c0e7846e2b194e0c47fe004b77782aa1c2380747708fc0af298f363499d0",
+    "consumer-cases.patch": "ab8ce0ec627184724b1369128d2b6ca639f7cc302e97c3940cbbf77a39ee5f24",
+    "consumer-resolved-packages.json": "6bfcbe30b24c528fba125f3c1fb01b2c60b01dcf5cb7265048d0806fc06e1322"
+  }
+}

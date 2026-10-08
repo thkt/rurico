@@ -1,0 +1,65 @@
+{
+  "sqlite_version": "3.53.2",
+  "records": [
+    {
+      "body": "日本語",
+      "cleaned": "\"日本語\"",
+      "consumer_hits": [
+        1
+      ],
+      "consumer_quality": {
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "control": true,
+      "direct_hits": [
+        1
+      ],
+      "direct_quality": {
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "fixed": [],
+      "groups": [
+        [
+          "\"日本語\""
+        ]
+      ],
+      "input": "日",
+      "normalization": "all-off on both sides",
+      "producer_wire": "(\"日本語\")",
+      "relevant": [
+        1
+      ],
+      "scope": "fixed consumer defect observation; no production adoption",
+      "tokenizer": "trigram"
+    },
+    {
+      "body": "日)本",
+      "cleaned": null,
+      "consumer_hits": [],
+      "consumer_quality": {
+        "precision": null,
+        "recall": 0.0
+      },
+      "control": false,
+      "direct_hits": [
+        1
+      ],
+      "direct_quality": {
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "fixed": [],
+      "groups": [],
+      "input": "日",
+      "normalization": "all-off on both sides",
+      "producer_wire": "(\"日)本\")",
+      "relevant": [
+        1
+      ],
+      "scope": "fixed consumer defect observation; no production adoption",
+      "tokenizer": "trigram"
+    }
+  ]
+}
