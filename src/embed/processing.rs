@@ -20,9 +20,6 @@ pub(super) struct IndexedChunk {
 ///
 /// Each bucket preserves insertion order. Production input is generated in
 /// document/chunk order by `build_indexed_chunks`, so no bucket sort is needed.
-///
-/// Kept as a standalone helper so the pure distribution logic can be tested
-/// without spinning up MLX (T-BKT-005, T-BKT-006).
 pub(super) fn distribute_into_buckets(chunks: Vec<IndexedChunk>) -> [Vec<IndexedChunk>; 4] {
     let mut buckets: [Vec<IndexedChunk>; 4] = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
     for chunk in chunks {

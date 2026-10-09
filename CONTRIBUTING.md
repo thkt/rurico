@@ -90,6 +90,8 @@ cargo nextest run --run-ignored=ignored-only g_001_real_tokenizer_extract_prefix
 元の文書／chunk順へ戻す。異なる入力tokenの識別値をforward境界から返し、3文書・9chunk、
 複数bucket、`token_budget=383`（128で割り切れない値）、最後の端数とpause回数を確認する。
 これはMLX forwardを置き換えた境界検証であり、実モデルの数値成功には数えない。
+同じ組立境界で、先行文書の成功後にreadback行が欠落した場合のエラーと、
+後続forwardの元のエラー保持・以後のforward抑止・失敗時のpause抑止も確認する。
 LazyRerankerとoptionsのdefault fallbackはspyで内容・順序・エラー・呼出し回数を確認する。
 既存implementorへoptionsの実装を強制しない。
 

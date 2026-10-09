@@ -159,8 +159,6 @@ fn t_bkt_007_cross_bucket_order_preserved() {
     );
 }
 
-// The forward boundary emits input-derived row identifiers; the test never
-// sorts or assembles the result. This is routing/assembly, not model success.
 #[test]
 fn bucket_execution_restores_document_chunk_rows_with_remainder_and_nonfloor_budget() {
     use super::execute_document_chunks;
@@ -246,17 +244,64 @@ fn bucket_execution_restores_document_chunk_rows_with_remainder_and_nonfloor_bud
         .is_empty()
     );
     assert_eq!(metrics.pause_count, 0);
+}
+
+#[test]
+fn bucket_execution_rejects_missing_rows_and_preserves_later_forward_error() {
+    use super::execute_document_chunks;
+    use crate::embed::{EmbedOptions, metrics::PhaseMetrics};
+    use std::time::Duration;
+
+    let options = EmbedOptions {
+        token_budget: Some(128),
+        forward_pause: Some(Duration::ZERO),
+    };
+    let mut metrics = PhaseMetrics::new(EmbedKind::Batch);
+    let mut calls = Vec::new();
     let error = execute_document_chunks(
-        vec![vec![11]],
-        &[1],
+        vec![vec![11], vec![21]],
+        &[1, 1],
+        &options,
+        &mut metrics,
+        false,
+        |batch, _, _| {
+            let id = batch[0].tokens[0];
+            calls.push(id);
+            // Simulate a lost readback row after an earlier document succeeded.
+            Ok(if id == 11 { vec![vec![11.0]] } else { vec![] })
+        },
+    )
+    .unwrap_err();
+    assert_eq!(calls, [11, 21]);
+    assert!(matches!(error, EmbedError::Inference { message, .. }
+        if message == "chunk slot 1 not filled by any bucket forward (distribution bug)"));
+    assert_eq!(
+        metrics.pause_count, 0,
+        "ordinary API does not record pauses"
+    );
+
+    let mut metrics = PhaseMetrics::new(EmbedKind::Batch);
+    let mut calls = Vec::new();
+    let error = execute_document_chunks(
+        vec![vec![11], vec![21], vec![31]],
+        &[1, 1, 1],
         &options,
         &mut metrics,
         true,
-        |_, _, _| Err(EmbedError::NonFiniteOutput),
+        |batch, _, _| {
+            let id = batch[0].tokens[0];
+            calls.push(id);
+            if id == 11 {
+                Ok(vec![vec![11.0]])
+            } else {
+                Err(EmbedError::NonFiniteOutput)
+            }
+        },
     )
     .unwrap_err();
+    assert_eq!(calls, [11, 21], "failure must stop before the next forward");
     assert!(matches!(error, EmbedError::NonFiniteOutput));
-    assert_eq!(metrics.pause_count, 0, "failed forward must not pause");
+    assert_eq!(metrics.pause_count, 1, "only the successful forward pauses");
 }
 
 // T-012a / FR-002a / AC-1 (sub-case of spec T-012)

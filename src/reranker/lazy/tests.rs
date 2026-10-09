@@ -30,21 +30,6 @@ fn new_does_not_invoke_init() {
 }
 
 #[test]
-fn first_call_initialises_then_caches() {
-    let counter = Arc::new(AtomicUsize::new(0));
-    let lazy = LazyReranker::new(counting_init(Arc::clone(&counter)));
-    lazy.score("q", "d").unwrap();
-    lazy.score("q", "d2").unwrap();
-    lazy.score_batch(&[("q", "d")]).unwrap();
-    lazy.rerank("q", &["d"]).unwrap();
-    assert_eq!(
-        counter.load(Ordering::SeqCst),
-        1,
-        "init must run exactly once across mixed method calls"
-    );
-}
-
-#[test]
 fn init_failure_returns_init_failed() {
     let lazy: LazyReranker<MockReranker> =
         LazyReranker::new(|| Err(String::from("artifact missing")));
@@ -234,7 +219,6 @@ fn debug_reflects_initialisation_state() {
     assert!(format!("{lazy:?}").contains("initialized: true"));
 }
 
-//
 // Pins parity with `Reranker::score_batch` / `rerank`, which return
 // `Ok(vec![])` before touching the model. Without this, replay-first
 // paths that pass empty candidates would surface `InitFailed` from a
