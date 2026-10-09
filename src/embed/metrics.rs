@@ -36,7 +36,7 @@ pub struct ForwardShape {
 /// Errors return the original `EmbedError`, without a partial metrics snapshot.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct InferenceMetrics {
-    /// Tokenization, chunk planning, bucket routing/sorting and CPU padding.
+    /// Tokenization, chunk planning, bucket routing and CPU padding.
     pub preprocessing: Duration,
     /// Not separated from preprocessing in MLX batches; always `None` there.
     pub tokenize: Option<Duration>,

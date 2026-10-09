@@ -56,7 +56,6 @@ fn validate_mask_rejects_fully_masked_row() {
 
 #[test]
 fn validate_mask_rejects_fully_masked_row_in_batch() {
-    // batch of 2: row 0 valid, row 1 fully masked
     let result = validate_attention_mask(&[1, 1, 1, 0, 0, 0], 3);
     assert!(
         result.is_err(),
@@ -78,7 +77,6 @@ fn validate_mask_rejects_invalid_value() {
 fn validate_mask_accepts_valid_input() {
     assert!(validate_attention_mask(&[1, 1, 0], 3).is_ok());
     assert!(validate_attention_mask(&[], 0).is_ok());
-    // all-ones single row
     assert!(validate_attention_mask(&[1, 1, 1], 3).is_ok());
     // multi-row valid batch: row 0 = [1,1,0], row 1 = [1,0,1]
     assert!(validate_attention_mask(&[1, 1, 0, 1, 0, 1], 3).is_ok());
@@ -188,48 +186,41 @@ mod mlx_runtime_tests {
         }
     }
 
-    #[test]
-    #[ignore = "requires unsandboxed MLX runtime"]
-    #[serial]
-    fn forward_produces_correct_shape() {
-        require_unsandboxed_mlx_runtime();
-        let config = test_config();
-        let mut model = ModernBert::new(&config).expect("create model");
-
-        let input_ids: Vec<u32> = vec![1, 2, 3, 4, 5];
-        let mask: Vec<u32> = vec![1, 1, 1, 1, 1];
-
-        let output = model.forward(&input_ids, &mask, 1, 5).expect("forward");
-        assert_eq!(output.shape(), &[1, 5, 768]);
+    fn small_forward_config() -> Config {
+        let mut config = test_config();
+        config.hidden_size = 24;
+        config.num_attention_heads = 4;
+        config.intermediate_size = 48;
+        config
     }
 
+    // Synthetic weights: execute both global and local attention, not an
+    // official numerical oracle. Compare valid tokens across padded shapes
+    // and changed padding IDs so an ignored mask cannot hide behind shape.
     #[test]
     #[ignore = "requires unsandboxed MLX runtime"]
     #[serial]
-    fn forward_different_seq_lengths() {
+    fn forward_evaluates_finite_values_and_masks_padding() {
         require_unsandboxed_mlx_runtime();
-        let config = test_config();
-        let mut model = ModernBert::new(&config).expect("create model");
-
-        let output = model
-            .forward(&[1, 2, 3], &[1, 1, 1], 1, 3)
-            .expect("forward");
-        assert_eq!(output.shape(), &[1, 3, 768]);
-    }
-
-    #[test]
-    #[ignore = "requires unsandboxed MLX runtime"]
-    #[serial]
-    fn forward_with_padding_mask() {
-        require_unsandboxed_mlx_runtime();
-        let config = test_config();
-        let mut model = ModernBert::new(&config).expect("create model");
-
-        let input_ids: Vec<u32> = vec![1, 2, 3, 0, 0];
-        let mask: Vec<u32> = vec![1, 1, 1, 0, 0];
-
-        let output = model.forward(&input_ids, &mask, 1, 5).expect("forward");
-        assert_eq!(output.shape(), &[1, 5, 768]);
+        let config = small_forward_config();
+        random::seed(42).unwrap();
+        let mut model = ModernBert::new(&config).unwrap();
+        let short = model.forward(&[1, 2, 3], &[1, 1, 1], 1, 3).unwrap();
+        short.eval().unwrap();
+        assert_eq!(short.shape(), &[1, 3, 24]);
+        let expected: &[f32] = short.as_slice();
+        assert!(expected.iter().all(|v| v.is_finite()));
+        assert!(expected.windows(2).any(|w| w[0] != w[1]));
+        for ids in [[1, 2, 3, 0, 0], [1, 2, 3, 71, 89]] {
+            let padded = model.forward(&ids, &[1, 1, 1, 0, 0], 1, 5).unwrap();
+            padded.eval().unwrap();
+            assert_eq!(padded.shape(), &[1, 5, 24]);
+            let actual: &[f32] = padded.as_slice();
+            assert!(actual.iter().all(|v| v.is_finite()));
+            for (i, (&a, &e)) in actual[..72].iter().zip(expected).enumerate() {
+                assert!((a - e).abs() <= 1e-5, "valid token element {i}: {a} != {e}");
+            }
+        }
     }
 
     #[test]
@@ -315,14 +306,13 @@ mod mlx_runtime_tests {
         }
     }
 
-    // T-010: forward_truncates_oversize_input
     #[test]
     #[ignore = "requires unsandboxed MLX runtime"]
     #[serial]
     fn forward_truncates_oversize_input() {
         require_unsandboxed_mlx_runtime();
         // [T-010] seq_len > max_seq_len → truncate + warn, not error
-        let config = test_config(); // max_position_embeddings = 512
+        let config = small_forward_config(); // max_position_embeddings = 512
         let mut model = ModernBert::new(&config).expect("create model");
 
         let oversize = config.max_position_embeddings + 100; // 612
@@ -340,6 +330,8 @@ mod mlx_runtime_tests {
             "forward should truncate oversize input, not error: {result:?}"
         );
         let output = result.unwrap();
+        output.eval().expect("evaluate truncated forward");
+        assert!(output.as_slice::<f32>().iter().all(|v| v.is_finite()));
         assert_eq!(
             output.shape(),
             &[

@@ -82,6 +82,43 @@ cargo nextest run --run-ignored=ignored-only g_001_real_tokenizer_extract_prefix
 実モデルの数値一致を保証しない。それぞれ上記のignoredテストと
 [実モデルの受入手順](#重みの読込み検証)で別に確認する。
 
+### 推論境界の回帰検証（Issue #363）
+
+演算・製品経路・固定モデルの確認結果と隔離条件は[検証記録](docs/benchmarks/issue-363-validation.md)を参照する。
+
+通常checkでは、製品の `execute_document_chunks` を通してbucket・sub-batchの出力を
+元の文書／chunk順へ戻す。異なる入力tokenの識別値をforward境界から返し、3文書・9chunk、
+複数bucket、`token_budget=383`（128で割り切れない値）、最後の端数とpause回数を確認する。
+これはMLX forwardを置き換えた境界検証であり、実モデルの数値成功には数えない。
+LazyRerankerとoptionsのdefault fallbackはspyで内容・順序・エラー・呼出し回数を確認する。
+既存implementorへoptionsの実装を強制しない。
+
+`MockEmbedder` / `MockChunkedEmbedder` は入力内容とprefixを無視する位置依存one-hotの
+fixture producerで、batchとsingletonの値が一致する保証はない。既存のmock契約は維持する。
+入力委譲の検査にはspyを使い、mockの出力を本物のEmbedderの数値・意味・入力順の証拠にしない。
+
+次のモデル不要MLX検証はignoredのため、通常checkとは別にsandbox外のApple Siliconで実行する。
+同じ変更版をビルドし、終了コードと対象テスト名・PASSを保存する。
+
+```sh
+cargo nextest run --locked --workspace --features test-support,test-mlx,smoke --profile ci \
+  --run-ignored=ignored-only --no-tests fail --status-level all --final-status-level all \
+  -E 'test(embed::pooling::tests::mlx_runtime_tests::) | test(forward_evaluates_finite_values_and_masks_padding) | test(forward_truncates_oversize_input)'
+```
+
+poolingは非対称hidden値とu32の0/1 maskで手計算したmasked mean→L2を比較し、
+ゼロnorm・全zero mask・大きいshapeの既存条件も検証する。
+forwardは合成重みの小さい2層モデルでglobal／local attentionをevalし、有限性と
+padding ID／長さを変えても有効tokenの値が一致することを確認する。
+truncate検査もeval後の有限性まで確認する。これらは公式重みとの数値比較を保証しない。
+[公式比較 #307](#公式実装との数値比較利用側の検索評価issue-307)を複製せず、その固定条件と結果を別の根拠として扱う。
+
+実際のMLX readbackから結果組立までと、通常／計測APIのoptions・端数・pauseは、
+[options付き推論の計測 #306](#options付き推論の計測issue-306)の `measure-records` を再利用する。
+W1/W2/W3の既存fixtureを再生成せず、同じbinaryのrawと再生成summary、source／lockfile／モデルの
+識別と負荷条件を保存する。過去の[#306の結果](docs/benchmarks/issue-306-metrics.md)は当時の版の証拠であり、
+今回の変更版の実行結果に読み替えない。短時間の `measure-overhead` だけでは長文・複数chunkの検証を完了しない。
+
 ### `mlx_smoke` smoke テスト
 
 `mlx_smoke` 統合テスト (`tests/mlx_smoke.rs`) と同名 binary (`src/bin/mlx_smoke.rs`) は `smoke` feature の背後にある。実推論モードとignoredの統合テストは、キャッシュ済みのruri-v3モデルとApple SiliconのMLX runtimeを要する。記録の単体テストと `summarize-records` はモデルをロードしない。標準CIとcheckは `smoke` featureを含め、閾値・record/集計・mode・比較器の単体テストとモデル不要のCLI統合テストを実行する。実モデル検証はホストで別に実行する。ignoredの統合テストを実行する場合は、事前に対象モデルをキャッシュしてから:

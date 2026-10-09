@@ -1,13 +1,7 @@
-//! `t_NNN_` prefix maps to Spec test scenarios in
-//! `.claude/workspace/planning/2026-04-24-phase3-gpu-pooling/spec.md`.
+//! Synthetic pooling boundary checks; official numerical comparison remains #307.
 
-/// MLX runtime tests — construct `mlx_rs::Array` and call
-/// `gpu_pool_and_normalize`. Gated behind `test-mlx` so the default
-/// `cargo test` (including CI seatbelt) stays green.
-///
-/// Run with `cargo test --features test-mlx -- --ignored` outside the
-/// Codex seatbelt. Mirrors the pattern in
-/// `src/modernbert/model.rs::mlx_runtime_tests`.
+/// Evaluated synthetic MLX boundary tests, gated by `test-mlx` and ignored.
+/// Run outside the sandbox; these do not validate official model weights.
 #[cfg(feature = "test-mlx")]
 mod mlx_runtime_tests {
     use serial_test::serial;
@@ -25,36 +19,42 @@ mod mlx_runtime_tests {
         Array::from_slice(&data, &[batch, seq, hidden])
     }
 
-    // T-001 / FR-001 / AC-3
-    //
-    // [T-001] Small known-shape pool: batch=2, seq=4, hidden=3 with mask
-    // `[[1,1,0,0],[1,1,1,0]]`. Output must be shape [2, 3] and every row
-    // must be unit-norm within `1e-6`.
+    // Hand-calculated masked means: [-3,4,0], [2,-1,2], [0,0,0].
+    // Asymmetric rows and masked sentinels expose ignored masks, wrong axes,
+    // constant unit vectors and an unguarded zero norm. The mask is u32.
     #[test]
     #[ignore = "requires unsandboxed MLX runtime"]
     #[serial]
-    fn small_shape_pool_yields_unit_norm_rows() {
+    fn masked_mean_matches_hand_calculated_vectors_and_zero_norm() {
         require_unsandboxed_mlx_runtime();
-        let hidden = make_hidden(2, 4, 3);
-        let mask = Array::from_slice(&[1u32, 1, 0, 0, 1, 1, 1, 0], &[2, 4]);
-
-        let pooled = gpu_pool_and_normalize(hidden, &mask).expect("pool ok");
-        pooled.eval().expect("eval pool");
-
-        assert_eq!(
-            pooled.shape(),
-            &[2, 3],
-            "[T-001] output shape must be [2, 3]"
+        let hidden = Array::from_slice(
+            &[
+                -4.0_f32, 2.0, 1.0, -2.0, 6.0, -1.0, 90.0, -70.0, 40.0, 20.0, 30.0, 80.0, 1.0,
+                -3.0, 2.0, 50.0, 60.0, -90.0, 2.0, 0.0, 1.0, 3.0, 0.0, 3.0, 1.0, -2.0, 3.0, -1.0,
+                2.0, -3.0, 80.0, 70.0, 60.0, 40.0, 30.0, 20.0,
+            ],
+            &[3, 4, 3],
         );
-
-        let data: &[f32] = pooled.as_slice();
-        assert_eq!(data.len(), 6, "[T-001] flat length must be batch*hidden");
-        for row in 0..2usize {
-            let r = &data[row * 3..(row + 1) * 3];
-            let norm_sq: f32 = r.iter().map(|v| v * v).sum();
+        let mask = Array::from_slice(&[1u32, 1, 0, 0, 1, 0, 1, 1, 1, 1, 0, 0], &[3, 4]);
+        let pooled = gpu_pool_and_normalize(hidden, &mask).unwrap();
+        pooled.eval().unwrap();
+        assert_eq!(pooled.shape(), &[3, 3]);
+        let expected = [
+            -0.6_f32,
+            0.8,
+            0.0,
+            2.0 / 3.0,
+            -1.0 / 3.0,
+            2.0 / 3.0,
+            0.0,
+            0.0,
+            0.0,
+        ];
+        let actual: &[f32] = pooled.as_slice();
+        for (i, (&a, &e)) in actual.iter().zip(&expected).enumerate() {
             assert!(
-                (norm_sq - 1.0).abs() <= 1e-6,
-                "[T-001] row {row} L2 norm^2 must be 1.0 ± 1e-6, got {norm_sq} (row={r:?})"
+                a.is_finite() && (a - e).abs() <= 1e-6,
+                "element {i}: {a} != {e}"
             );
         }
     }
@@ -110,30 +110,6 @@ mod mlx_runtime_tests {
         assert!(
             (norm_sq - 1.0).abs() <= 1e-5,
             "[T-003] pooled row must be unit-norm (norm^2={norm_sq})"
-        );
-    }
-
-    // T-005 / FR-006 / AC-3
-    //
-    // [T-005] `u32` mask with values in `{0, 1}` must flow through the
-    // internal `as_dtype(Float32)` cast without a dtype panic.
-    #[test]
-    #[ignore = "requires unsandboxed MLX runtime"]
-    #[serial]
-    fn u32_mask_cast_to_f32_succeeds() {
-        require_unsandboxed_mlx_runtime();
-        let hidden = make_hidden(1, 3, 2);
-        let mask = Array::from_slice(&[1u32, 0, 1], &[1, 3]);
-
-        let pooled = gpu_pool_and_normalize(hidden, &mask).expect("pool ok");
-        pooled.eval().expect("eval pool");
-
-        assert_eq!(pooled.shape(), &[1, 2], "[T-005] shape must be [1, 2]");
-        let flat: &[f32] = pooled.as_slice();
-        assert_eq!(flat.len(), 2, "[T-005] flat len must be batch*hidden");
-        assert!(
-            flat.iter().all(|v| v.is_finite()),
-            "[T-005] output must be finite (got {flat:?})"
         );
     }
 

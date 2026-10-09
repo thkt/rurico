@@ -16,7 +16,12 @@ fn one_hot_query(dims: usize) -> Result<Vec<f32>, EmbedError> {
     Ok(vector)
 }
 
-/// Returns deterministic one-hot vectors for all inputs.
+/// Positional fixture producer; ignores text and prefix contents.
+///
+/// Query/single-document vectors use slot 0; batch documents use their
+/// position modulo dimensions. Batch and singleton values need not agree.
+/// This preserves the existing mock contract, not real Embedder semantics.
+/// Use a spy to verify input delegation; positional values can hide wrong text.
 ///
 /// Default dimension is [`EMBEDDING_DIMS`] (768, matching `ruri-v3-310m`).
 /// Use [`MockEmbedder::with_dims`] to test other model sizes.
@@ -143,7 +148,11 @@ impl Embed for MismatchEmbedder {
     }
 }
 
-/// Returns multi-chunk embeddings for documents.
+/// Positional multi-chunk fixture producer; ignores text and prefix contents.
+///
+/// Batch slots use `document_index * chunks_per_doc + chunk_index` modulo
+/// dimensions; singleton slots use only chunk_index. These identify fixture
+/// positions, not text content or real-model output. Use a spy for delegation.
 ///
 /// `embed_document` returns `chunks_per_doc` chunks per document.
 /// `embed_query` returns a single vector as usual.
