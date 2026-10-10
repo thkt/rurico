@@ -5,28 +5,14 @@ use super::super::metrics::EmbedKind;
 use super::{IndexedChunk, build_indexed_chunks, distribute_into_buckets, split_pooled};
 use crate::model_io::{BUCKET_BOUNDS, assign_bucket};
 
-/// Full-position helper used by T-BKT-008 to express a shuffled multi-chunk
-/// doc layout. `make_chunk` delegates here with each chunk as its own
-/// single-chunk document.
-fn make_chunk_at(
-    global_idx: usize,
-    doc_idx: usize,
-    chunk_in_doc: usize,
-    token_count: usize,
-) -> IndexedChunk {
+/// Construct indexed input for bucket-only boundary tests.
+fn make_chunk(global_idx: usize, token_count: usize) -> IndexedChunk {
     IndexedChunk {
         global_idx,
-        doc_idx,
-        chunk_in_doc,
         tokens: vec![0u32; token_count],
     }
 }
 
-fn make_chunk(global_idx: usize, token_count: usize) -> IndexedChunk {
-    make_chunk_at(global_idx, global_idx, 0, token_count)
-}
-
-// T-BKT-001: assign_bucket boundary at 128 / 129
 #[test]
 fn t_bkt_001_assign_bucket_boundary_128_129() {
     assert_eq!(assign_bucket(1), 0, "len=1 is in bucket 0");
@@ -38,7 +24,6 @@ fn t_bkt_001_assign_bucket_boundary_128_129() {
     assert_eq!(assign_bucket(129), 1, "len=129 crosses into bucket 1");
 }
 
-// T-BKT-002: assign_bucket boundary at 512 / 513
 #[test]
 fn t_bkt_002_assign_bucket_boundary_512_513() {
     assert_eq!(
@@ -49,7 +34,6 @@ fn t_bkt_002_assign_bucket_boundary_512_513() {
     assert_eq!(assign_bucket(513), 2, "len=513 crosses into bucket 2");
 }
 
-// T-BKT-003: assign_bucket boundary at 2048 / 2049
 #[test]
 fn t_bkt_003_assign_bucket_boundary_2048_2049() {
     assert_eq!(
@@ -60,7 +44,6 @@ fn t_bkt_003_assign_bucket_boundary_2048_2049() {
     assert_eq!(assign_bucket(2049), 3, "len=2049 crosses into bucket 3");
 }
 
-// T-BKT-004: assign_bucket accepts up to MAX_SEQ_LEN (8192)
 #[test]
 fn t_bkt_004_assign_bucket_max_seq_len() {
     assert_eq!(
@@ -70,7 +53,6 @@ fn t_bkt_004_assign_bucket_max_seq_len() {
     );
 }
 
-// T-BKT-005: all chunks at len=300 land in bucket 1; other buckets stay empty
 #[test]
 fn t_bkt_005_uniform_length_single_bucket() {
     let chunks: Vec<IndexedChunk> = (0..10).map(|i| make_chunk(i, 300)).collect();
@@ -81,7 +63,6 @@ fn t_bkt_005_uniform_length_single_bucket() {
     assert_eq!(buckets[3].len(), 0, "bucket 3 should be empty");
 }
 
-// T-BKT-006: single-chunk distribution — other buckets empty, one bucket has 1
 #[test]
 fn t_bkt_006_single_chunk_distribution() {
     let buckets = distribute_into_buckets(vec![make_chunk(0, 50)]);
@@ -91,19 +72,19 @@ fn t_bkt_006_single_chunk_distribution() {
 }
 
 #[test]
-fn build_indexed_chunks_tracks_doc_structure() {
+fn build_indexed_chunks_preserves_document_chunk_order() {
     // doc 0 has 2 chunks, doc 1 has 1 chunk → chunks_per_doc = [2, 1]
     let all_chunks = vec![vec![1u32; 10], vec![2u32; 20], vec![3u32; 30]];
     let indexed = build_indexed_chunks(all_chunks, &[2, 1])
         .expect("balanced chunks_per_doc and all_chunk_tokens must build ok");
-    let shape: Vec<(usize, usize, usize, usize)> = indexed
+    let rows: Vec<_> = indexed
         .iter()
-        .map(|c| (c.global_idx, c.doc_idx, c.chunk_in_doc, c.tokens.len()))
+        .map(|c| (c.global_idx, c.tokens.clone()))
         .collect();
     assert_eq!(
-        shape,
-        vec![(0, 0, 0, 10), (1, 0, 1, 20), (2, 1, 0, 30)],
-        "global_idx runs 0..N while doc_idx + chunk_in_doc track doc layout"
+        rows,
+        vec![(0, vec![1; 10]), (1, vec![2; 20]), (2, vec![3; 30])],
+        "global_idx anchors the original document/chunk token order"
     );
 }
 
@@ -139,7 +120,6 @@ fn build_indexed_chunks_rejects_all_chunk_tokens_excess() {
     }
 }
 
-// T-BKT-007: 10 chunks spanning all 4 buckets round-trip in original order
 //
 // Mirrors the restoration that `embed_documents_batch_chunked` performs:
 // forward writes `out[chunk.global_idx]`, so flattening every bucket and
@@ -179,65 +159,149 @@ fn t_bkt_007_cross_bucket_order_preserved() {
     );
 }
 
-// T-BKT-009: empty input pipeline produces zero work
-//
-// Guards the building blocks behind `texts.is_empty() → Vec::new()` in
-// `embed_documents_batch_chunked`: even if the early return were removed,
-// an empty `all_chunk_tokens` would yield all-empty buckets, the forward
-// loop would not execute, and the `Vec<Option<Vec<f32>>>` (size 0) would
-// collect to `Vec::new()`. MLX-free proxy for the end-to-end contract.
 #[test]
-fn t_bkt_009_empty_input_zero_subbatches() {
-    let indexed = build_indexed_chunks(Vec::new(), &[]).expect("empty inputs must build ok");
-    assert!(
-        indexed.is_empty(),
-        "empty chunk tokens → empty IndexedChunk vec"
+fn bucket_execution_restores_document_chunk_rows_with_remainder_and_nonfloor_budget() {
+    use super::execute_document_chunks;
+    use crate::embed::{EmbedOptions, metrics::PhaseMetrics};
+    use std::time::Duration;
+
+    let tokens = [
+        (11, 300),
+        (12, 5),
+        (13, 130),
+        (21, 6),
+        (22, 400),
+        (31, 7),
+        (32, 10),
+        (33, 20),
+        (34, 800),
+    ]
+    .into_iter()
+    .map(|(id, len)| vec![id; len])
+    .collect();
+    let options = EmbedOptions {
+        token_budget: Some(383),
+        forward_pause: Some(Duration::ZERO),
+    };
+    let mut metrics = PhaseMetrics::new(EmbedKind::Batch);
+    let mut calls = Vec::new();
+    let docs = execute_document_chunks(
+        tokens,
+        &[3, 2, 4],
+        &options,
+        &mut metrics,
+        true,
+        |batch, bucket, _| {
+            let ids: Vec<_> = batch.iter().map(|c| c.tokens[0]).collect();
+            calls.push((bucket, ids.clone()));
+            let flat: Vec<_> = ids
+                .iter()
+                .flat_map(|&id| [id as f32, (id + 100) as f32])
+                .collect();
+            split_pooled(&flat, batch.len(), 2, EmbedKind::Batch)
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        calls,
+        [
+            (0, vec![12, 21]),
+            (0, vec![31, 32]),
+            (0, vec![33]),
+            (1, vec![11]),
+            (1, vec![13]),
+            (1, vec![22]),
+            (2, vec![34])
+        ]
+    );
+    assert_eq!(
+        docs[0].chunks(),
+        [vec![11.0, 111.0], vec![12.0, 112.0], vec![13.0, 113.0]]
+    );
+    assert_eq!(docs[1].chunks(), [vec![21.0, 121.0], vec![22.0, 122.0]]);
+    assert_eq!(
+        docs[2].chunks(),
+        [
+            vec![31.0, 131.0],
+            vec![32.0, 132.0],
+            vec![33.0, 133.0],
+            vec![34.0, 134.0]
+        ]
+    );
+    assert_eq!(docs[2].chunk_ids(), ["c0", "c1", "c2", "c3"]);
+    assert_eq!(metrics.bucket_hist, [5, 3, 1, 0]);
+    assert_eq!(
+        metrics.pause_count, 7,
+        "including the final remainder forward"
     );
 
-    let buckets = distribute_into_buckets(indexed);
+    let mut metrics = PhaseMetrics::new(EmbedKind::Batch);
     assert!(
-        buckets.iter().all(Vec::is_empty),
-        "empty input → every bucket stays empty"
+        execute_document_chunks(vec![], &[], &options, &mut metrics, true, |_, _, _| panic!(
+            "empty input must not forward"
+        ))
+        .unwrap()
+        .is_empty()
     );
+    assert_eq!(metrics.pause_count, 0);
 }
 
-// T-BKT-008: same-doc chunks cluster contiguously inside each bucket after
-// the in-loop sort, with chunk_in_doc order preserved.
-//
-// Uses `IndexedChunk::doc_order_key` — the same function the forward loop
-// in `embed_documents_batch_chunked` calls — so this test exercises the
-// production sort contract rather than a hand-rolled mirror.
 #[test]
-fn t_bkt_008_same_doc_chunks_cluster_after_sort() {
-    // doc 0 produces 3 chunks split across bucket 0 (×2) and bucket 2 (×1).
-    // Inputs are shuffled so the sort must actively reorder. A no-op sort
-    // would leave bucket 0 as [doc1, doc0_c0, doc2, doc0_c1] and fail.
-    let input = vec![
-        make_chunk_at(3, 1, 0, 60),
-        make_chunk_at(0, 0, 0, 50),
-        make_chunk_at(2, 0, 2, 1000),
-        make_chunk_at(4, 2, 0, 70),
-        make_chunk_at(1, 0, 1, 100),
-    ];
+fn bucket_execution_rejects_missing_rows_and_preserves_later_forward_error() {
+    use super::execute_document_chunks;
+    use crate::embed::{EmbedOptions, metrics::PhaseMetrics};
+    use std::time::Duration;
 
-    let mut buckets = distribute_into_buckets(input);
-    for bucket in &mut buckets {
-        bucket.sort_by_key(IndexedChunk::doc_order_key);
-    }
-
-    let b0: Vec<(usize, usize)> = buckets[0].iter().map(IndexedChunk::doc_order_key).collect();
+    let options = EmbedOptions {
+        token_budget: Some(128),
+        forward_pause: Some(Duration::ZERO),
+    };
+    let mut metrics = PhaseMetrics::new(EmbedKind::Batch);
+    let mut calls = Vec::new();
+    let error = execute_document_chunks(
+        vec![vec![11], vec![21]],
+        &[1, 1],
+        &options,
+        &mut metrics,
+        false,
+        |batch, _, _| {
+            let id = batch[0].tokens[0];
+            calls.push(id);
+            // Simulate a lost readback row after an earlier document succeeded.
+            Ok(if id == 11 { vec![vec![11.0]] } else { vec![] })
+        },
+    )
+    .unwrap_err();
+    assert_eq!(calls, [11, 21]);
+    assert!(matches!(error, EmbedError::Inference { message, .. }
+        if message == "chunk slot 1 not filled by any bucket forward (distribution bug)"));
     assert_eq!(
-        b0,
-        vec![(0, 0), (0, 1), (1, 0), (2, 0)],
-        "bucket 0: doc 0 chunks contiguous in chunk_in_doc order, then doc 1, doc 2"
+        metrics.pause_count, 0,
+        "ordinary API does not record pauses"
     );
 
-    let b2: Vec<(usize, usize)> = buckets[2].iter().map(IndexedChunk::doc_order_key).collect();
-    assert_eq!(
-        b2,
-        vec![(0, 2)],
-        "bucket 2: only doc 0's third chunk (the one that overflowed the smaller buckets)"
-    );
+    let mut metrics = PhaseMetrics::new(EmbedKind::Batch);
+    let mut calls = Vec::new();
+    let error = execute_document_chunks(
+        vec![vec![11], vec![21], vec![31]],
+        &[1, 1, 1],
+        &options,
+        &mut metrics,
+        true,
+        |batch, _, _| {
+            let id = batch[0].tokens[0];
+            calls.push(id);
+            if id == 11 {
+                Ok(vec![vec![11.0]])
+            } else {
+                Err(EmbedError::NonFiniteOutput)
+            }
+        },
+    )
+    .unwrap_err();
+    assert_eq!(calls, [11, 21], "failure must stop before the next forward");
+    assert!(matches!(error, EmbedError::NonFiniteOutput));
+    assert_eq!(metrics.pause_count, 1, "only the successful forward pauses");
 }
 
 // T-012a / FR-002a / AC-1 (sub-case of spec T-012)

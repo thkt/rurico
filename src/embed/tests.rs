@@ -80,13 +80,11 @@ fn cache_lookup_each_model_has_separate_cache_dir() {
         setup_fake_cache_for(dir.path(), target);
         let client = hf_client_for_cache(dir.path());
 
-        // The populated model should be found
         assert!(
             artifacts_from_cache(&client, target).unwrap().is_some(),
             "{:?} should be cached",
             target
         );
-        // All other models should not be found
         for &other in &all_models {
             if other == target {
                 continue;
@@ -115,7 +113,6 @@ fn candidate_verify_returns_invalid_config_for_malformed_config() {
     );
 }
 
-// T-018: regression — probe_env_to_paths must return the snapshot symlink path,
 // not the canonicalized blob path. Failed branch fix/issue-107-canonicalize
 // (commit 33c91c1) violated this and broke MLX `load_safetensors`'s
 // extension-based dispatch across all standard HF cache usage.
@@ -130,9 +127,6 @@ fn probe_env_to_paths_returns_paths_when_all_present() {
     assert_probe_env_to_paths_returns_paths_when_all_present::<EmbedKind>();
 }
 
-// --- T-001: max_content computation ---
-
-// T-001: max_content_equals_max_seq_len_minus_2_minus_prefix_len
 #[test]
 fn max_content_equals_max_seq_len_minus_2_minus_prefix_len() {
     // [T-001] FR-001, FR-002: max_content reserves BOS(1) + EOS(1) + prefix.
@@ -150,7 +144,6 @@ fn g_001_real_tokenizer_extract_prefix_tokens() {
     assert!(!prefix_tokens.is_empty());
 }
 
-// T-008: truncate_for_query_shortens_to_max_len
 #[test]
 fn truncate_for_query_shortens_to_max_len() {
     // [T-008] FR-005: query truncation
@@ -163,9 +156,7 @@ fn truncate_for_query_shortens_to_max_len() {
     assert_eq!(seq_len, max_len);
     assert_eq!(ids.len(), max_len);
     assert_eq!(mask.len(), max_len);
-    // Last token should be EOS
     assert_eq!(ids[max_len - 1], EOS_TOKEN_ID);
-    // First token preserved (BOS)
     assert_eq!(ids[0], first_token);
 }
 
@@ -227,7 +218,6 @@ fn truncate_for_query_zero_max_len_returns_unchanged() {
     assert_eq!(mask, expected_mask);
 }
 
-// --- Regression: prefix boundary merge cases ---
 //
 // The tokenizer merges the trailing space of DOCUMENT_PREFIX with the first
 // text token for many inputs (e.g. "apple", "the", "Rust"). These tests
@@ -305,7 +295,7 @@ fn zero_dimension_mocks_return_errors_for_generation_but_allow_empty_batches() {
 }
 
 #[test]
-fn validated_mocks_keep_document_chunk_and_batch_order() {
+fn positional_mock_contract_keeps_validated_layout() {
     let mock = MockChunkedEmbedder::with_dims(2, 3);
     let docs = mock.embed_documents_batch(&["first", "second"]).unwrap();
     assert_eq!(docs[0].chunks(), [vec![1.0, 0.0, 0.0], vec![0.0, 1.0, 0.0]]);
@@ -324,10 +314,8 @@ fn validated_mocks_keep_document_chunk_and_batch_order() {
     assert_eq!(docs[1].chunks(), [vec![0.0, 1.0]]);
 }
 
-// --- 1+3 prefix scheme ---
-
 #[test]
-fn embed_text_returns_embedding_dims() {
+fn mock_embed_text_returns_configured_dims() {
     // MockEmbedder ignores prefix, so a single call exercises the dim contract.
     let e = super::MockEmbedder::default();
     let vec = e.embed_text("テスト", SEMANTIC_PREFIX).unwrap();
@@ -399,8 +387,6 @@ fn embed_error_helpers_preserve_source_chain() {
     );
 }
 
-// ── EmbedOptions tests ──────────────────────────────────────────────────────
-
 #[test]
 fn embed_options_default_has_no_budget_override_and_no_pause() {
     let opts = EmbedOptions::default();
@@ -409,21 +395,68 @@ fn embed_options_default_has_no_budget_override_and_no_pause() {
 }
 
 #[test]
-fn embed_documents_batch_with_options_default_impl_ignores_options() {
-    let embedder = MockEmbedder::default();
-    let texts = ["alpha", "beta"];
-    let opts = EmbedOptions {
-        token_budget: Some(2048),
-        forward_pause: Some(Duration::from_millis(700)),
-    };
-    let with_opts = embedder
-        .embed_documents_batch_with_options(&texts, &opts)
-        .unwrap();
-    let without = embedder.embed_documents_batch(&texts).unwrap();
-    assert_eq!(with_opts.len(), without.len());
-    for (a, b) in with_opts.iter().zip(&without) {
-        assert_eq!(a.chunks(), b.chunks());
+fn options_default_fallback_delegates_contents_order_and_errors_once() {
+    use std::sync::Mutex;
+    struct LegacySpy(Mutex<Vec<Vec<String>>>);
+    impl Embed for LegacySpy {
+        fn embed_query(&self, _: &str) -> Result<Vec<f32>, EmbedError> {
+            panic!("wrong entry")
+        }
+        fn embed_text(&self, _: &str, _: &str) -> Result<Vec<f32>, EmbedError> {
+            panic!("wrong entry")
+        }
+        fn embed_document(&self, _: &str) -> Result<ChunkedEmbedding, EmbedError> {
+            panic!("wrong entry")
+        }
+        fn embed_documents_batch(
+            &self,
+            texts: &[&str],
+        ) -> Result<Vec<ChunkedEmbedding>, EmbedError> {
+            self.0
+                .lock()
+                .unwrap()
+                .push(texts.iter().map(|&s| s.into()).collect());
+            if texts == ["fail"] {
+                return Err(EmbedError::NonFiniteOutput);
+            }
+            texts
+                .iter()
+                .map(|&s| {
+                    ChunkedEmbedding::try_new_validated(vec![vec![s.len() as f32]])
+                        .map_err(Into::into)
+                })
+                .collect()
+        }
     }
+    let spy = LegacySpy(Mutex::new(Vec::new()));
+    let provider: &dyn Embed = &spy;
+    let options = EmbedOptions {
+        token_budget: Some(383),
+        forward_pause: Some(Duration::from_secs(1)),
+    };
+    let docs = provider
+        .embed_documents_batch_with_options(&["longer", "a", "longer"], &options)
+        .unwrap();
+    assert_eq!(
+        docs.iter()
+            .map(ChunkedEmbedding::chunks)
+            .collect::<Vec<_>>(),
+        vec![&[vec![6.0]][..], &[vec![1.0]][..], &[vec![6.0]][..]]
+    );
+    assert!(
+        provider
+            .embed_documents_batch_with_options(&[], &options)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(matches!(
+        provider.embed_documents_batch_with_options(&["fail"], &options),
+        Err(EmbedError::NonFiniteOutput)
+    ));
+    assert_eq!(
+        *spy.0.lock().unwrap(),
+        [vec!["longer", "a", "longer"], vec![], vec!["fail"]]
+    );
 }
 
 #[test]
@@ -486,8 +519,8 @@ fn measured_trait_fallback_delegates_once_with_options_and_preserves_errors() {
     let calls = spy.0.lock().unwrap();
     assert_eq!(calls.len(), 3);
     assert_eq!(
-        calls.iter().map(|c| c.0.len()).collect::<Vec<_>>(),
-        [2, 0, 1]
+        calls.iter().map(|c| c.0.clone()).collect::<Vec<_>>(),
+        [vec!["alpha", "beta"], vec![], vec!["fail"]]
     );
     assert!(calls.iter().all(|c| c.1 == options));
 

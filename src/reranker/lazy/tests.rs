@@ -18,7 +18,6 @@ fn counting_init(
     }
 }
 
-// T-154-001: new_does_not_invoke_init
 #[test]
 fn new_does_not_invoke_init() {
     let counter = Arc::new(AtomicUsize::new(0));
@@ -30,23 +29,6 @@ fn new_does_not_invoke_init() {
     );
 }
 
-// T-154-003: first_call_initialises_then_caches
-#[test]
-fn first_call_initialises_then_caches() {
-    let counter = Arc::new(AtomicUsize::new(0));
-    let lazy = LazyReranker::new(counting_init(Arc::clone(&counter)));
-    lazy.score("q", "d").unwrap();
-    lazy.score("q", "d2").unwrap();
-    lazy.score_batch(&[("q", "d")]).unwrap();
-    lazy.rerank("q", &["d"]).unwrap();
-    assert_eq!(
-        counter.load(Ordering::SeqCst),
-        1,
-        "init must run exactly once across mixed method calls"
-    );
-}
-
-// T-154-004: init_failure_returns_init_failed
 #[test]
 fn init_failure_returns_init_failed() {
     let lazy: LazyReranker<MockReranker> =
@@ -59,7 +41,6 @@ fn init_failure_returns_init_failed() {
     assert_eq!(err.to_string(), "init failed: artifact missing");
 }
 
-// T-154-005: failure_is_cached_across_methods
 #[test]
 fn failure_is_cached_across_methods() {
     let counter = Arc::new(AtomicUsize::new(0));
@@ -93,7 +74,6 @@ fn failure_is_cached_across_methods() {
     );
 }
 
-// T-154-006: concurrent_calls_run_init_once
 #[test]
 fn concurrent_calls_run_init_once() {
     let counter = Arc::new(AtomicUsize::new(0));
@@ -120,35 +100,117 @@ fn concurrent_calls_run_init_once() {
     );
 }
 
-// T-154-007: rerank_delegates_to_inner
+// A spy at the wrapped Rerank boundary checks arguments and returned values;
+// constant-score mocks cannot detect dropped/reordered/replaced input.
 #[test]
-fn rerank_delegates_to_inner() {
-    let lazy: LazyReranker<MockReranker> = LazyReranker::new(|| Ok(MockReranker::with_score(0.42)));
-    let docs = ["a", "b", "c"];
-    let results = lazy.rerank("q", &docs).unwrap();
-    assert_eq!(results.len(), 3);
-    for r in &results {
-        assert!(
-            (r.score - 0.42).abs() < 1e-6,
-            "score must come from wrapped MockReranker, got: {}",
-            r.score
-        );
+fn delegates_contents_order_results_and_errors_once_per_call() {
+    use std::sync::Mutex;
+
+    #[derive(Debug, PartialEq)]
+    enum Call {
+        Score(String, String),
+        Batch(Vec<(String, String)>),
+        Rerank(String, Vec<String>),
     }
+    struct Spy(Arc<Mutex<Vec<Call>>>);
+    impl Rerank for Spy {
+        fn score(&self, query: &str, doc: &str) -> Result<f32, RerankerError> {
+            self.0
+                .lock()
+                .unwrap()
+                .push(Call::Score(query.into(), doc.into()));
+            if query == "fail" {
+                return Err(RerankerError::NonFiniteOutput);
+            }
+            Ok(0.25)
+        }
+        fn score_batch(&self, pairs: &[(&str, &str)]) -> Result<Vec<f32>, RerankerError> {
+            self.0.lock().unwrap().push(Call::Batch(
+                pairs.iter().map(|&(q, d)| (q.into(), d.into())).collect(),
+            ));
+            if pairs[0].0 == "fail" {
+                return Err(RerankerError::NonFiniteOutput);
+            }
+            Ok(vec![0.8, 0.2, 0.6])
+        }
+        fn rerank(&self, query: &str, docs: &[&str]) -> Result<Vec<RankedResult>, RerankerError> {
+            self.0.lock().unwrap().push(Call::Rerank(
+                query.into(),
+                docs.iter().map(|&d| d.into()).collect(),
+            ));
+            if query == "fail" {
+                return Err(RerankerError::NonFiniteOutput);
+            }
+            Ok(vec![
+                RankedResult {
+                    index: 2,
+                    score: 0.9,
+                },
+                RankedResult {
+                    index: 0,
+                    score: 0.7,
+                },
+                RankedResult {
+                    index: 1,
+                    score: 0.3,
+                },
+            ])
+        }
+    }
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let inits = Arc::new(AtomicUsize::new(0));
+    let lazy = LazyReranker::new({
+        let calls = Arc::clone(&calls);
+        let inits = Arc::clone(&inits);
+        move || {
+            inits.fetch_add(1, Ordering::SeqCst);
+            Ok(Spy(Arc::clone(&calls)))
+        }
+    });
+    assert_eq!(lazy.score("単独 query", "単独 doc").unwrap(), 0.25);
+    assert_eq!(
+        lazy.score_batch(&[("q2", "d2"), ("q1", "d1"), ("q2", "d3")])
+            .unwrap(),
+        [0.8, 0.2, 0.6]
+    );
+    let results = lazy
+        .rerank("順位 query", &["doc B", "doc A", "doc C"])
+        .unwrap();
+    assert_eq!(
+        results
+            .iter()
+            .map(|r| (r.index, r.score))
+            .collect::<Vec<_>>(),
+        [(2, 0.9), (0, 0.7), (1, 0.3)]
+    );
+    for error in [
+        lazy.score("fail", "bad doc").unwrap_err(),
+        lazy.score_batch(&[("fail", "bad pair")]).unwrap_err(),
+        lazy.rerank("fail", &["bad rank"]).unwrap_err(),
+    ] {
+        assert!(matches!(error, RerankerError::NonFiniteOutput));
+    }
+    assert_eq!(
+        *calls.lock().unwrap(),
+        [
+            Call::Score("単独 query".into(), "単独 doc".into()),
+            Call::Batch(vec![
+                ("q2".into(), "d2".into()),
+                ("q1".into(), "d1".into()),
+                ("q2".into(), "d3".into())
+            ]),
+            Call::Rerank(
+                "順位 query".into(),
+                vec!["doc B".into(), "doc A".into(), "doc C".into()]
+            ),
+            Call::Score("fail".into(), "bad doc".into()),
+            Call::Batch(vec![("fail".into(), "bad pair".into())]),
+            Call::Rerank("fail".into(), vec!["bad rank".into()]),
+        ]
+    );
+    assert_eq!(inits.load(Ordering::SeqCst), 1);
 }
 
-// T-154-008: score_batch_delegates_pair_count
-#[test]
-fn score_batch_delegates_pair_count() {
-    let lazy: LazyReranker<MockReranker> = LazyReranker::new(|| Ok(MockReranker::with_score(0.3)));
-    let pairs = [("q", "d1"), ("q", "d2"), ("q", "d3")];
-    let scores = lazy.score_batch(&pairs).unwrap();
-    assert_eq!(scores.len(), 3, "one score per input pair");
-    for &s in &scores {
-        assert!((s - 0.3).abs() < 1e-6, "expected 0.3, got {s}");
-    }
-}
-
-// T-154-009: debug_reflects_initialisation_state
 #[test]
 fn debug_reflects_initialisation_state() {
     let lazy: LazyReranker<MockReranker> = LazyReranker::new(|| Ok(MockReranker::default()));
@@ -157,8 +219,6 @@ fn debug_reflects_initialisation_state() {
     assert!(format!("{lazy:?}").contains("initialized: true"));
 }
 
-// T-154-010: empty_inputs_short_circuit_without_init
-//
 // Pins parity with `Reranker::score_batch` / `rerank`, which return
 // `Ok(vec![])` before touching the model. Without this, replay-first
 // paths that pass empty candidates would surface `InitFailed` from a

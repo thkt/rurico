@@ -1,0 +1,15 @@
+{
+  "records": 122,
+  "inferences": 97,
+  "warm_groups": 24,
+  "warm_repetitions": 3,
+  "summaries": 24,
+  "summary_equal": true,
+  "measured_readback_pause_consistent": true,
+  "process_observations": 2424,
+  "competing_observations": 0,
+  "model_files_unchanged": true,
+  "source_binary_unchanged": true,
+  "elapsed_seconds": 733.0869057920063,
+  "scope": "Fixed310m inference/order/chunks/options/readback fixture checks; not a fresh official numerical comparison or amici quality evaluation. Unknown/short GPU activities cannot be excluded by sampling alone."
+}

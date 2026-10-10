@@ -12,27 +12,14 @@ use crate::model_io::assign_bucket;
 pub(super) struct IndexedChunk {
     /// Position in the flat `all_chunk_tokens` ordering emitted by planning.
     pub(super) global_idx: usize,
-    /// Index of the originating document in the input `texts` slice.
-    doc_idx: usize,
-    /// 0-based chunk position inside the originating document.
-    chunk_in_doc: usize,
     /// Tokenized chunk payload (includes prefix + BOS/EOS).
     pub(super) tokens: Vec<u32>,
 }
 
-impl IndexedChunk {
-    /// Sort key that clusters same-doc chunks together inside a bucket and
-    /// keeps the chunk-in-doc reading order (R-M02). Shared so production and
-    /// T-BKT-008 test against the same contract.
-    pub(super) fn doc_order_key(&self) -> (usize, usize) {
-        (self.doc_idx, self.chunk_in_doc)
-    }
-}
-
 /// Partition indexed chunks into the four length buckets.
 ///
-/// Kept as a standalone helper so the pure distribution logic can be tested
-/// without spinning up MLX (T-BKT-005, T-BKT-006).
+/// Each bucket preserves insertion order. Production input is generated in
+/// document/chunk order by `build_indexed_chunks`, so no bucket sort is needed.
 pub(super) fn distribute_into_buckets(chunks: Vec<IndexedChunk>) -> [Vec<IndexedChunk>; 4] {
     let mut buckets: [Vec<IndexedChunk>; 4] = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
     for chunk in chunks {
@@ -46,9 +33,8 @@ pub(super) fn distribute_into_buckets(chunks: Vec<IndexedChunk>) -> [Vec<Indexed
 ///
 /// `global_idx` anchors each chunk to its pre-bucketing position so bucket
 /// forward can reorder by length yet still restore output order via the
-/// `global_idx` lookup. `doc_idx` + `chunk_in_doc` carry the document layout
-/// through the bucket pass so same-doc chunks can be clustered inside each
-/// bucket (R-M02) and the chunk-in-doc order can be preserved.
+/// `global_idx` lookup. The nested document/chunk loops emit reading order,
+/// which `distribute_into_buckets` preserves within each bucket (R-M02).
 ///
 /// `chunks_per_doc[i]` must equal the number of chunks the i-th document
 /// contributed to `all_chunk_tokens`; the sum across all docs must equal
@@ -69,8 +55,6 @@ pub(super) fn build_indexed_chunks(
             })?;
             result.push(IndexedChunk {
                 global_idx: result.len(),
-                doc_idx,
-                chunk_in_doc,
                 tokens,
             });
         }
@@ -82,6 +66,79 @@ pub(super) fn build_indexed_chunks(
         )));
     }
     Ok(result)
+}
+
+/// Execute the production bucket/sub-batch routing and restore document/chunk order.
+/// The callback is the MLX forward/readback boundary; it returns validated rows
+/// in input order. Keeping assembly here lets boundary tests supply identifiable
+/// rows without copying the slot assignment or document grouping.
+pub(super) fn execute_document_chunks(
+    all_chunk_tokens: Vec<Vec<u32>>,
+    chunks_per_doc: &[usize],
+    options: &super::EmbedOptions,
+    metrics: &mut super::metrics::PhaseMetrics,
+    detailed: bool,
+    mut forward: impl FnMut(
+        &[IndexedChunk],
+        usize,
+        &mut super::metrics::PhaseMetrics,
+    ) -> Result<Vec<Vec<f32>>, EmbedError>,
+) -> Result<Vec<super::ChunkedEmbedding>, EmbedError> {
+    use crate::model_io::{BUCKET_BOUNDS, compute_sub_batch_size};
+    use std::{thread, time::Instant};
+
+    let t_route = detailed.then(Instant::now);
+    let total_chunks = all_chunk_tokens.len();
+    metrics.num_chunks = total_chunks;
+    let buckets = distribute_into_buckets(build_indexed_chunks(all_chunk_tokens, chunks_per_doc)?);
+    let mut out: Vec<Option<Vec<f32>>> = (0..total_chunks).map(|_| None).collect();
+    if let Some(t) = t_route {
+        metrics.preprocessing = metrics.chunk_plan + t.elapsed();
+    }
+    for (bucket_idx, bucket) in buckets.into_iter().enumerate() {
+        metrics.bucket_hist[bucket_idx] = bucket.len();
+        if bucket.is_empty() {
+            continue;
+        }
+        // Size against the ceiling, even when the actual rows are shorter.
+        let sub_batch_size =
+            compute_sub_batch_size(BUCKET_BOUNDS[bucket_idx], options.token_budget);
+        for sub_batch in bucket.chunks(sub_batch_size) {
+            let rows = forward(sub_batch, bucket_idx, metrics)?;
+            for (chunk, row) in sub_batch.iter().zip(rows) {
+                out[chunk.global_idx] = Some(row);
+            }
+            if let Some(pause) = options.forward_pause {
+                let t_pause = detailed.then(Instant::now);
+                thread::sleep(pause);
+                if let Some(t) = t_pause {
+                    metrics.pause += t.elapsed();
+                    metrics.pause_count += 1;
+                }
+            }
+        }
+    }
+    metrics.log();
+    let all_embeddings = out
+        .into_iter()
+        .enumerate()
+        .map(|(idx, slot)| {
+            slot.ok_or_else(|| {
+                EmbedError::inference_message(format!(
+                    "chunk slot {idx} not filled by any bucket forward (distribution bug)"
+                ))
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut iter = all_embeddings.into_iter();
+    chunks_per_doc
+        .iter()
+        .map(|&count| {
+            // The MLX readback already validates shape and finite values; do not rescan.
+            super::ChunkedEmbedding::try_new(iter.by_ref().take(count).collect())
+                .map_err(Into::into)
+        })
+        .collect()
 }
 
 /// Plan token chunks for a batch of documents.
