@@ -3,9 +3,9 @@ use tracing_test::traced_test;
 use super::super::EmbedError;
 use super::super::metrics::EmbedKind;
 use super::{IndexedChunk, build_indexed_chunks, distribute_into_buckets, split_pooled};
-use crate::model_io::{BUCKET_BOUNDS, assign_bucket};
+use crate::embed::tokenize_with_prefix;
+use crate::model_io::{BUCKET_BOUNDS, assign_bucket, pad_sequences};
 
-/// Construct indexed input for bucket-only boundary tests.
 fn make_chunk(global_idx: usize, token_count: usize) -> IndexedChunk {
     IndexedChunk {
         global_idx,
@@ -73,7 +73,6 @@ fn t_bkt_006_single_chunk_distribution() {
 
 #[test]
 fn build_indexed_chunks_preserves_document_chunk_order() {
-    // doc 0 has 2 chunks, doc 1 has 1 chunk → chunks_per_doc = [2, 1]
     let all_chunks = vec![vec![1u32; 10], vec![2u32; 20], vec![3u32; 30]];
     let indexed = build_indexed_chunks(all_chunks, &[2, 1])
         .expect("balanced chunks_per_doc and all_chunk_tokens must build ok");
@@ -88,10 +87,6 @@ fn build_indexed_chunks_preserves_document_chunk_order() {
     );
 }
 
-// Defense-in-depth: a regression that emits more `chunks_per_doc` than
-// chunks (e.g., wrong loop bound) previously panicked via
-// `expect("chunks_per_doc total must match all_chunk_tokens length")`.
-// The Result variant surfaces it as a structured EmbedError instead.
 #[test]
 fn build_indexed_chunks_rejects_chunks_per_doc_excess() {
     let all_chunks = vec![vec![1u32; 10]];
@@ -120,45 +115,6 @@ fn build_indexed_chunks_rejects_all_chunk_tokens_excess() {
     }
 }
 
-//
-// Mirrors the restoration that `embed_documents_batch_chunked` performs:
-// forward writes `out[chunk.global_idx]`, so flattening every bucket and
-// sorting by `global_idx` must recover the original insertion order.
-// Testing this on `distribute_into_buckets` keeps the check MLX-free.
-#[test]
-fn t_bkt_007_cross_bucket_order_preserved() {
-    // bucket 0 (≤128): idx 0, 4 | bucket 1 (≤512): idx 3, 6, 8
-    // bucket 2 (≤2048): idx 1, 7 | bucket 3 (≤MAX): idx 2, 5, 9
-    let lengths = [50usize, 1500, 3000, 200, 100, 5000, 300, 800, 400, 7000];
-    let chunks: Vec<IndexedChunk> = lengths
-        .iter()
-        .enumerate()
-        .map(|(i, &len)| make_chunk(i, len))
-        .collect();
-
-    let buckets = distribute_into_buckets(chunks);
-
-    let sizes: Vec<usize> = buckets.iter().map(Vec::len).collect();
-    assert!(
-        buckets.iter().all(|b| !b.is_empty()),
-        "test input must span all 4 buckets (got {sizes:?})"
-    );
-    assert_eq!(
-        sizes.iter().sum::<usize>(),
-        lengths.len(),
-        "every chunk must land in exactly one bucket"
-    );
-
-    let mut flat: Vec<&IndexedChunk> = buckets.iter().flatten().collect();
-    flat.sort_by_key(|c| c.global_idx);
-    let recovered: Vec<usize> = flat.iter().map(|c| c.tokens.len()).collect();
-    assert_eq!(
-        recovered,
-        lengths.to_vec(),
-        "flatten + sort-by-global_idx must recover original chunk order"
-    );
-}
-
 #[test]
 fn bucket_execution_restores_document_chunk_rows_with_remainder_and_nonfloor_budget() {
     use super::execute_document_chunks;
@@ -175,6 +131,7 @@ fn bucket_execution_restores_document_chunk_rows_with_remainder_and_nonfloor_bud
         (32, 10),
         (33, 20),
         (34, 800),
+        (35, 3000),
     ]
     .into_iter()
     .map(|(id, len)| vec![id; len])
@@ -187,11 +144,26 @@ fn bucket_execution_restores_document_chunk_rows_with_remainder_and_nonfloor_bud
     let mut calls = Vec::new();
     let docs = execute_document_chunks(
         tokens,
-        &[3, 2, 4],
+        &[3, 2, 5],
         &options,
         &mut metrics,
         true,
         |batch, bucket, _| {
+            let target = BUCKET_BOUNDS[bucket];
+            let (padded, mask, rows, width) = pad_sequences(batch, None, Some(target));
+            assert_eq!((rows, width), (batch.len(), target));
+            for (i, chunk) in batch.iter().enumerate() {
+                let row = &padded[i * width..(i + 1) * width];
+                let row_mask = &mask[i * width..(i + 1) * width];
+                assert!(
+                    row[..chunk.tokens.len()]
+                        .iter()
+                        .all(|&id| id == chunk.tokens[0])
+                );
+                assert!(row[chunk.tokens.len()..].iter().all(|&id| id == 0));
+                assert!(row_mask[..chunk.tokens.len()].iter().all(|&m| m == 1));
+                assert!(row_mask[chunk.tokens.len()..].iter().all(|&m| m == 0));
+            }
             let ids: Vec<_> = batch.iter().map(|c| c.tokens[0]).collect();
             calls.push((bucket, ids.clone()));
             let flat: Vec<_> = ids
@@ -211,7 +183,8 @@ fn bucket_execution_restores_document_chunk_rows_with_remainder_and_nonfloor_bud
             (1, vec![11]),
             (1, vec![13]),
             (1, vec![22]),
-            (2, vec![34])
+            (2, vec![34]),
+            (3, vec![35])
         ]
     );
     assert_eq!(
@@ -225,13 +198,14 @@ fn bucket_execution_restores_document_chunk_rows_with_remainder_and_nonfloor_bud
             vec![31.0, 131.0],
             vec![32.0, 132.0],
             vec![33.0, 133.0],
-            vec![34.0, 134.0]
+            vec![34.0, 134.0],
+            vec![35.0, 135.0]
         ]
     );
-    assert_eq!(docs[2].chunk_ids(), ["c0", "c1", "c2", "c3"]);
-    assert_eq!(metrics.bucket_hist, [5, 3, 1, 0]);
+    assert_eq!(docs[2].chunk_ids(), ["c0", "c1", "c2", "c3", "c4"]);
+    assert_eq!(metrics.bucket_hist, [5, 3, 1, 1]);
     assert_eq!(
-        metrics.pause_count, 7,
+        metrics.pause_count, 8,
         "including the final remainder forward"
     );
 
@@ -304,19 +278,9 @@ fn bucket_execution_rejects_missing_rows_and_preserves_later_forward_error() {
     assert_eq!(metrics.pause_count, 1, "only the successful forward pauses");
 }
 
-// T-012a / FR-002a / AC-1 (sub-case of spec T-012)
-//
-// [T-012a] Happy path: `flat.len() == batch * hidden`. `split_pooled`
-// returns `batch` rows, each `hidden` long, with values preserved in
-// row-major order. This is the contract Phase 3b's `forward_sub_batch`
-// and `embed_query_truncated` rely on after the GPU pool reduces
-// readback to `batch * hidden` floats.
 #[test]
 fn split_pooled_happy_path_preserves_row_major_order() {
-    let flat: Vec<f32> = vec![
-        0.0, 1.0, 2.0, 3.0, // row 0
-        4.0, 5.0, 6.0, 7.0, // row 1
-    ];
+    let flat: Vec<f32> = vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0];
     let split = split_pooled(&flat, 2, 4, EmbedKind::Query).expect("happy path must split ok");
 
     assert_eq!(split.len(), 2, "[T-012a] outer Vec must have `batch` rows");
@@ -332,15 +296,9 @@ fn split_pooled_happy_path_preserves_row_major_order() {
     );
 }
 
-// T-012b / FR-002a / AC-1 (sub-case of spec T-012)
-//
-// [T-012b] Shape mismatch (short): `flat.len() = 7` with `batch = 2,
-// hidden = 4` (expected 8). Spec scenario verbatim — exercises the
-// whole point of the helper, which is to fail fast rather than silently
-// slice an incomplete final row.
 #[test]
 fn split_pooled_shape_mismatch_short_returns_buffer_shape_mismatch() {
-    let flat: Vec<f32> = vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0]; // len 7
+    let flat: Vec<f32> = vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
     match split_pooled(&flat, 2, 4, EmbedKind::Query) {
         Err(EmbedError::BufferShapeMismatch { expected, actual }) => {
             assert_eq!(expected, 8, "[T-012b] expected = batch * hidden = 8");
@@ -353,15 +311,9 @@ fn split_pooled_shape_mismatch_short_returns_buffer_shape_mismatch() {
     }
 }
 
-// T-012c / FR-002a / AC-1 (sub-case of spec T-012)
-//
-// [T-012c] Shape mismatch (long): `flat.len() = 9` with `batch = 2,
-// hidden = 4` (expected 8). Regression guard against a future
-// implementer that reads the first `batch * hidden` floats and silently
-// drops the tail — short-direction tests alone would not catch that.
 #[test]
 fn split_pooled_shape_mismatch_long_returns_buffer_shape_mismatch() {
-    let flat: Vec<f32> = vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 99.0]; // len 9
+    let flat: Vec<f32> = vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 99.0];
     match split_pooled(&flat, 2, 4, EmbedKind::Query) {
         Err(EmbedError::BufferShapeMismatch { expected, actual }) => {
             assert_eq!(expected, 8, "[T-012c] expected = batch * hidden = 8");
@@ -374,13 +326,6 @@ fn split_pooled_shape_mismatch_long_returns_buffer_shape_mismatch() {
     }
 }
 
-// T-012d / FR-002a / AC-1 (sub-case of spec T-012)
-//
-// [T-012d] Zero-length boundary: `batch = 0, hidden = N, flat = &[]`.
-// Expected length `0 * hidden = 0` matches `flat.len() = 0`, so the
-// contract is satisfied and `split_pooled` returns `Ok(vec![])`.
-// Documents the "empty input is not an error" branch so a future
-// implementer cannot accidentally treat zero as the mismatch case.
 #[test]
 fn split_pooled_zero_batch_returns_empty_vec() {
     let flat: Vec<f32> = Vec::new();
@@ -392,12 +337,6 @@ fn split_pooled_zero_batch_returns_empty_vec() {
     );
 }
 
-// T-012e / FR-002a / AC-1 (sub-case of spec T-012)
-//
-// [T-012e] Single-batch case used by `embed_query_truncated`. After the
-// Phase 3b rewire, the query path calls `split_pooled(flat, 1, hidden)`
-// and unwraps the single inner row. Verifies the helper does not require
-// `batch >= 2`.
 #[test]
 fn split_pooled_single_batch_for_embed_query_path() {
     let flat: Vec<f32> = vec![0.1, 0.2, 0.3, 0.4, 0.5];
@@ -578,4 +517,45 @@ fn shrink_chunk_to_fit_preserves_fitting_range_and_rejects_empty_range() {
     assert!(
         matches!(error, EmbedError::Inference { message, .. } if message.contains("cannot fit"))
     );
+}
+
+// An added token spans the prefix/content boundary. Slicing an unprefixed
+// encoding and concatenating prefix IDs would incorrectly yield [3, 4].
+#[test]
+fn long_planning_retokenizes_prefix_boundary_without_losing_utf8_tail() {
+    use super::plan_document_chunks;
+    use crate::embed::{DOCUMENT_PREFIX, extract_prefix_tokens, max_content};
+    use tokenizers::AddedToken;
+
+    let words: Vec<_> = (0..9000).map(|i| format!("語{i}")).collect();
+    let mut tokenizer = word_tokenizer(&words);
+    tokenizer
+        .add_tokens([AddedToken::from(format!("{DOCUMENT_PREFIX}語0"), false)])
+        .unwrap();
+    let prefix = extract_prefix_tokens(&tokenizer, DOCUMENT_PREFIX).unwrap();
+    let text = words.join(" ");
+    let budget = max_content(prefix.len());
+    let (chunks, counts) = plan_document_chunks(&tokenizer, &[&text], &prefix, budget).unwrap();
+    assert_eq!(counts, [2]);
+    let first: Vec<_> = [1, 9004].into_iter().chain(5..8193).chain([2]).collect();
+    let last: Vec<_> = [1, 3].into_iter().chain(6145..9004).chain([2]).collect();
+    assert_eq!(chunks, [first, last]);
+
+    // Token count can decrease when a longer candidate completes an added token.
+    // A shrink optimization must not infer fitting ends from monotonicity.
+    let merged = format!("{DOCUMENT_PREFIX}{}", words[..8190].join(" "));
+    tokenizer
+        .add_tokens([AddedToken::from(merged, false)])
+        .unwrap();
+    let short_candidate =
+        tokenize_with_prefix(&tokenizer, &words[..8189].join(" "), DOCUMENT_PREFIX).unwrap();
+    let longer_candidate =
+        tokenize_with_prefix(&tokenizer, &words[..8190].join(" "), DOCUMENT_PREFIX).unwrap();
+    assert!(short_candidate.seq_len > longer_candidate.seq_len);
+    let encoding = tokenizer.encode(text.as_str(), false).unwrap();
+    let mut end = 8191;
+    let accepted =
+        super::shrink_chunk_to_fit(&tokenizer, &text, encoding.get_offsets(), 0, &mut end).unwrap();
+    assert_eq!(end, 8191, "the merged candidate plus the next token fits");
+    assert_eq!(accepted, [1, 9005, 8194, 2]);
 }

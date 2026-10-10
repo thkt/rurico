@@ -1,0 +1,56 @@
+{
+  "baseline": "fb62091fcf34b01bce080ea7d4ec588d4aa6a988",
+  "head": "fb62091fcf34b01bce080ea7d4ec588d4aa6a988",
+  "sources": {
+    "baseline": {
+      "src/embed.rs": "399f31b52fe89736764e827efb6bc37349d083261d2e26a1f408f099513816df",
+      "src/embed/processing.rs": "18f4aafec447b0256898667987f1104871a372cab0d9c6fdd986c0fb4c8b9fbc",
+      "src/embed/metrics.rs": "9e850cc9bfacd5053eb4d3e1b7d36ff507c4044cda73c60fa936fc4b8bdb1310",
+      "src/model_io.rs": "a1ece406bba0c58263c05f06536249f75e934aa07dddd72123a52e7458ebb5fa",
+      "src/embed/mlx.rs": "e2c5478a09a9a16baeffe873eb04aedc1c642f048ed0007b71efb7831ba8b248",
+      "Cargo.lock": "743d754ae4fb6f0f44d169feab408a1b80caa50d17c38b058ec156c66811bf30"
+    },
+    "current": {
+      "src/embed.rs": "1654b3eaddf536217469223d2f955012d06b4862a66937e2f870d168ab5c01cb",
+      "src/embed/processing.rs": "e1dc6eb5bf3b8b5fab7045e1b09147f1064ca2781a50c3902c2ac723d6d0f172",
+      "src/embed/metrics.rs": "9e850cc9bfacd5053eb4d3e1b7d36ff507c4044cda73c60fa936fc4b8bdb1310",
+      "src/model_io.rs": "c88ba6fc078ce256d3750cb9d219b49937120a67777b46de0074685901044c73",
+      "src/embed/mlx.rs": "c9ea1e8d1a5c915257811fdbab1a504c41fdbcccb2ea1932e9858ca7908e2427",
+      "Cargo.lock": "743d754ae4fb6f0f44d169feab408a1b80caa50d17c38b058ec156c66811bf30"
+    }
+  },
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "probe_sha256": "571fcb026877c5b2ed9bab8ee017972722fb17d5bd5a3995970bacd4ba202078",
+  "run_sha256": "85a44e61b4ec55eee84fa49effa9a7db99c144312a299e9e6623e7b4ac2665d3",
+  "dependencies": {
+    "libtokenizers-eeeefb2481270ac3.rlib": "c17beaa154fd91621b913481d2e329c058e2445801026554eb8a4ffdeffe7e30",
+    "libserde-dfa7af1e362b2d46.rlib": "ceacdadc81dacba4583ed246e0ae45acb96959ca1a61c905839bdde7120d1e70",
+    "libserde_json-eb1f3ea94f16a409.rlib": "cdf58947d92f7cdefa62f60842d2a6296421ee561db991570f3b4344766db4ec",
+    "libtracing-e7fc1a313f6101bd.rlib": "9c5fa289b634949b1e20658e2d51e181111e69e8014b88cb398cfe3187b278ba",
+    "liblibc-d9b2a9befff7bdb6.rlib": "a918f9dac860e7eb315c65aaaa89b57ef5c0e841d38a977f43cb9c5b8cbc9916"
+  },
+  "verification_assets": {
+    "src/embed/processing/tests.rs": "db58f522c0677f8d393e201403a01f86afa93db506c464f312ff1a727e80adf1",
+    "src/model_io/tests.rs": "3d367da5d1058c2a34059c00b002e8e7f404fe43497c0dea8b6412b4a1229427",
+    "CONTRIBUTING.md": "ab47cf1a2cb46b4946778d6ce0c5d469e34334cc3c7a17004d77140123bf3354",
+    "docs/benchmarks/issue-311/README.md": "dead111ffee981cb0d94f9824e4b833858cc06b0938766507a6c9234f5557415"
+  },
+  "tokenizer_sha256": "0a94ac9a0a02c067bdef25b72ae9f4ee33f48f552e55988d444f6d25eeb1d062",
+  "flags": [
+    "rustc",
+    "--edition=2024",
+    "-O"
+  ],
+  "binary_sha256": "20b1f74f43497ad289faf5e2ece9654bb249b0aae3ad91b6cc58650a1eaae512",
+  "complete": true,
+  "prepared_only": true,
+  "command": [
+    "/private/tmp/rurico-311-host-preparation-20261010/cpu-prepared/probe",
+    "/Users/thkt/.cache/huggingface/hub/models--cl-nagoya--ruri-v3-310m/blobs/8289cb63738c88756e373156923ca5c6de4518d0"
+  ],
+  "measured_after_preparation": true,
+  "prepared_manifest_sha256": "024087a7c3b23c89814a98cf83d9d5d5841daa4a0476ee3500fbe6d2ce8d933e",
+  "raw_sha256": "2143db572fb5cb465dee8e43794bd6e56be53f650c8ba9a93452d5fefffbeb2a",
+  "summary_sha256": "deeeda889156a49a1175ea9b1188b3f89eeeccb9a144c5533a77055a1b040150",
+  "measurement_provenance": "provenance.json"
+}

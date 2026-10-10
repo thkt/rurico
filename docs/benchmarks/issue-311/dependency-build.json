@@ -1,0 +1,206 @@
+{
+  "tokenizers": {
+    "path": "/private/tmp/rurico-implement-359-20261008/checkout/target/debug/deps/libtokenizers-eeeefb2481270ac3.rlib",
+    "sha256": "c17beaa154fd91621b913481d2e329c058e2445801026554eb8a4ffdeffe7e30",
+    "cargo_artifact": {
+      "reason": "compiler-artifact",
+      "package_id": "registry+https://github.com/rust-lang/crates.io-index#tokenizers@0.23.2",
+      "manifest_path": "/Users/thkt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokenizers-0.23.2/Cargo.toml",
+      "target": {
+        "kind": [
+          "lib"
+        ],
+        "crate_types": [
+          "lib"
+        ],
+        "name": "tokenizers",
+        "src_path": "/Users/thkt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokenizers-0.23.2/src/lib.rs",
+        "edition": "2018",
+        "doc": true,
+        "doctest": true,
+        "test": true
+      },
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 2,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": false
+      },
+      "features": [
+        "onig"
+      ],
+      "filenames": [
+        "/private/tmp/rurico-implement-359-20261008/checkout/target/debug/deps/libtokenizers-eeeefb2481270ac3.rlib",
+        "/private/tmp/rurico-implement-359-20261008/checkout/target/debug/deps/libtokenizers-eeeefb2481270ac3.rmeta"
+      ],
+      "executable": null,
+      "fresh": true
+    }
+  },
+  "serde": {
+    "path": "/private/tmp/rurico-implement-359-20261008/checkout/target/debug/deps/libserde-dfa7af1e362b2d46.rlib",
+    "sha256": "ceacdadc81dacba4583ed246e0ae45acb96959ca1a61c905839bdde7120d1e70",
+    "cargo_artifact": {
+      "reason": "compiler-artifact",
+      "package_id": "registry+https://github.com/rust-lang/crates.io-index#serde@1.0.229",
+      "manifest_path": "/Users/thkt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/Cargo.toml",
+      "target": {
+        "kind": [
+          "lib"
+        ],
+        "crate_types": [
+          "lib"
+        ],
+        "name": "serde",
+        "src_path": "/Users/thkt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/lib.rs",
+        "edition": "2021",
+        "doc": true,
+        "doctest": true,
+        "test": true
+      },
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 2,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": false
+      },
+      "features": [
+        "alloc",
+        "default",
+        "derive",
+        "serde_derive",
+        "std"
+      ],
+      "filenames": [
+        "/private/tmp/rurico-implement-359-20261008/checkout/target/debug/deps/libserde-dfa7af1e362b2d46.rlib",
+        "/private/tmp/rurico-implement-359-20261008/checkout/target/debug/deps/libserde-dfa7af1e362b2d46.rmeta"
+      ],
+      "executable": null,
+      "fresh": true
+    }
+  },
+  "serde_json": {
+    "path": "/private/tmp/rurico-implement-359-20261008/checkout/target/debug/deps/libserde_json-eb1f3ea94f16a409.rlib",
+    "sha256": "cdf58947d92f7cdefa62f60842d2a6296421ee561db991570f3b4344766db4ec",
+    "cargo_artifact": {
+      "reason": "compiler-artifact",
+      "package_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151",
+      "manifest_path": "/Users/thkt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde_json-1.0.151/Cargo.toml",
+      "target": {
+        "kind": [
+          "lib"
+        ],
+        "crate_types": [
+          "lib"
+        ],
+        "name": "serde_json",
+        "src_path": "/Users/thkt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde_json-1.0.151/src/lib.rs",
+        "edition": "2021",
+        "doc": true,
+        "doctest": true,
+        "test": true
+      },
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 2,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": false
+      },
+      "features": [
+        "default",
+        "std"
+      ],
+      "filenames": [
+        "/private/tmp/rurico-implement-359-20261008/checkout/target/debug/deps/libserde_json-eb1f3ea94f16a409.rlib",
+        "/private/tmp/rurico-implement-359-20261008/checkout/target/debug/deps/libserde_json-eb1f3ea94f16a409.rmeta"
+      ],
+      "executable": null,
+      "fresh": true
+    }
+  },
+  "tracing": {
+    "path": "/private/tmp/rurico-implement-359-20261008/checkout/target/debug/deps/libtracing-e7fc1a313f6101bd.rlib",
+    "sha256": "9c5fa289b634949b1e20658e2d51e181111e69e8014b88cb398cfe3187b278ba",
+    "cargo_artifact": {
+      "reason": "compiler-artifact",
+      "package_id": "registry+https://github.com/rust-lang/crates.io-index#tracing@0.1.44",
+      "manifest_path": "/Users/thkt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tracing-0.1.44/Cargo.toml",
+      "target": {
+        "kind": [
+          "lib"
+        ],
+        "crate_types": [
+          "lib"
+        ],
+        "name": "tracing",
+        "src_path": "/Users/thkt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tracing-0.1.44/src/lib.rs",
+        "edition": "2018",
+        "doc": true,
+        "doctest": true,
+        "test": true
+      },
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 2,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": false
+      },
+      "features": [
+        "attributes",
+        "default",
+        "std",
+        "tracing-attributes"
+      ],
+      "filenames": [
+        "/private/tmp/rurico-implement-359-20261008/checkout/target/debug/deps/libtracing-e7fc1a313f6101bd.rlib",
+        "/private/tmp/rurico-implement-359-20261008/checkout/target/debug/deps/libtracing-e7fc1a313f6101bd.rmeta"
+      ],
+      "executable": null,
+      "fresh": true
+    }
+  },
+  "libc": {
+    "path": "/private/tmp/rurico-implement-359-20261008/checkout/target/debug/deps/liblibc-d9b2a9befff7bdb6.rlib",
+    "sha256": "a918f9dac860e7eb315c65aaaa89b57ef5c0e841d38a977f43cb9c5b8cbc9916",
+    "cargo_artifact": {
+      "reason": "compiler-artifact",
+      "package_id": "registry+https://github.com/rust-lang/crates.io-index#libc@0.2.186",
+      "manifest_path": "/Users/thkt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.186/Cargo.toml",
+      "target": {
+        "kind": [
+          "lib"
+        ],
+        "crate_types": [
+          "lib"
+        ],
+        "name": "libc",
+        "src_path": "/Users/thkt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.186/src/lib.rs",
+        "edition": "2021",
+        "doc": true,
+        "doctest": true,
+        "test": true
+      },
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 2,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": false
+      },
+      "features": [
+        "default",
+        "std"
+      ],
+      "filenames": [
+        "/private/tmp/rurico-implement-359-20261008/checkout/target/debug/deps/liblibc-d9b2a9befff7bdb6.rlib",
+        "/private/tmp/rurico-implement-359-20261008/checkout/target/debug/deps/liblibc-d9b2a9befff7bdb6.rmeta"
+      ],
+      "executable": null,
+      "fresh": true
+    }
+  }
+}

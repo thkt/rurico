@@ -126,12 +126,17 @@ cargo nextest run --run-ignored=ignored-only g_001_real_tokenizer_extract_prefix
 実モデルの数値一致を保証しない。それぞれ上記のignoredテストと
 [実モデルの受入手順](#重みの読込み検証)で別に確認する。
 
+前処理のclone削減、長文の不要なID/maskコピーの削減と、独立したCPU比較は
+[Issue #311の検証手順](docs/benchmarks/issue-311/README.md)を参照する。
+本番の組立テストは借用sliceからのpaddingも確認し、prefix境界mergeの合成検証を追加した。
+CPU比較と実モデルの`measure-records`は通常checkには含まれない。
+
 ### 推論境界の回帰検証（Issue #363）
 
 演算・製品経路・固定モデルの確認結果と隔離条件は[検証記録](docs/benchmarks/issue-363-validation.md)を参照する。
 
 通常checkでは、製品の `execute_document_chunks` を通してbucket・sub-batchの出力を
-元の文書／chunk順へ戻す。異なる入力tokenの識別値をforward境界から返し、3文書・9chunk、
+元の文書／chunk順へ戻す。異なる入力tokenの識別値をforward境界から返し、3文書・10chunk、
 複数bucket、`token_budget=383`（128で割り切れない値）、最後の端数とpause回数を確認する。
 これはMLX forwardを置き換えた境界検証であり、実モデルの数値成功には数えない。
 同じ組立境界で、先行文書の成功後にreadback行が欠落した場合のエラーと、

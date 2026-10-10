@@ -1,0 +1,242 @@
+[
+  {
+    "case": "padding_clone",
+    "variant": "baseline",
+    "wall_ns_per_call": {
+      "median": 12830.0,
+      "min": 12561.803333333333,
+      "max": 14030.553333333333
+    },
+    "cpu_ns_per_call": {
+      "median": 12800.0,
+      "min": 12546.666666666666,
+      "max": 13723.333333333334
+    },
+    "rust_allocations_reallocations": {
+      "median": 131,
+      "min": 131,
+      "max": 131
+    },
+    "rust_peak_extra_requested_bytes": {
+      "median": 626432,
+      "min": 626432,
+      "max": 626432
+    }
+  },
+  {
+    "case": "redundant_sort",
+    "variant": "with_sort",
+    "wall_ns_per_call": {
+      "median": 133952.1,
+      "min": 125597.95,
+      "max": 156856.25
+    },
+    "cpu_ns_per_call": {
+      "median": 134000.0,
+      "min": 125750.0,
+      "max": 154750.0
+    },
+    "rust_allocations_reallocations": {
+      "median": 1061,
+      "min": 1061,
+      "max": 1061
+    },
+    "rust_peak_extra_requested_bytes": {
+      "median": 4499456,
+      "min": 4499456,
+      "max": 4499456
+    }
+  },
+  {
+    "case": "short_plan",
+    "variant": "baseline",
+    "wall_ns_per_call": {
+      "median": 68274.17,
+      "min": 66581.25,
+      "max": 71513.33
+    },
+    "cpu_ns_per_call": {
+      "median": 67950.0,
+      "min": 66500.0,
+      "max": 70960.0
+    },
+    "rust_allocations_reallocations": {
+      "median": 439,
+      "min": 439,
+      "max": 439
+    },
+    "rust_peak_extra_requested_bytes": {
+      "median": 17022,
+      "min": 17022,
+      "max": 17022
+    }
+  },
+  {
+    "case": "long_plan",
+    "variant": "baseline",
+    "wall_ns_per_call": {
+      "median": 81583591.6,
+      "min": 80411175.0,
+      "max": 107020783.4
+    },
+    "cpu_ns_per_call": {
+      "median": 81322400.0,
+      "min": 80298000.0,
+      "max": 98157400.0
+    },
+    "rust_allocations_reallocations": {
+      "median": 320635,
+      "min": 320635,
+      "max": 320635
+    },
+    "rust_peak_extra_requested_bytes": {
+      "median": 4455304,
+      "min": 4455304,
+      "max": 4455304
+    }
+  },
+  {
+    "case": "shrink",
+    "variant": "baseline",
+    "wall_ns_per_call": {
+      "median": 102494575.0,
+      "min": 101977608.4,
+      "max": 103165641.8
+    },
+    "cpu_ns_per_call": {
+      "median": 102355200.0,
+      "min": 101885600.0,
+      "max": 102826000.0
+    },
+    "rust_allocations_reallocations": {
+      "median": 407476,
+      "min": 407476,
+      "max": 407476
+    },
+    "rust_peak_extra_requested_bytes": {
+      "median": 2073656,
+      "min": 2073656,
+      "max": 2073656
+    }
+  },
+  {
+    "case": "padding_clone",
+    "variant": "current",
+    "wall_ns_per_call": {
+      "median": 7524.583333333333,
+      "min": 7390.14,
+      "max": 7842.5
+    },
+    "cpu_ns_per_call": {
+      "median": 7513.333333333333,
+      "min": 7390.0,
+      "max": 7740.0
+    },
+    "rust_allocations_reallocations": {
+      "median": 2,
+      "min": 2,
+      "max": 2
+    },
+    "rust_peak_extra_requested_bytes": {
+      "median": 524288,
+      "min": 524288,
+      "max": 524288
+    }
+  },
+  {
+    "case": "redundant_sort",
+    "variant": "without_sort",
+    "wall_ns_per_call": {
+      "median": 129460.4,
+      "min": 126435.45,
+      "max": 166570.85
+    },
+    "cpu_ns_per_call": {
+      "median": 129500.0,
+      "min": 126450.0,
+      "max": 164950.0
+    },
+    "rust_allocations_reallocations": {
+      "median": 1057,
+      "min": 1057,
+      "max": 1057
+    },
+    "rust_peak_extra_requested_bytes": {
+      "median": 4499456,
+      "min": 4499456,
+      "max": 4499456
+    }
+  },
+  {
+    "case": "short_plan",
+    "variant": "current",
+    "wall_ns_per_call": {
+      "median": 67348.75,
+      "min": 65852.08,
+      "max": 69357.09
+    },
+    "cpu_ns_per_call": {
+      "median": 67320.0,
+      "min": 65860.0,
+      "max": 69160.0
+    },
+    "rust_allocations_reallocations": {
+      "median": 438,
+      "min": 438,
+      "max": 438
+    },
+    "rust_peak_extra_requested_bytes": {
+      "median": 17022,
+      "min": 17022,
+      "max": 17022
+    }
+  },
+  {
+    "case": "long_plan",
+    "variant": "current",
+    "wall_ns_per_call": {
+      "median": 80690241.6,
+      "min": 80341175.0,
+      "max": 87288658.4
+    },
+    "cpu_ns_per_call": {
+      "median": 80579000.0,
+      "min": 80269000.0,
+      "max": 86264200.0
+    },
+    "rust_allocations_reallocations": {
+      "median": 320630,
+      "min": 320630,
+      "max": 320630
+    },
+    "rust_peak_extra_requested_bytes": {
+      "median": 4347982,
+      "min": 4347982,
+      "max": 4347982
+    }
+  },
+  {
+    "case": "shrink",
+    "variant": "current",
+    "wall_ns_per_call": {
+      "median": 103034441.6,
+      "min": 101892900.0,
+      "max": 106861050.0
+    },
+    "cpu_ns_per_call": {
+      "median": 102827400.0,
+      "min": 101795000.0,
+      "max": 106014800.0
+    },
+    "rust_allocations_reallocations": {
+      "median": 407459,
+      "min": 407459,
+      "max": 407459
+    },
+    "rust_peak_extra_requested_bytes": {
+      "median": 2073656,
+      "min": 2073656,
+      "max": 2073656
+    }
+  }
+]
