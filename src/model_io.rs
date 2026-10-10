@@ -255,7 +255,8 @@ pub(crate) fn artifacts_from_cache<Id: ModelArtifact>(
 /// Metal OOM (commit `3c86e90`). Combined with [`BUCKET_BOUNDS`], the
 /// derived `(TOKEN_BUDGET / bucket_len)` sub-batch sizes are
 /// `(2000, 500, 125, 31)` for bucket lengths `(128, 512, 2048, 8192)`,
-/// pinned by `compute_sub_batch_size_matches_formula_per_bucket`.
+/// pinned by `default_sub_batch_sizes_match_fixed_budget_contract`
+/// in `src/model_io/tests.rs`.
 ///
 /// Embed and reranker callers both size their sub-batches against this budget
 /// so memory consumption is bounded by the same ceiling regardless of which

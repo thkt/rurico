@@ -532,6 +532,10 @@ smoke binary は `sandbox::exit_if_seatbelt` 経由で `SEATBELT_SKIP_EXIT` (78)
 `measure-baseline` のprimary成功はW1/W3の速度や全workloadの目標達成を保証しない。
 `compare-records BASE CURRENT` は同条件のraw recordから、batch/sequential効率と版間の遅延変化を別に表示する。
 
+rerankerのモデル不要検証・ignoredの実モデル検証・50ペアの基準版benchmark比較は
+[CONTRIBUTING](CONTRIBUTING.md#重複検証の整理とreranker遅延の計測issue-364)を参照。
+benchmarkは性能を測定し、標準checkの合否や検索品質評価とは分けて扱う。
+
 検索品質の評価（Recall@k / MRR@k / nDCG@k）は [`amici`](https://github.com/thkt/amici) で行う。`CandidateSource` は `{ Fts, Vector }` の閉 enum に固定されている（prefix-ensemble は採用していない）。
 
 ## ライセンス

@@ -4,10 +4,8 @@ use std::fs;
 use std::path::Path;
 
 use crate::artifacts::ModelKind;
-use crate::model_init::ModelInitError;
 use crate::model_io::{ModelArtifact, artifacts_from_cache};
 use crate::model_lifecycle::probe_env_to_paths;
-use crate::model_probe::ProbeError;
 
 /// Valid ModernBERT config JSON with all required fields, for use in tests
 /// that need to bypass config parsing errors and reach later verification stages.
@@ -220,44 +218,13 @@ pub(crate) fn assert_cache_lookup_returns_none_when_empty<Id: ModelArtifact>(mod
     assert!(result.is_none());
 }
 
-/// Generic helper for `from_probe_error_maps_correctly`.
-///
-/// Asserts that three [`ProbeError`](crate::model_probe::ProbeError) variants
-/// (`HandlerNotInstalled` / `ModelLoadFailed` / `SubprocessFailed`) map to the
-/// expected [`ModelInitError`](crate::model_init::ModelInitError) variant.
-/// `SetupRejected` is covered separately by `model_init/tests.rs` (T-008 /
-/// T-125-B), which also pin the source chain. Kind-agnostic because
-/// `ModelInitError` is unified across embed and reranker (FR-002).
-pub(crate) fn assert_from_probe_error_maps_correctly() {
-    let err: ModelInitError = ProbeError::HandlerNotInstalled.into();
-    assert!(
-        matches!(err, ModelInitError::Backend { ref message, .. } if message.contains("probe handler not installed")),
-        "{err}"
-    );
-
-    let err: ModelInitError = ProbeError::ModelLoadFailed {
-        reason: "bad weights".into(),
-    }
-    .into();
-    assert!(
-        matches!(err, ModelInitError::ModelCorrupt { ref reason } if reason == "bad weights"),
-        "{err}"
-    );
-
-    let err: ModelInitError = ProbeError::SubprocessFailed("spawn failed".into()).into();
-    assert!(
-        matches!(err, ModelInitError::Backend { ref message, .. } if message == "spawn failed"),
-        "{err}"
-    );
-}
-
 /// Generic helper for the Issue #107 regression: `probe_env_to_paths` must
 /// return the snapshot symlink path, not the canonicalized blob path.
 ///
 /// MLX `load_safetensors` dispatches on filename extension, so substituting
 /// the blob path (`etag-model`, extension-less) for the snapshot link
 /// (`model.safetensors`) breaks the load step. Verified for both
-/// `EmbedKind` and `RerankerKind` from their respective test files.
+/// `EmbedKind` and `RerankerKind` by the lifecycle tests.
 #[cfg(unix)]
 pub(crate) fn assert_probe_env_to_paths_preserves_snapshot_symlink_filename<K: ModelKind>() {
     let hf_home = tempfile::tempdir().unwrap();
@@ -287,23 +254,9 @@ pub(crate) fn assert_probe_env_to_paths_preserves_snapshot_symlink_filename<K: M
         )
         .unwrap()
         .unwrap();
-        assert_eq!(
-            candidate.paths.model.file_name().and_then(|s| s.to_str()),
-            Some("model.safetensors"),
-            "regression: probe_env_to_paths must preserve snapshot symlink filename"
-        );
-        assert_eq!(
-            candidate.paths.config.file_name().and_then(|s| s.to_str()),
-            Some("config.json")
-        );
-        assert_eq!(
-            candidate
-                .paths
-                .tokenizer
-                .file_name()
-                .and_then(|s| s.to_str()),
-            Some("tokenizer.json")
-        );
+        assert_eq!(candidate.paths.model, m);
+        assert_eq!(candidate.paths.config, c);
+        assert_eq!(candidate.paths.tokenizer, t);
     });
 }
 

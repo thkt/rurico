@@ -1,17 +1,11 @@
 use super::processing::truncate_pair;
 use super::*;
-use crate::artifacts::RerankerKind;
-#[cfg(unix)]
-use crate::test_support::assert_probe_env_to_paths_preserves_snapshot_symlink_filename;
 use crate::test_support::{
     VALID_CONFIG_JSON, assert_cache_lookup_returns_none_when_empty,
     assert_cache_lookup_returns_some_when_all_files_present,
-    assert_from_probe_error_maps_correctly,
-    assert_probe_env_to_paths_returns_paths_when_all_present,
 };
 use std::fs;
 
-// T-003: candidate_verify_returns_missing_file_for_nonexistent_paths
 #[test]
 fn candidate_verify_returns_missing_file_for_nonexistent_paths() {
     let candidate = CandidateArtifacts::from_paths(
@@ -26,7 +20,6 @@ fn candidate_verify_returns_missing_file_for_nonexistent_paths() {
     );
 }
 
-// T-004: truncate_pair_short_input_unchanged
 #[test]
 fn truncate_pair_short_input_unchanged() {
     let mut ids: Vec<u32> = (0..100).collect();
@@ -38,7 +31,6 @@ fn truncate_pair_short_input_unchanged() {
     assert_eq!(mask, original_mask);
 }
 
-// T-005: truncate_pair_long_input_truncated_with_eos
 #[test]
 fn truncate_pair_long_input_truncated_with_eos() {
     let mut ids: Vec<u32> = (0..8193).map(|i| i as u32).collect();
@@ -49,7 +41,6 @@ fn truncate_pair_long_input_truncated_with_eos() {
     assert_eq!(ids[8191], 2, "last token should be EOS(2)");
 }
 
-// T-007: sort_results_descending_by_score
 #[test]
 fn sort_results_descending_by_score() {
     let scores = vec![0.3, 0.9, 0.1];
@@ -63,7 +54,6 @@ fn sort_results_descending_by_score() {
     assert!((results[2].score - 0.1).abs() < 1e-6);
 }
 
-// T-007b: sort_results_ties_break_by_original_index
 #[test]
 fn sort_results_ties_break_by_original_index() {
     // scores: [0.5, 0.7, 0.7, 0.5] — desc by score, asc by index on ties.
@@ -81,7 +71,6 @@ fn sort_results_ties_break_by_original_index() {
     assert_eq!(indices, [0, 1, 2, 3]);
 }
 
-// T-105-012: sort_results_with_empty_scores_returns_empty_vec
 #[test]
 fn sort_results_with_empty_scores_returns_empty_vec() {
     let results = sort_results(&[]);
@@ -91,19 +80,16 @@ fn sort_results_with_empty_scores_returns_empty_vec() {
     );
 }
 
-// T-013: cache_lookup_returns_some_when_all_files_present
 #[test]
 fn cache_lookup_returns_some_when_all_files_present() {
     assert_cache_lookup_returns_some_when_all_files_present(RerankerModelId::RuriV3Reranker310m);
 }
 
-// T-021: cache_lookup_returns_none_when_cache_empty
 #[test]
 fn cache_lookup_returns_none_when_cache_empty() {
     assert_cache_lookup_returns_none_when_empty(RerankerModelId::default());
 }
 
-// T-014: candidate_verify_returns_invalid_config_for_empty_config
 #[test]
 fn candidate_verify_returns_invalid_config_for_empty_config() {
     let dir = tempfile::tempdir().unwrap();
@@ -118,7 +104,6 @@ fn candidate_verify_returns_invalid_config_for_empty_config() {
     );
 }
 
-// T-015: candidate_verify_returns_invalid_tokenizer_for_bad_tokenizer
 #[test]
 fn candidate_verify_returns_invalid_tokenizer_for_bad_tokenizer() {
     let dir = tempfile::tempdir().unwrap();
@@ -131,18 +116,6 @@ fn candidate_verify_returns_invalid_tokenizer_for_bad_tokenizer() {
         matches!(err, ArtifactError::InvalidTokenizer(_)),
         "expected InvalidTokenizer error, got: {err}"
     );
-}
-
-// T-019: regression — same invariant as T-018 for the reranker module.
-#[cfg(unix)]
-#[test]
-fn probe_env_to_paths_preserves_snapshot_symlink_filename() {
-    assert_probe_env_to_paths_preserves_snapshot_symlink_filename::<RerankerKind>();
-}
-
-#[test]
-fn probe_env_to_paths_returns_paths_when_all_present() {
-    assert_probe_env_to_paths_returns_paths_when_all_present::<RerankerKind>();
 }
 
 #[test]
@@ -185,11 +158,6 @@ fn sort_results_handles_nan_without_panic() {
     );
     assert_eq!(results[1].index, 0, "0.5 should be second");
     assert_eq!(results[2].index, 2, "0.3 should be third");
-}
-
-#[test]
-fn from_probe_error_maps_correctly() {
-    assert_from_probe_error_maps_correctly();
 }
 
 #[test]
@@ -261,10 +229,7 @@ fn runtime_errors_preserve_typed_sources_and_display() {
 /// outside Codex seatbelt.
 #[cfg(feature = "test-mlx")]
 mod mlx_runtime_tests {
-    use std::time::Instant;
-
     use serial_test::serial;
-    use tracing_test::traced_test;
 
     use super::*;
     use crate::sandbox::require_unsandboxed_mlx_runtime;
@@ -275,96 +240,56 @@ mod mlx_runtime_tests {
             .expect("model should be cached for test-mlx tests")
     }
 
-    // T-006: score_batch_empty_returns_ok_empty
+    // Fixed-model API inference, not a general search-quality evaluation.
+    // Reuse one load across singleton, ranking, and batch order contracts.
     #[test]
-    #[ignore = "requires unsandboxed MLX runtime"]
+    #[ignore = "requires cached official reranker and unsandboxed MLX runtime"]
     #[serial]
-    fn score_batch_empty_returns_ok_empty() {
+    #[tracing_test::traced_test]
+    fn cached_model_scores_singleton_batch_and_reranks_in_input_order() {
         require_unsandboxed_mlx_runtime();
         let reranker = Reranker::new(&load_cached_artifacts()).unwrap();
-        let scores = reranker.score_batch(&[]).unwrap();
-        assert!(scores.is_empty());
-    }
-
-    // T-008: rerank_empty_returns_ok_empty
-    #[test]
-    #[ignore = "requires unsandboxed MLX runtime"]
-    #[serial]
-    fn rerank_empty_returns_ok_empty() {
-        require_unsandboxed_mlx_runtime();
-        let reranker = Reranker::new(&load_cached_artifacts()).unwrap();
-        let results = reranker.rerank("query", &[]).unwrap();
-        assert!(results.is_empty());
-    }
-
-    // T-011: score_returns_value_in_unit_interval
-    #[test]
-    #[ignore = "requires unsandboxed MLX runtime"]
-    #[serial]
-    fn score_returns_value_in_unit_interval() {
-        require_unsandboxed_mlx_runtime();
-        let reranker = Reranker::new(&load_cached_artifacts()).unwrap();
+        assert!(reranker.score_batch(&[]).unwrap().is_empty());
+        assert!(reranker.rerank("query", &[]).unwrap().is_empty());
         let score = reranker.score("test", "テスト文").unwrap();
-        assert!(
-            (0.0..=1.0).contains(&score) && score.is_finite(),
-            "score should be in [0,1], got: {score}"
-        );
-    }
+        assert!((0.0..=1.0).contains(&score) && score.is_finite(), "{score}");
 
-    // T-012: rerank_returns_descending_scores_with_valid_indices
-    #[test]
-    #[ignore = "requires unsandboxed MLX runtime"]
-    #[serial]
-    fn rerank_returns_descending_scores_with_valid_indices() {
-        require_unsandboxed_mlx_runtime();
-        let reranker = Reranker::new(&load_cached_artifacts()).unwrap();
         let docs = ["related document", "unrelated text", "somewhat relevant"];
         let results = reranker.rerank("test query", &docs).unwrap();
         assert_eq!(results.len(), 3);
+        for result in &results {
+            assert!(result.score.is_finite() && (0.0..=1.0).contains(&result.score));
+        }
         for w in results.windows(2) {
             assert!(w[0].score >= w[1].score);
         }
-        let mut indices: Vec<usize> = results.iter().map(|r| r.index).collect();
-        indices.sort();
+        let mut indices: Vec<_> = results.iter().map(|r| r.index).collect();
+        indices.sort_unstable();
         assert_eq!(indices, vec![0, 1, 2]);
-    }
 
-    // T-016: score_batch_preserves_input_order_and_ranking
-    #[test]
-    #[ignore = "requires unsandboxed MLX runtime"]
-    #[serial]
-    fn score_batch_preserves_input_order_and_ranking() {
-        require_unsandboxed_mlx_runtime();
-        let reranker = Reranker::new(&load_cached_artifacts()).unwrap();
-        let pair_a = ("東京の人口", "東京は日本最大の都市");
-        let pair_b = ("東京の人口", "りんごは果物");
-        let scores = reranker.score_batch(&[pair_a, pair_b]).unwrap();
+        let pairs = [
+            ("東京の人口", "東京は日本最大の都市"),
+            ("東京の人口", "りんごは果物"),
+        ];
+        let scores = reranker.score_batch(&pairs).unwrap();
+        assert!(logs_contain("reranker score_batch dispatch"));
+        for field in [
+            "batch_size=2",
+            "sub_batch_count=1",
+            "sub_batch_size=2000",
+            "bucket_len=128",
+        ] {
+            assert!(logs_contain(field), "missing {field}");
+        }
         assert_eq!(scores.len(), 2);
         assert!(
             scores[0] > scores[1],
-            "related pair should score higher: {} vs {}",
-            scores[0],
-            scores[1]
+            "related pair must score higher: {scores:?}"
         );
-        for &s in &scores {
-            assert!(
-                (0.0..=1.0).contains(&s),
-                "score should be in [0,1], got: {s}"
-            );
-        }
-    }
-
-    // T-018: new_succeeds_with_cached_model
-    #[test]
-    #[ignore = "requires unsandboxed MLX runtime"]
-    #[serial]
-    fn new_succeeds_with_cached_model() {
-        require_unsandboxed_mlx_runtime();
-        let result = Reranker::new(&load_cached_artifacts());
         assert!(
-            result.is_ok(),
-            "Reranker::new should succeed: {:?}",
-            result.err()
+            scores
+                .iter()
+                .all(|s| s.is_finite() && (0.0..=1.0).contains(s))
         );
     }
 
@@ -392,63 +317,60 @@ mod mlx_runtime_tests {
             );
         }
     }
+}
 
-    // Pin small-N (50 pairs, single sub-batch) latency floor as a smoke signal.
-    // A future refactor that introduces real per-call work in score_batch shows
-    // up here. Median printed via --nocapture; thresholds intentionally not
-    // asserted (device-dependent).
-    #[test]
-    #[ignore = "requires unsandboxed MLX runtime"]
-    #[serial]
-    fn t_score_batch_50_pairs_small_n_latency_smoke() {
-        require_unsandboxed_mlx_runtime();
-        let reranker = Reranker::new(&load_cached_artifacts()).unwrap();
-
-        let pairs: Vec<(&str, &str)> = (0..50).map(|_| ("query", "doc")).collect();
-
-        const WARMUP: usize = 3;
-        const RUNS: usize = 30;
-        for _ in 0..WARMUP {
-            reranker.score_batch(&pairs).unwrap();
-        }
-
-        let mut times_us: Vec<u128> = Vec::with_capacity(RUNS);
-        for _ in 0..RUNS {
-            let t0 = Instant::now();
-            reranker.score_batch(&pairs).unwrap();
-            times_us.push(t0.elapsed().as_micros());
-        }
-        times_us.sort_unstable();
-        let p50 = times_us[RUNS / 2];
-        let p95 = times_us[(RUNS * 95) / 100];
-
-        println!("score_batch(50 pairs, bucket=128) p50={p50}µs p95={p95}µs over {RUNS} runs",);
-        assert!(p50 > 0, "timing must be non-zero (sanity)");
+#[test]
+fn empty_inputs_bypass_inference_and_nonempty_inputs_delegate_in_order() {
+    use super::processing::{rerank_with, score_batch_with};
+    assert!(
+        score_batch_with(&[], |_| panic!("empty batch reached inference"))
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        rerank_with("query", &[], |_| panic!("empty rerank reached inference"))
+            .unwrap()
+            .is_empty()
+    );
+    let pairs = [("query", "first"), ("query", "second")];
+    assert_eq!(
+        score_batch_with(&pairs, |actual| {
+            assert_eq!(actual, pairs);
+            Ok(vec![0.25, 0.75])
+        })
+        .unwrap(),
+        vec![0.25, 0.75]
+    );
+    let ranked = rerank_with("query", &["first", "second"], |actual| {
+        assert_eq!(actual, pairs);
+        Ok(vec![0.25, 0.75])
+    })
+    .unwrap();
+    assert_eq!(
+        ranked
+            .iter()
+            .map(|r| (r.index, r.score))
+            .collect::<Vec<_>>(),
+        vec![(1, 0.75), (0, 0.25)]
+    );
+    for err in [
+        score_batch_with(&pairs, |_| Err(RerankerError::NonFiniteOutput)).unwrap_err(),
+        rerank_with("query", &["first"], |_| Err(RerankerError::NonFiniteOutput)).unwrap_err(),
+    ] {
+        assert!(matches!(err, RerankerError::NonFiniteOutput));
     }
+}
 
-    // Pin the dispatch log emission so a future refactor cannot silently drop
-    // the per-call sub-batching telemetry. Field names are part of the
-    // contract subscribers consume; renaming them must update this assertion.
-    #[traced_test]
-    #[test]
-    #[ignore = "requires unsandboxed MLX runtime"]
-    #[serial]
-    fn t_score_batch_emits_dispatch_log() {
-        require_unsandboxed_mlx_runtime();
-        let reranker = Reranker::new(&load_cached_artifacts()).unwrap();
-
-        let pairs: Vec<(&str, &str)> = vec![("query", "doc"); 3];
-        reranker.score_batch(&pairs).unwrap();
-
-        assert!(logs_contain("reranker score_batch dispatch"));
-        assert!(logs_contain("batch_size=3"));
-        assert!(
-            logs_contain("sub_batch_count=1"),
-            "3 pairs in bucket 0 fit a single sub-batch",
-        );
-        assert!(
-            logs_contain("bucket_len=128"),
-            "short pairs must land in bucket 0 (len=128)",
-        );
-    }
+#[tracing_test::traced_test]
+#[test]
+fn dispatch_plan_emits_batch_bucket_and_sub_batch_fields_without_model() {
+    use super::processing::dispatch_sub_batch_size;
+    assert_eq!(dispatch_sub_batch_size(3, 3), (128, 2000));
+    assert!(logs_contain("reranker score_batch dispatch"));
+    assert!(logs_contain("batch_size=3"));
+    assert!(logs_contain("sub_batch_count=1"));
+    assert!(logs_contain("sub_batch_size=2000"));
+    assert!(logs_contain("bucket_len=128"));
+    assert_eq!(dispatch_sub_batch_size(129, 501), (512, 500));
+    assert!(logs_contain("sub_batch_count=2"));
 }

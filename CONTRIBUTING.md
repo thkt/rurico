@@ -170,6 +170,79 @@ W1/W2/W3の既存fixtureを再生成せず、同じbinaryのrawと再生成summa
 識別と負荷条件を保存する。過去の[#306の結果](docs/benchmarks/issue-306-metrics.md)は当時の版の証拠であり、
 今回の変更版の実行結果に読み替えない。短時間の `measure-overhead` だけでは長文・複数chunkの検証を完了しない。
 
+### 重複検証の整理とreranker遅延の計測（Issue #364）
+
+通常checkでは、固定budgetの4値、probeエラーの分類・message・typed source、
+両kindのprobe-env/path解決とsnapshot symlink、partial deleteのNotFoundと残り2ファイルの削除を確認する。
+エラー変換は`model_init`、probe-env/pathは`model_lifecycle`のテストが所有する。
+rerankerの空入力とdispatchは、本番が呼ぶ関数でlock/inference境界を置き換えて確認する。
+空入力で境界を呼ばないこと、非空入力の委譲・pair順・エラー保持、ログのbatch/bucket/sub-batchの
+各fieldを確認する。これは部品の分岐・組立検証であり、実モデル推論の成功ではない。
+
+実モデルのsingleton・batch入力順・降順rerank、公開APIの空入力とdispatchログを
+1回のロードで検証するテストと、
+5000ペアのsub-batch/OOM回帰検査はignoredのまま維持する。固定revision
+`bb46934ee9ed09f850b9fcff17501b3ef7ddb2b3`のruri-v3-reranker-310mをキャッシュしてから、
+変更版のApple Siliconホストで次を実行する。既存の数値条件・timeoutを緩めない。
+
+```sh
+cargo nextest run --locked --workspace --features test-support,test-mlx,smoke --profile ci \
+  --run-ignored=ignored-only --no-tests fail --status-level all --final-status-level all \
+  -E 'test(reranker::tests::mlx_runtime_tests::)'
+```
+
+50ペアの3 warm-up＋30回測定は`benches/reranker_latency.rs`へ移した。
+`p50 > 0`を性能判定に使わず、raw wall timeとp50/p95、基準版との比を保存する。
+これは固定の`("query", "doc")`を50回並べたbucket 128入力のpublic `score_batch`計測で、
+モデルロード時間は別項目に記録する。毎回の50件・有限性・[0,1]も確認する。
+新しいSLA・許容差は設けず、比だけで成功判定や全入力の性能改善を主張しない。
+
+ホストで、同じ端末・電源/熱状態・背景負荷・toolchain・lockfile・release flags・model cacheを使う。
+ビルドと他の重いCPU/GPU処理は測定枠外にする。端末状態が変わった結果は同条件比較に使わない。
+context JSONには以下の文字列を入れる。値は実際のコマンド出力・観測で埋め、例の説明文を使わない。
+
+```json
+{
+  "source": "開始commitと測定対象source snapshotのSHA-256",
+  "machine": "端末識別子（比較中は同じ値）",
+  "chip": "sysctl -n machdep.cpu.brand_stringの出力",
+  "os": "sw_versの出力",
+  "rust": "rustc -Vvの出力",
+  "cargo": "cargo -Vの出力",
+  "xcode": "xcodebuild -versionの出力",
+  "metal": "xcrun metal --versionの出力",
+  "lockfile_sha256": "shasum -a 256 Cargo.lockのhash",
+  "build": "共通のビルドコマンド（実行時の入出力pathを除く）、target、RUSTFLAGSとprofile設定",
+  "load_conditions": "電源、熱状態、背景負荷とmodel cacheの条件"
+}
+```
+
+出力はcheckout外の未使用pathを指定する。benchmarkは既存ファイルの上書きとモデル取得を行わない。
+
+```sh
+cargo bench --locked --bench reranker_latency -- BASE_CONTEXT.json BASE.json
+cargo bench --locked --bench reranker_latency -- CURRENT_CONTEXT.json CURRENT.json BASE.json
+```
+
+前者は基準source、後者は変更sourceで実行する。基準はIssue #364開始版
+`16e5ca97e4079917b7f16b48c7dc003ffdd77407`の一時コピーとし、今回の同じbenchmarkファイルと
+Cargoの`[[bench]]`定義だけを追加する。製品・テスト・既存fixtureは変更しない。
+両側のソースと差分、Cargo.lockのhash、stdout/stderrと終了コード、
+開始/終了時刻・実行順・測定中の端末/負荷の観測を保存する。
+変更版は未commit差分・未追跡のbenchmarkも含むsnapshotで特定する。
+比較器はsource以外のcontextとworkload/modelの一致を要求し、保存した30回のrawから比を計算する。
+contextは実行担当が記録する前提で、機械的一致だけでは端末状態やsource申告の正しさを証明しない。
+基準版にも同じ測定コードを入れるため、測定器の追加そのものを製品の改善に数えない。
+
+同じホスト条件で整理前後の対象reranker runtimeテストを実行できる場合は、
+ロード/score_batch/子プロセスの実観測と所要を各版の終了コード・対象名とともに残す。
+コード上の呼出し数と実測を区別し、測っていない時間短縮を主張しない。
+旧版の件数成功や[#311の実測](docs/benchmarks/issue-311/README.md)を変更版の成功へ読み替えない。
+benchmarkと上記ignored検証は標準checkに含まれず、同じ変更版のホスト追加検証が必要である。
+測定結果と5000ペアの未完了条件は[Issue #364の検証記録](docs/benchmarks/issue-364/README.md)を参照する。
+検索品質はamici、公式モデル数値比較は[#307](docs/research/issue-307/README.md)の範囲に残す。
+by-value API署名は所有権の検査であり、readback回数やdrop-before-clearの実測ではない。
+
 ### `mlx_smoke` smoke テスト
 
 `mlx_smoke` 統合テスト (`tests/mlx_smoke.rs`) と同名 binary (`src/bin/mlx_smoke.rs`) は `smoke` feature の背後にある。実推論モードとignoredの統合テストは、キャッシュ済みのruri-v3モデルとApple SiliconのMLX runtimeを要する。記録の単体テストと `summarize-records` はモデルをロードしない。標準CIとcheckは `smoke` featureを含め、閾値・record/集計・mode・比較器の単体テストとモデル不要のCLI統合テストを実行する。実モデル検証はホストで別に実行する。ignoredの統合テストを実行する場合は、事前に対象モデルをキャッシュしてから:

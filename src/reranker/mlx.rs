@@ -1,12 +1,10 @@
 #[cfg(test)]
 use crate::mlx_cache::testing::{Stage, checkpoint};
 
-use super::processing::{scores_from_logits, truncate_pair};
+use super::processing::{dispatch_sub_batch_size, scores_from_logits, truncate_pair};
 use super::{Artifacts, ModelInitError, RerankerError};
 use crate::mlx_cache::{Component, clear_inference_cache, run_inference};
-use crate::model_io::{
-    BUCKET_BOUNDS, MAX_SEQ_LEN, assign_bucket, compute_sub_batch_size, pad_sequences,
-};
+use crate::model_io::{MAX_SEQ_LEN, pad_sequences};
 use crate::modernbert::{
     Config, ModernBert, biasless_layer_norm, layer_norm_eps_f32,
     weights::{self, WeightKind},
@@ -67,19 +65,8 @@ impl RerankerInner {
         }
 
         let raw_max = all_ids.iter().map(Vec::len).max().unwrap_or(0);
-        let bucket_idx = assign_bucket(raw_max);
-        let bucket_len = BUCKET_BOUNDS[bucket_idx];
-        let sub_batch_size = compute_sub_batch_size(bucket_len, None);
-
         let total_pairs = pairs.len();
-        let sub_batch_count = total_pairs.div_ceil(sub_batch_size);
-        tracing::debug!(
-            batch_size = total_pairs,
-            sub_batch_count,
-            sub_batch_size,
-            bucket_len,
-            "reranker score_batch dispatch",
-        );
+        let (bucket_len, sub_batch_size) = dispatch_sub_batch_size(raw_max, total_pairs);
 
         let mut all_scores = Vec::with_capacity(total_pairs);
         for (ids_chunk, masks_chunk) in all_ids

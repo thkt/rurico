@@ -38,8 +38,6 @@ fn read_config_returns_error_for_missing_fields() {
     );
 }
 
-// ── pad_sequences tests ──────────────────────────────────────────────
-
 #[test]
 fn pad_sequences_no_masks_generates_identity() {
     let ids = vec![vec![1, 2, 3], vec![4, 5]];
@@ -120,14 +118,12 @@ fn pad_sequences_panics_when_masks_longer_than_ids() {
     pad_sequences(&ids, Some(&masks), None);
 }
 
-// ── compute_sub_batch_size tests ────────────────────────────────────────
-
 // Pin the concrete per-bucket sub-batch sizes, not the formula: asserting
 // against `TOKEN_BUDGET / BUCKET_BOUNDS[i]` would track both sides and stay
 // green even if TOKEN_BUDGET drifted. 256_000 / (128, 512, 2048, 8192) =
 // (2000, 500, 125, 31); embed and reranker callers share this function.
 #[test]
-fn compute_sub_batch_size_matches_formula_per_bucket() {
+fn default_sub_batch_sizes_match_fixed_budget_contract() {
     assert_eq!(compute_sub_batch_size(BUCKET_BOUNDS[0], None), 2000);
     assert_eq!(compute_sub_batch_size(BUCKET_BOUNDS[1], None), 500);
     assert_eq!(compute_sub_batch_size(BUCKET_BOUNDS[2], None), 125);
@@ -143,24 +139,13 @@ fn compute_sub_batch_size_returns_one_when_bucket_exceeds_token_budget() {
     assert_eq!(compute_sub_batch_size(usize::MAX, None), 1);
 }
 
-// T-001: compute_sub_batch_size は budget_override=None で現行 const 由来の値を返す
-#[test]
-fn compute_sub_batch_size_with_none_override_matches_const_token_budget() {
-    assert_eq!(compute_sub_batch_size(BUCKET_BOUNDS[0], None), 2000);
-    assert_eq!(compute_sub_batch_size(BUCKET_BOUNDS[1], None), 500);
-    assert_eq!(compute_sub_batch_size(BUCKET_BOUNDS[2], None), 125);
-    assert_eq!(compute_sub_batch_size(BUCKET_BOUNDS[3], None), 31);
-}
-
-// T-002: compute_sub_batch_size は budget_override=Some で override し 1 で floor する
+// compute_sub_batch_size は budget_override=Some で override し 1 で floor する
 #[test]
 fn compute_sub_batch_size_with_some_override_takes_priority_over_const_and_floors_at_one() {
     assert_eq!(compute_sub_batch_size(8192, Some(2048)), 1);
 }
 
-// ── ModelArtifact::Kind associated type ─────────────────────────────────
-
-// T-009: <ModelId as ModelArtifact>::Kind == EmbedKind
+// <ModelId as ModelArtifact>::Kind == EmbedKind
 //        and <RerankerModelId as ModelArtifact>::Kind == RerankerKind
 #[test]
 fn model_artifact_kind_associated_type_is_fixed_per_id() {
@@ -183,11 +168,8 @@ fn model_artifact_kind_associated_type_is_fixed_per_id() {
     assert_eq!(ModelId::DEFAULT.repo_id(), "cl-nagoya/ruri-v3-310m");
 }
 
-// ── download_artifacts_with seam tests ──────────────────────────────────
-
 use crate::embed::ModelId;
 
-// T-106-004: download_artifacts_with
 #[test]
 fn download_artifacts_with_routes_success_to_caller() {
     let dir = tempfile::tempdir().unwrap();
@@ -202,7 +184,6 @@ fn download_artifacts_with_routes_success_to_caller() {
     assert_eq!(result.model, expected);
 }
 
-// T-106-005: download_artifacts_with
 #[test]
 fn download_artifacts_with_routes_error_to_caller() {
     let err = download_artifacts_with(ModelId::DEFAULT, DOWNLOAD_TIMEOUT, |_repo_id, _revision| {
@@ -215,7 +196,6 @@ fn download_artifacts_with_routes_error_to_caller() {
     );
 }
 
-// T-106-006: download_artifacts_with
 #[test]
 fn download_artifacts_with_returns_timeout_when_worker_exceeds_budget() {
     let err = download_artifacts_with(

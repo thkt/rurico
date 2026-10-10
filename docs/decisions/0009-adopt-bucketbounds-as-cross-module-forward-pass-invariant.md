@@ -37,7 +37,7 @@ Chosen option: **"Adopt `BUCKET_BOUNDS` as a frozen cross-module invariant"**, b
 ### Confirmation
 
 - `src/model_io.rs:41-54` の `BUCKET_BOUNDS` const + `assign_bucket` doc が source of truth
-- `compute_sub_batch_size_matches_formula_per_bucket` (`src/model_io.rs:450-460`) test が各 bucket の具体的 sub-batch サイズ `(2000, 500, 125, 31)` を pin
+- `default_sub_batch_sizes_match_fixed_budget_contract` (`src/model_io/tests.rs`) test が各 bucket の具体的 sub-batch サイズ `(2000, 500, 125, 31)` を pin
 - `src/modernbert/model.rs::ModernBert::local_mask_cache` doc が `BUCKET_BOUNDS` への intra-doc link で integrity を表明
 - 新規 forward caller を追加する PR では `BUCKET_BOUNDS` への round-up が code review checklist になる
 

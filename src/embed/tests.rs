@@ -1,13 +1,8 @@
 use super::*;
-use crate::artifacts::EmbedKind;
 use crate::model_io::{EOS_TOKEN_ID, artifacts_from_cache, load_tokenizer};
-#[cfg(unix)]
-use crate::test_support::assert_probe_env_to_paths_preserves_snapshot_symlink_filename;
 use crate::test_support::{
     assert_cache_lookup_returns_none_when_empty,
-    assert_cache_lookup_returns_some_when_all_files_present,
-    assert_from_probe_error_maps_correctly,
-    assert_probe_env_to_paths_returns_paths_when_all_present, hf_client_for_cache,
+    assert_cache_lookup_returns_some_when_all_files_present, hf_client_for_cache,
     setup_fake_hf_cache,
 };
 use std::error::Error;
@@ -113,20 +108,6 @@ fn candidate_verify_returns_invalid_config_for_malformed_config() {
     );
 }
 
-// not the canonicalized blob path. Failed branch fix/issue-107-canonicalize
-// (commit 33c91c1) violated this and broke MLX `load_safetensors`'s
-// extension-based dispatch across all standard HF cache usage.
-#[cfg(unix)]
-#[test]
-fn probe_env_to_paths_preserves_snapshot_symlink_filename() {
-    assert_probe_env_to_paths_preserves_snapshot_symlink_filename::<EmbedKind>();
-}
-
-#[test]
-fn probe_env_to_paths_returns_paths_when_all_present() {
-    assert_probe_env_to_paths_returns_paths_when_all_present::<EmbedKind>();
-}
-
 #[test]
 fn max_content_equals_max_seq_len_minus_2_minus_prefix_len() {
     // [T-001] FR-001, FR-002: max_content reserves BOS(1) + EOS(1) + prefix.
@@ -160,7 +141,6 @@ fn truncate_for_query_shortens_to_max_len() {
     assert_eq!(ids[0], first_token);
 }
 
-// T-008b: truncate_for_query_noop_when_short
 #[test]
 fn truncate_for_query_noop_when_short() {
     let input_ids: Vec<u32> = vec![1, 10, 20, 2]; // BOS, text, text, EOS
@@ -174,7 +154,6 @@ fn truncate_for_query_noop_when_short() {
     assert_eq!(mask, expected_mask);
 }
 
-// T-008c: truncate_for_query_noop_at_exact_boundary
 #[test]
 fn truncate_for_query_noop_at_exact_boundary() {
     // [TC-003] Boundary: len == max_len → no truncation
@@ -191,7 +170,6 @@ fn truncate_for_query_noop_at_exact_boundary() {
     assert_eq!(mask, expected_mask);
 }
 
-// T-008e: truncate_for_query_max_len_1_produces_eos_only
 #[test]
 fn truncate_for_query_max_len_1_produces_eos_only() {
     // [TC-003] max_len=1: the only slot is overwritten with EOS → output is [EOS]
@@ -204,7 +182,6 @@ fn truncate_for_query_max_len_1_produces_eos_only() {
     assert_eq!(mask.len(), 1);
 }
 
-// T-008d: truncate_for_query_zero_max_len_returns_unchanged
 #[test]
 fn truncate_for_query_zero_max_len_returns_unchanged() {
     let input_ids: Vec<u32> = vec![1, 100, 200, 2];
@@ -320,11 +297,6 @@ fn mock_embed_text_returns_configured_dims() {
     let e = super::MockEmbedder::default();
     let vec = e.embed_text("テスト", SEMANTIC_PREFIX).unwrap();
     assert_eq!(vec.len(), EMBEDDING_DIMS);
-}
-
-#[test]
-fn from_probe_error_maps_correctly() {
-    assert_from_probe_error_maps_correctly();
 }
 
 #[derive(Debug, thiserror::Error)]

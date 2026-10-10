@@ -19,9 +19,9 @@ use mlx_rs::{Array, Dtype, error::Exception, ops::maximum};
 /// # Errors
 ///
 /// Returns an MLX [`Exception`] if any tensor operation fails.
-// See ADR 0002 sub-decision 2 / NFR-005: `hidden` by-value enforces
-// drop-before-clear at compile time. `clippy` can't see that cross-function
-// intent, so suppress the lint here.
+// The by-value signature transfers ownership; it does not measure readback
+// count or prove cache-clear ordering. run_inference owns the cleanup sequence.
+// Keep this ownership boundary rather than borrowing the intermediate Array.
 #[allow(clippy::needless_pass_by_value)]
 pub(crate) fn gpu_pool_and_normalize(hidden: Array, mask: &Array) -> Result<Array, Exception> {
     let shape = mask.shape();
