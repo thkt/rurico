@@ -56,12 +56,29 @@ pipe詰まり、直接child終了後のEOF未到達、実行期限超過とい�
 所有groupの外にwriterが残る合成pipeでは、回収不能を2秒の猶予後にエラーとして返すことも確認する。
 readerの途中I/O失敗は実pipeを包むreaderに注入し、同じ回収経路で停止することと、
 別groupのwriterが動き続けることを確認する。別Mutexや合成exit statusだけを回収の証拠にしない。
+このfixtureのshellがsleepを起動する際のsignal競合も、本番collectorの再試行で回収する。
+失敗時はchild reap・group不在を分けて表示し、元のreaderエラー分類も確認する。
+
+`crates/rurico-ffi/src/process.rs` はmacOSの実childを `waitid(WNOWAIT)` でzombieに保ち、
+signal 0のEPERMをgroup不在と誤認せず、SIGKILLのEPERMも消さず、reap後にだけ不在となることを確認する。
+[XNU xnu-12377.1.9のkillpg1](https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.1.9/bsd/kern/kern_sig.c#L1579-L1624)
+はzombieをgroupのsignal対象から除外し、存在するgroupにsignal対象がなければEPERMを返す。
+collectorはEPERMで回収を中断せず、同じ2秒の猶予内にreap・group不在・両EOFを確認する。
+確認できない場合は失敗を返し、診断にはSIGKILLの失敗と回収状態を含める。
+このFFI検証だけで本番collectorの回収を証明せず、上記の反復process検証と合わせて確認する。
+回収不能なpipeの検証はreader失敗なし／PermissionDeniedありの両条件を使い、
+回収猶予超過時にも元のI/Oエラーの分類と原因が残ることを確認する。
+同じ本番collectorで実OSのsignal操作を観測し、child reapとgroup不在を確認した後は
+SIGKILL・signal 0を再送信せず、開いたpipeを猶予超過までdrainすることも確認する。
 
 `src/model_io/download_process/tests.rs` はtest binaryをre-execし、HF I/Oだけをfakeに置き換える。
 本番のdispatch/result送信・collectionを通して、path返却、途中失敗、遅い書込み、hang、
 未登録時の再帰防止と不正requestの診断を確認する。timeoutを毎回別のfixtureで5回繰り返し、今回のworkerの開始とslowの書込みを要求した上で各groupが消滅し、
 未完了ファイルのsizeが返却後に増えず、parentのthread数が開始時に戻ることを確認する。
-孫FD保持も5回繰り返す。thread数はmacOSの `ps -M -p <parent PID>` で観測する。
+孫FD保持も5回繰り返す。この2件は各テストだけを選択してtest binaryをre-execし、
+隔離したprocess内で反復前後のthread数をmacOSの `ps -M -p <PID>` で等値比較する。
+Cargoの並列実行でも他テストのthread増減が混ざらず、漏れの相殺や誤判定を防ぐ。
+外側のテストは子の実行件数・終了結果も確認する。全体の並列実行は維持する。
 既存cache・他利用者の未完了ファイルは削除しないことを合成fixtureで確認する。
 同じ固定revisionのcache miss後に別consumerがpointerを公開し、HFの本番公開primitiveの
 symlink直前で子processを停止する検証も標準checkに含める。正常pointerの内容・inode、
@@ -72,7 +89,15 @@ HTTP/Xet共通の公開primitiveを使うが、通信やHF finalize全体の実�
 実行対象を絞る場合は以下を使える（全体checkの代替にはしない）。
 
 ```sh
-cargo nextest run --locked --workspace --features test-support,test-mlx,smoke -E 'test(model_probe::tests) | test(model_io::download_process::tests) | test(owned_process::tests)'
+cargo nextest run --locked --workspace --features test-support,test-mlx,smoke \
+  -E 'test(model_probe::tests) | test(model_io::download_process::tests) | test(owned_process::tests) | (package(rurico-ffi) & test(process::tests))'
+```
+
+thread数観測の隔離を変更した場合は、標準checkのnextestに加えて、ホストでCargoの
+並列実行を確認する。coverageもCargoのtest harnessを使うため、nextestだけでは代替できない。
+
+```sh
+cargo test --locked --lib --features test-support,test-mlx,smoke repeated_ -- --test-threads=4
 ```
 
 上限とOS上の保証範囲、dispatcher登録の移行手順は[README](README.md#downloadprobeの終了管理)を参照。

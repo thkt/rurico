@@ -176,7 +176,12 @@ stdout・stderrは各256 KiBまで保持し、超過分も並行して読み捨�
 ACKは改行まで含む完全な行として保持範囲外でも検出し、probeの終了コードと原因分類を保つ。
 所有するprocess groupを正常終了・timeout・I/O失敗のいずれでも停止し、
 pipeは非blockingで読む。reader threadや無期限joinは使わない。
+childのreapとgroup不在を確認するまではSIGKILLを再試行し、signal送信と競合して生まれた子孫も停止する。
+確認後は同じPGIDへのsignal送信・存在確認を止め、残るpipeを同じ回収猶予内でdrainする。
 回収猶予内に終了を確認できない場合は成功扱いせず、回収失敗を返す。
+macOSではzombieだけのgroupにもsignal 0／SIGKILLがEPERMを返すため、
+EPERMはgroup残存として扱う。childのreap、group不在（ESRCH）、両pipeのEOFを
+確認するまで回収済みとせず、元のI/O失敗も保持する。
 これらは処理開始後の期限であり、OSのspawn、ファイル操作、スケジューリング遅延や
 kill不能な状態に対する実時間のhard limitではない。自ら別groupへ離脱する子孫は対象外。
 

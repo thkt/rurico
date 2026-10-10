@@ -154,9 +154,34 @@ fn collect_captures<O: Read + AsFd, E: Read + AsFd>(
     stderr: &mut Capture<E>,
     deadline: Instant,
 ) -> io::Result<Collected> {
+    collect_captures_with_group_ops(
+        child,
+        (timeout, poll, deadline),
+        ack,
+        stdout,
+        stderr,
+        (kill_process_group, process_group_exists),
+    )
+}
+
+fn collect_captures_with_group_ops<O: Read + AsFd, E: Read + AsFd>(
+    child: &mut Child,
+    timing: (Duration, Duration, Instant),
+    ack: &[u8],
+    stdout: &mut Capture<O>,
+    stderr: &mut Capture<E>,
+    (mut kill_group, mut observe_group): (
+        impl FnMut(u32) -> io::Result<()>,
+        impl FnMut(u32) -> io::Result<bool>,
+    ),
+) -> io::Result<Collected> {
+    let (timeout, poll, deadline) = timing;
     let mut status = None;
+    let mut group_reclaimed = false;
+    let mut group_exists = true;
     let mut cleanup_deadline = None;
     let mut failure = None;
+    let mut signal_failure = None;
     let mut timed_out = false;
     loop {
         for result in [stdout.drain(ack), stderr.drain(&[])] {
@@ -180,18 +205,45 @@ fn collect_captures<O: Read + AsFd, E: Read + AsFd>(
                 tracing::warn!(?timeout, "owned subprocess processing deadline exceeded");
             }
             cleanup_deadline = Some(Instant::now() + CLEANUP_GRACE);
-            if let Err(e) = kill_process_group(child.id()) {
-                failure.get_or_insert(e);
-            }
         }
         if let Some(end) = cleanup_deadline {
-            let group_exists = process_group_exists(child.id())?;
+            // Retry fork races only until reap and group absence are confirmed.
+            // Afterwards the PGID may be reused by an unrelated process group.
+            if !group_reclaimed {
+                if let Err(e) = kill_group(child.id()) {
+                    let e = io::Error::new(
+                        e.kind(),
+                        format!("kill(-{}, SIGKILL) failed: {e}", child.id()),
+                    );
+                    if signal_failure.is_none() || e.kind() != io::ErrorKind::PermissionDenied {
+                        signal_failure = Some(e);
+                    }
+                }
+                group_exists = match observe_group(child.id()) {
+                    Ok(exists) => exists,
+                    Err(e) => {
+                        failure.get_or_insert(io::Error::new(
+                            e.kind(),
+                            format!("kill(-{}, 0) group observation failed: {e}", child.id()),
+                        ));
+                        true
+                    }
+                };
+                group_reclaimed = status.is_some() && !group_exists;
+            }
             if let Some(exit_status) = status
-                && !group_exists
+                && group_reclaimed
                 && stdout.pipe.is_none()
                 && stderr.pipe.is_none()
             {
                 if let Some(e) = failure {
+                    return Err(e);
+                }
+                // EPERM can mean only zombies remain on Darwin. It is resolved
+                // only by confirmed group absence, child reap and both EOFs.
+                if let Some(e) = signal_failure
+                    && e.kind() != io::ErrorKind::PermissionDenied
+                {
                     return Err(e);
                 }
                 if stdout.truncated || stderr.truncated {
@@ -216,11 +268,23 @@ fn collect_captures<O: Read + AsFd, E: Read + AsFd>(
                 });
             }
             if Instant::now() >= end {
-                return Err(io::Error::other(format!(
-                    "process group {} cleanup exceeded 2 second grace (child reaped: {}, group exists: {group_exists})",
-                    child.id(),
-                    status.is_some()
-                )));
+                let cause = failure.as_ref().or(signal_failure.as_ref());
+                return Err(io::Error::new(
+                    cause.map_or(io::ErrorKind::Other, io::Error::kind),
+                    format!(
+                        "process group {} cleanup exceeded 2 second grace (child reaped: {}, group exists: {group_exists}, group reclaimed: {group_reclaimed}, stdout closed: {}, stderr closed: {}); original failure: {}; signal failure: {}",
+                        child.id(),
+                        status.is_some(),
+                        stdout.pipe.is_none(),
+                        stderr.pipe.is_none(),
+                        failure
+                            .as_ref()
+                            .map_or_else(|| "none".to_owned(), ToString::to_string),
+                        signal_failure
+                            .as_ref()
+                            .map_or_else(|| "none".to_owned(), ToString::to_string)
+                    ),
+                ));
             }
         }
         thread::sleep(poll.min(Duration::from_millis(10)));

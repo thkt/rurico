@@ -1,6 +1,6 @@
 use super::*;
 use crate::embed::ModelId;
-use crate::owned_process::tests::thread_count;
+use crate::owned_process::tests::{reexec_for_thread_observation, thread_count};
 use std::fs::{self, OpenOptions};
 use std::path::Path;
 use std::thread;
@@ -176,6 +176,11 @@ fn download_dispatch_contract_rejects_missing_registration_and_bad_request() {
 
 #[test]
 fn repeated_download_timeouts_stop_writes_and_reap_workers() {
+    if reexec_for_thread_observation(
+        "model_io::download_process::tests::repeated_download_timeouts_stop_writes_and_reap_workers",
+    ) {
+        return;
+    }
     let dir = tempfile::tempdir().unwrap();
     fs::write(dir.path().join("normal.blob"), b"cached").unwrap();
     fs::write(dir.path().join("other.incomplete"), b"other consumer").unwrap();

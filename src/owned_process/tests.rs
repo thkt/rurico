@@ -1,8 +1,39 @@
 use super::*;
+use std::env;
 use std::fs;
 use std::io::Write;
 use std::os::fd::BorrowedFd;
 use std::process::{self, ChildStdout};
+
+// Only the selected test runs in the observed process, even under parallel Cargo.
+pub(crate) fn reexec_for_thread_observation(test_name: &str) -> bool {
+    const ISOLATED_TEST: &str = "RURICO_THREAD_OBSERVATION_TEST";
+    if env::var(ISOLATED_TEST).as_deref() == Ok(test_name) {
+        return false;
+    }
+    let mut cmd = Command::new(env::current_exe().unwrap());
+    cmd.args(["--exact", test_name, "--nocapture", "--test-threads=1"])
+        .env(ISOLATED_TEST, test_name);
+    let mut child = spawn(&mut cmd).unwrap();
+    let result = collect(
+        &mut child,
+        Duration::from_secs(20),
+        Duration::from_millis(1),
+        b"",
+    )
+    .unwrap();
+    let stdout = String::from_utf8_lossy(&result.output.stdout);
+    let stderr = String::from_utf8_lossy(&result.output.stderr);
+    assert!(
+        !result.timed_out && result.output.status.success(),
+        "isolated test {test_name} failed: {stdout}\n{stderr}"
+    );
+    assert!(
+        stdout.contains("running 1 test"),
+        "isolated test was not selected: {stdout}"
+    );
+    true
+}
 
 pub(crate) fn thread_count() -> usize {
     let result = Command::new("ps")
@@ -45,6 +76,11 @@ fn simultaneous_large_streams_keep_late_ack_and_exit_reason_with_bounded_memory(
 
 #[test]
 fn repeated_grandchild_fd_holders_stop_writes_without_reader_or_process_accumulation() {
+    if reexec_for_thread_observation(
+        "owned_process::tests::repeated_grandchild_fd_holders_stop_writes_without_reader_or_process_accumulation",
+    ) {
+        return;
+    }
     let dir = tempfile::tempdir().unwrap();
     let before = thread_count();
     for i in 0..5 {
@@ -75,6 +111,7 @@ fn repeated_grandchild_fd_holders_stop_writes_without_reader_or_process_accumula
 struct FailingPipe {
     pipe: ChildStdout,
     read_once: bool,
+    kind: io::ErrorKind,
 }
 impl AsFd for FailingPipe {
     fn as_fd(&self) -> BorrowedFd<'_> {
@@ -84,7 +121,7 @@ impl AsFd for FailingPipe {
 impl Read for FailingPipe {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         if self.read_once {
-            return Err(io::Error::other("injected reader I/O failure"));
+            return Err(io::Error::new(self.kind, "injected reader I/O failure"));
         }
         let n = self.pipe.read(buf)?;
         self.read_once |= n > 0;
@@ -112,6 +149,7 @@ fn reader_io_failure_uses_production_cleanup_and_preserves_other_group() {
         let mut stdout = Capture::new(Some(FailingPipe {
             pipe: child.stdout.take().unwrap(),
             read_once: false,
+            kind: io::ErrorKind::Other,
         }));
         let mut stderr = Capture::new(child.stderr.take());
         let error = collect_captures(
@@ -139,43 +177,109 @@ fn reader_io_failure_uses_production_cleanup_and_preserves_other_group() {
             .to_string()
             .contains("injected reader I/O failure")
     );
-    assert!(outcome.1 && outcome.2, "failing reader left process behind");
+    assert_eq!(outcome.0.kind(), io::ErrorKind::Other);
+    assert!(
+        outcome.1 && outcome.2,
+        "failing reader left process behind (child reaped: {}, group gone: {}): {}",
+        outcome.1,
+        outcome.2,
+        outcome.0
+    );
     assert!(outcome.3, "cleanup killed unrelated writer");
 }
 
 #[test]
 fn unrecoverable_open_pipe_returns_cleanup_error_within_grace() {
+    use std::cell::Cell;
     use std::os::unix::net::UnixStream;
-    let mut cmd = Command::new("sh");
-    cmd.args(["-c", "exit 0"]);
-    let mut child = spawn(&mut cmd).unwrap();
-    let (reader, mut outside_writer) = UnixStream::pair().unwrap();
-    outside_writer.write_all(b"ACK").unwrap();
-    // This FD holder is outside the owned process group. Stopping that group
-    // cannot close it; the production collector must report incomplete cleanup.
-    let mut stdout = Capture::new(Some(reader));
-    let mut stderr = Capture::new(child.stderr.take());
-    let start = Instant::now();
-    let error = collect_captures(
-        &mut child,
-        Duration::from_secs(5),
-        Duration::from_millis(1),
-        b"ACK",
-        &mut stdout,
-        &mut stderr,
-        Instant::now() + Duration::from_secs(5),
-    )
-    .err()
-    .unwrap();
-    assert!(
-        error
-            .to_string()
-            .contains("cleanup exceeded 2 second grace"),
-        "{error}"
-    );
-    assert!(start.elapsed() < Duration::from_secs(3));
-    assert!(child.try_wait().unwrap().is_some());
-    assert!(!process_group_exists(child.id()).unwrap());
+    for fail_reader in [false, true] {
+        let mut cmd = Command::new("sh");
+        cmd.args(["-c", "printf ACK; exit 0"]);
+        let mut child = spawn(&mut cmd).unwrap();
+        let (reader, mut outside_writer) = UnixStream::pair().unwrap();
+        outside_writer.write_all(b"ACK").unwrap();
+        // This FD holder is outside the owned process group. Stopping that group
+        // cannot close it; the production collector must report incomplete cleanup.
+        let mut stdout = Capture::new(Some(reader));
+        let start = Instant::now();
+        let absence_observed = Cell::new(false);
+        let kill_calls = Cell::new(0);
+        let observation_calls = Cell::new(0);
+        let kill_group = |pgid| {
+            assert!(
+                !absence_observed.get(),
+                "SIGKILL after confirmed group absence"
+            );
+            kill_calls.set(kill_calls.get() + 1);
+            kill_process_group(pgid)
+        };
+        let observe_group = |pgid| {
+            assert!(
+                !absence_observed.get(),
+                "signal 0 after confirmed group absence"
+            );
+            observation_calls.set(observation_calls.get() + 1);
+            let exists = process_group_exists(pgid)?;
+            absence_observed.set(!exists);
+            Ok(exists)
+        };
+        let result = if fail_reader {
+            let mut stderr = Capture::new(Some(FailingPipe {
+                pipe: child.stdout.take().unwrap(),
+                read_once: false,
+                kind: io::ErrorKind::PermissionDenied,
+            }));
+            collect_captures_with_group_ops(
+                &mut child,
+                (
+                    Duration::from_secs(5),
+                    Duration::from_millis(1),
+                    Instant::now() + Duration::from_secs(5),
+                ),
+                b"ACK",
+                &mut stdout,
+                &mut stderr,
+                (kill_group, observe_group),
+            )
+        } else {
+            let mut stderr = Capture::new(child.stderr.take());
+            collect_captures_with_group_ops(
+                &mut child,
+                (
+                    Duration::from_secs(5),
+                    Duration::from_millis(1),
+                    Instant::now() + Duration::from_secs(5),
+                ),
+                b"ACK",
+                &mut stdout,
+                &mut stderr,
+                (kill_group, observe_group),
+            )
+        };
+        let error = result.err().unwrap();
+        assert!(
+            absence_observed.get(),
+            "owned group absence was never observed"
+        );
+        assert!(kill_calls.get() > 0);
+        assert!(observation_calls.get() > 0);
+        assert!(error.to_string().contains("group exists: false"));
+        assert!(error.to_string().contains("group reclaimed: true"));
+        assert!(error.to_string().contains("stdout closed: false"));
+        assert!(
+            error
+                .to_string()
+                .contains("cleanup exceeded 2 second grace"),
+            "{error}"
+        );
+        assert!(start.elapsed() < Duration::from_secs(3));
+        assert!(child.try_wait().unwrap().is_some());
+        assert!(!process_group_exists(child.id()).unwrap());
+        if fail_reader {
+            assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+            assert!(error.to_string().contains("injected reader I/O failure"));
+        }
+    }
 }
 
 #[test]
