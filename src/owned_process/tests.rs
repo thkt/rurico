@@ -189,6 +189,91 @@ fn reader_io_failure_uses_production_cleanup_and_preserves_other_group() {
 }
 
 #[test]
+fn group_operation_failures_preserve_cause_after_real_reclamation() {
+    use std::cell::Cell;
+
+    for (signal_kind, observation_fails) in [
+        (io::ErrorKind::PermissionDenied, false),
+        (io::ErrorKind::Other, false),
+        (io::ErrorKind::PermissionDenied, true),
+        (io::ErrorKind::Other, true),
+    ] {
+        let mut cmd = Command::new("sh");
+        cmd.args(["-c", "printf 'ACK\\n'; sleep 30"]);
+        let mut child = spawn(&mut cmd).unwrap();
+        let mut stdout = Capture::new(child.stdout.take());
+        let mut stderr = Capture::new(child.stderr.take());
+        let signal_calls = Cell::new(0);
+        let observation_calls = Cell::new(0);
+        let start = Instant::now();
+        let result = collect_captures_with_group_ops(
+            &mut child,
+            (
+                Duration::from_millis(50),
+                Duration::from_millis(1),
+                start + Duration::from_millis(50),
+            ),
+            b"ACK\n",
+            &mut stdout,
+            &mut stderr,
+            (
+                |pgid| {
+                    let calls = signal_calls.get();
+                    signal_calls.set(calls + 1);
+                    kill_process_group(pgid)?;
+                    // A subsequent EPERM must not erase an earlier signal fault.
+                    let kind = if calls == 0 {
+                        signal_kind
+                    } else {
+                        io::ErrorKind::PermissionDenied
+                    };
+                    Err(io::Error::new(kind, "injected signal failure"))
+                },
+                |pgid| {
+                    let exists = process_group_exists(pgid)?;
+                    let calls = observation_calls.get();
+                    observation_calls.set(calls + 1);
+                    if calls == 0 && observation_fails {
+                        Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "injected group observation failure",
+                        ))
+                    } else {
+                        Ok(exists)
+                    }
+                },
+            ),
+        );
+        assert!(start.elapsed() < Duration::from_secs(3));
+        assert!(child.try_wait().unwrap().is_some());
+        assert!(!process_group_exists(child.id()).unwrap());
+        assert!(stdout.pipe.is_none() && stderr.pipe.is_none());
+        assert!(signal_calls.get() > 0 && observation_calls.get() > 0);
+        if observation_fails {
+            assert!(signal_calls.get() >= 2 && observation_calls.get() >= 2);
+            let error = result.err().unwrap();
+            assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+            assert!(error.to_string().contains("group observation failed"));
+            assert!(
+                error
+                    .to_string()
+                    .contains("injected group observation failure")
+            );
+        } else if signal_kind == io::ErrorKind::Other {
+            assert!(signal_calls.get() >= 2);
+            let error = result.err().unwrap();
+            assert_eq!(error.kind(), io::ErrorKind::Other);
+            assert!(error.to_string().contains("SIGKILL"));
+            assert!(error.to_string().contains("injected signal failure"));
+        } else {
+            let collected = result.unwrap();
+            assert!(collected.timed_out);
+            assert!(!collected.output.status.success());
+        }
+    }
+}
+
+#[test]
 fn unrecoverable_open_pipe_returns_cleanup_error_within_grace() {
     use std::cell::Cell;
     use std::os::unix::net::UnixStream;

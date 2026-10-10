@@ -66,6 +66,11 @@ signal 0のEPERMをgroup不在と誤認せず、SIGKILLのEPERMも消さず、re
 collectorはEPERMで回収を中断せず、同じ2秒の猶予内にreap・group不在・両EOFを確認する。
 確認できない場合は失敗を返し、診断にはSIGKILLの失敗と回収状態を含める。
 このFFI検証だけで本番collectorの回収を証明せず、上記の反復process検証と合わせて確認する。
+group操作の失敗注入では実OSのSIGKILL・存在確認を実行した後に操作結果だけを変え、
+本番collectorによるchild reap・group不在・両pipeの閉鎖を確認する。
+観測失敗は後に不在を確認できても元の分類・原因を返し、SIGKILLの非EPERMエラーは
+後続のEPERMで上書きしない。EPERMだけの場合も、回収条件をすべて満たすまで成功にしない。
+これはcollectorのエラー処理の検証であり、実OSでその故障が発生した証拠とは区別する。
 回収不能なpipeの検証はreader失敗なし／PermissionDeniedありの両条件を使い、
 回収猶予超過時にも元のI/Oエラーの分類と原因が残ることを確認する。
 同じ本番collectorで実OSのsignal操作を観測し、child reapとgroup不在を確認した後は
@@ -84,6 +89,8 @@ Cargoの並列実行でも他テストのthread増減が混ざらず、漏れの
 symlink直前で子processを停止する検証も標準checkに含める。正常pointerの内容・inode、
 正常blob・他consumerの未完了ファイルの保全とgroup回収を確認する。
 HTTP/Xet共通の公開primitiveを使うが、通信やHF finalize全体の実行検証ではない。
+ACKの読取りpipeを閉じてからworkerを進める条件では、実際のACK書込み失敗が
+終了コード1となり、download I/Oと未完了ファイル作成が始まらずgroupを回収できることを確認する。
 
 これらはモデル不要・非ignoredで、設定済み `bash scripts/check.sh` の標準nextest対象に含まれる。
 実行対象を絞る場合は以下を使える（全体checkの代替にはしない）。
@@ -99,6 +106,13 @@ thread数観測の隔離を変更した場合は、標準checkのnextestに加�
 ```sh
 cargo test --locked --lib --features test-support,test-mlx,smoke repeated_ -- --test-threads=4
 ```
+
+変更行coverageの修正は通常checkだけで確認せず、GPUを利用できるホストで
+CIの`Generate lcov coverage`と同じfeature・除外regexを使って局所計測する。
+`diff-cover`の比較基準にはIssue #320の開始commit
+`d111837c15ffd70f62dabea20d157d3cfa6f3011`を指定し、PR全差分で95%以上を確認する。
+CIでは引き続き同じheadを`origin/main`と比較する。既存の閾値・除外・期限は変更しない。
+計測結果は未測定行とその失敗条件、実行時間・環境・対象差分とともに検証記録へ残す。
 
 上限とOS上の保証範囲、dispatcher登録の移行手順は[README](README.md#downloadprobeの終了管理)を参照。
 合成検証は実networkの通信・HF cache全経路、実consumerの移行、推論・検索品質や

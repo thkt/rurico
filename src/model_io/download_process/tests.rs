@@ -38,7 +38,7 @@ fn fake_worker_entry() {
         crate::handle_probe_if_needed();
         panic!("download dispatcher must exit");
     }
-    if matches!(mode.as_str(), "slow" | "hang" | "cache-race") {
+    if matches!(mode.as_str(), "slow" | "hang" | "cache-race" | "closed-ack") {
         // A broken cleanup assertion must not leave the test fixture alive
         // indefinitely. This watchdog is absent from the production worker.
         thread::spawn(|| {
@@ -56,6 +56,12 @@ fn fake_worker_entry() {
         println!();
     }
     let dir = PathBuf::from(env::var_os(TEST_DIR).unwrap());
+    if mode == "closed-ack" {
+        fs::write(dir.join("ack-ready"), b"ready").unwrap();
+        while !dir.join("ack-reader-closed").exists() {
+            thread::sleep(Duration::from_millis(1));
+        }
+    }
     dispatch_download_with(&env::var(REQUEST_ENV).unwrap(), |repo, revision| {
         assert_eq!(repo, "fixture/model");
         assert_eq!(revision, "fixed-revision");
@@ -64,7 +70,7 @@ fn fake_worker_entry() {
         }
         match mode.as_str() {
             "success" | "startup" | "overflow" => Ok(ModelPaths::from_dir(&dir)),
-            "error" => {
+            "error" | "closed-ack" => {
                 fs::write(dir.join("blob.incomplete"), b"partial").unwrap();
                 Err(download_error("simulated mid-download I/O failure"))
             }
@@ -109,6 +115,29 @@ fn fake_worker_entry() {
             _ => panic!("unknown fake mode"),
         }
     });
+}
+
+#[test]
+fn closed_ack_pipe_exits_before_download_io() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut child = owned_process::spawn(&mut worker("closed-ack", dir.path())).unwrap();
+    let ready_deadline = Instant::now() + Duration::from_secs(5);
+    while !dir.path().join("ack-ready").exists() && Instant::now() < ready_deadline {
+        thread::sleep(Duration::from_millis(1));
+    }
+    let ready = dir.path().join("ack-ready").exists();
+    drop(child.stdout.take());
+    fs::write(dir.path().join("ack-reader-closed"), b"go").unwrap();
+    let start = Instant::now();
+    let collected =
+        owned_process::collect(&mut child, Duration::from_secs(5), POLL, ACK.as_bytes()).unwrap();
+    assert!(ready, "fixture never reached the ACK write boundary");
+    assert_eq!(collected.output.status.code(), Some(1));
+    assert!(!collected.ack && !collected.timed_out);
+    assert!(!dir.path().join("blob.incomplete").exists());
+    assert!(child.try_wait().unwrap().is_some());
+    assert!(!rurico_ffi::process_group_exists(child.id()).unwrap());
+    assert!(start.elapsed() < Duration::from_secs(3));
 }
 
 #[test]
