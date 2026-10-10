@@ -187,6 +187,7 @@ fn interpret_backend_unavailable_on_signal() {
 
 #[test]
 fn wait_with_timeout_drains_verbose_failure_before_timeout() {
+    use std::os::unix::process::CommandExt;
     let mut child = Command::new("sh")
         .args([
             "-c",
@@ -199,6 +200,7 @@ fn wait_with_timeout_drains_verbose_failure_before_timeout() {
                  exit 1",
             PROBE_ACK,
         ])
+        .process_group(0)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -222,8 +224,10 @@ fn wait_with_timeout_drains_verbose_failure_before_timeout() {
 #[cfg(unix)]
 #[test]
 fn wait_with_timeout_returns_when_grandchild_inherits_pipes() {
+    use std::os::unix::process::CommandExt;
     let mut child = Command::new("sh")
         .args(["-c", "sleep 10 & printf '%s\\n' \"$0\"; exit 1", PROBE_ACK])
+        .process_group(0)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -240,7 +244,7 @@ fn wait_with_timeout_returns_when_grandchild_inherits_pipes() {
     );
     assert!(
         elapsed < Duration::from_secs(5),
-        "collect_pipe must not wait for the grandchild's inherited FDs; elapsed {elapsed:?}"
+        "collection must stop the grandchild holding inherited FDs; elapsed {elapsed:?}"
     );
 }
 
@@ -256,8 +260,10 @@ fn probe_via_subprocess_with_reports_spawn_failure_for_missing_exe() {
 
 #[test]
 fn wait_with_timeout_with_kills_long_running_child_on_short_timeout() {
+    use std::os::unix::process::CommandExt;
     let mut child = Command::new("sh")
         .args(["-c", "sleep 30"])
+        .process_group(0)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -277,8 +283,8 @@ fn wait_with_timeout_with_kills_long_running_child_on_short_timeout() {
         "1ms poll interval should detect the 50ms deadline promptly; elapsed {elapsed:?}"
     );
     assert!(
-        output.status.code().is_none() || output.status.code() == Some(0),
-        "child should be killed (no exit code) or have exited; got {:?}",
+        output.status.code().is_none(),
+        "hung child should be killed (no exit code); got {:?}",
         output.status.code()
     );
 }
@@ -294,7 +300,6 @@ fn write_three_artifacts(dir: &Path) -> (PathBuf, PathBuf, PathBuf) {
     (model, config, tokenizer)
 }
 
-// validate_probe_paths_with_root happy path -- 3 cached files inside cache root return Ok(())
 #[test]
 fn validate_probe_paths_with_root_returns_ok_when_all_paths_under_cache_root() {
     let cache_dir = tempfile::tempdir().unwrap();
@@ -306,7 +311,6 @@ fn validate_probe_paths_with_root_returns_ok_when_all_paths_under_cache_root() {
     assert_eq!(result, Ok(()), "expected Ok(()) for paths under cache root");
 }
 
-// validate_probe_paths_with_root rejects path outside cache_root with Err(5)
 #[test]
 fn validate_probe_paths_with_root_rejects_path_outside_cache_root() {
     let cache_dir = tempfile::tempdir().unwrap();
@@ -329,13 +333,11 @@ fn validate_probe_paths_with_root_rejects_path_outside_cache_root() {
     );
 }
 
-// validate_probe_paths_with_root reports canonicalize failure with Err(4)
 #[test]
 fn validate_probe_paths_with_root_returns_err_4_for_nonexistent_candidate_path() {
     let cache_dir = tempfile::tempdir().unwrap();
     let (_, config, tokenizer) = write_three_artifacts(cache_dir.path());
     let missing_model = cache_dir.path().join("nonexistent.safetensors");
-    // Intentionally do not create the file.
 
     let result = super::validate_probe_paths_with_cache(
         cache_dir.path(),
@@ -351,7 +353,6 @@ fn validate_probe_paths_with_root_returns_err_4_for_nonexistent_candidate_path()
     );
 }
 
-// validate_probe_paths_with_root reports invalid cache root with Err(6)
 #[test]
 fn validate_probe_paths_with_root_returns_err_6_for_nonexistent_cache_root() {
     let cache_dir = tempfile::tempdir().unwrap();
@@ -367,11 +368,6 @@ fn validate_probe_paths_with_root_returns_err_6_for_nonexistent_cache_root() {
     );
 }
 
-// validate_probe_paths_with_root accepts symlink path inside cache_root
-//
-// The function MUST return Ok(()) and MUST NOT modify the caller's PathBuf
-// (signature is `&Path` in, `Result<(), SetupReason>` out — symlink invariant
-// guarded by FR-005's type-level constraint, exercised here through behavior).
 #[cfg(unix)]
 #[test]
 fn validate_probe_paths_with_root_accepts_symlink_under_cache_root() {
@@ -401,20 +397,15 @@ fn validate_probe_paths_with_root_accepts_symlink_under_cache_root() {
     let result =
         super::validate_probe_paths_with_cache(cache_dir.path(), &model, &config, &tokenizer);
 
-    // Assert: function accepts the symlink as long as the canonicalized form
-    // resolves under cache_root (which it does — blobs/ is under cache_dir).
     assert_eq!(result, Ok(()));
 }
 
-// validate_probe_paths_with_root rejects component-wise prefix collision
-//
 // `cache_x_evil/...` shares a string prefix with `cache_x` but is NOT a
 // component-wise descendant. PathBuf::starts_with handles this correctly via
 // component comparison; the test guards against a regression to byte-prefix
 // comparison.
 #[test]
 fn validate_probe_paths_with_root_rejects_string_prefix_sibling() {
-    // Arrange: two sibling tempdirs, "cache_x" and "cache_x_evil".
     let workspace = tempfile::tempdir().unwrap();
     let cache_root = workspace.path().join("cache_x");
     let evil_root = workspace.path().join("cache_x_evil");
@@ -428,8 +419,6 @@ fn validate_probe_paths_with_root_rejects_string_prefix_sibling() {
     let result =
         super::validate_probe_paths_with_cache(&cache_root, &evil_model, &config, &tokenizer);
 
-    // Assert: even though `evil_root` shares a string prefix with `cache_root`,
-    // component-wise starts_with rejects it.
     assert_eq!(
         result,
         Err(SetupReason::PathOutsideCache),
@@ -452,14 +441,12 @@ fn validate_probe_paths_with_root_rejects_string_prefix_sibling() {
 #[cfg(unix)]
 #[test]
 fn validate_probe_paths_falls_back_to_home_when_hf_home_unset() {
-    // Arrange: tempdir + HF cache layout under <tempdir>/.cache/huggingface/hub.
     let home_dir = tempfile::tempdir().unwrap();
     let hub_dir = home_dir.path().join(".cache/huggingface/hub");
     let snapshot_dir = hub_dir.join("models--cl-nagoya--ruri-v3-310m/snapshots/commit-xyz");
     fs::create_dir_all(&snapshot_dir).unwrap();
     let (model, config, tokenizer) = write_three_artifacts(&snapshot_dir);
 
-    // Act + Assert: scope HOME / HF_HOME / HF_HUB_CACHE inside the closure.
     let home_path = home_dir.path().to_path_buf();
     temp_env::with_vars(
         [
@@ -714,7 +701,6 @@ fn probe_via_subprocess_with_env_clear_blocks_attacker_env_in_real_child() {
     );
 }
 
-// emit_ack_to writes PROBE_ACK + newline on a valid writer
 #[test]
 fn emit_ack_to_writes_ack_token_with_newline() {
     let mut buf: Vec<u8> = Vec::new();
@@ -723,8 +709,6 @@ fn emit_ack_to_writes_ack_token_with_newline() {
     assert_eq!(buf, format!("{PROBE_ACK}\n").into_bytes());
 }
 
-// emit_ack_to propagates IO errors from a failing writer
-//
 // `FailingWriter::write` fails first and `?` short-circuits before `flush`
 // runs, so this test only exercises the write-failure arm. The flush-only
 // arm (write success + flush error) is not unit-tested; in production the
@@ -801,7 +785,6 @@ fn interpret_probe_output_exit_8_without_ack_is_handler_not_installed() {
     );
 }
 
-// emit_failure_to writes msg and calls flush on success
 #[test]
 fn emit_failure_to_writes_message_and_flushes() {
     let mut w = test_writers::FlushTrackingWriter::default();
@@ -813,7 +796,6 @@ fn emit_failure_to_writes_message_and_flushes() {
     );
 }
 
-// emit_failure_to propagates writer error
 #[test]
 fn emit_failure_to_propagates_writer_error() {
     let err = super::emit_failure_to(&mut test_writers::FailingWriter, "anything")
@@ -836,33 +818,37 @@ fn emit_failure_to_surfaces_flush_error_after_successful_write() {
     );
 }
 
-// join returns promptly after recv succeeds (reaping invariant on
-// `collect_pipe` happy path).
 #[test]
-fn spawn_drain_pipe_thread_is_joinable_after_recv() {
-    use std::io::Cursor;
-    let pipe = Cursor::new(b"drained bytes".to_vec());
-    let handle =
-        super::spawn_drain_pipe(Some(pipe), "test").expect("Some(pipe) must yield DrainHandle");
-
-    let buf = handle
-        .rx
-        .recv()
-        .expect("reader thread must send buf after read_to_end completes");
-    assert_eq!(buf, b"drained bytes");
-
-    handle
-        .join
-        .join()
-        .expect("reader thread must be joinable after recv");
-}
-
-// spawn_drain_pipe returns None when no pipe is provided.
-#[test]
-fn spawn_drain_pipe_returns_none_for_none_input() {
-    let handle = super::spawn_drain_pipe::<io::Empty>(None, "test");
-    assert!(
-        handle.is_none(),
-        "None pipe must produce None handle (no thread spawned)"
-    );
+fn probe_reports_late_ack_and_truncated_failure_without_changing_classification() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let script = dir.path().join("verbose-probe.sh");
+    fs::write(&script, format!("#!/bin/sh\nhead -c 524288 /dev/zero\nprintf '\\n{PROBE_ACK}\\n'\nprintf 'actual model failure\\n' >&2\nhead -c 524288 /dev/zero >&2\nexit 1\n")).unwrap();
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+    let error = probe_via_subprocess_with(script.clone(), &[]).unwrap_err();
+    let ProbeError::ModelLoadFailed { reason } = error else {
+        panic!("late ACK changed error classification: {error}");
+    };
+    assert!(reason.starts_with("actual model failure"));
+    assert!(reason.contains("output truncated at 256 KiB"));
+    assert!(reason.len() <= 256 * 1024);
+    for diagnostic in [
+        format!("diagnostic mentions {PROBE_ACK} without a handshake"),
+        format!("{PROBE_ACK} is disabled"),
+        format!("startup\n{PROBE_ACK} is disabled"),
+        PROBE_ACK.to_owned(), // Missing the newline emitted by the handler.
+    ] {
+        fs::write(
+            &script,
+            format!("#!/bin/sh\nprintf '%s' '{diagnostic}'\nexit 0\n"),
+        )
+        .unwrap();
+        assert!(
+            matches!(
+                probe_via_subprocess_with(script.clone(), &[]),
+                Err(ProbeError::HandlerNotInstalled)
+            ),
+            "accepted diagnostic as ACK: {diagnostic:?}"
+        );
+    }
 }

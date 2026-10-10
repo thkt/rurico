@@ -1,9 +1,11 @@
 [workspace]
-members = [".", "crates/rurico-ffi"]
+members = ["crates/rurico-ffi"]
+exclude = ["vendor/hf-hub"]
 
 [workspace.dependencies]
+hf-hub = { path = "vendor/hf-hub", version = "=1.0.0", default-features = false, features = ["blocking", "rustls-tls"] }
 bytemuck = "1"
-hf-hub = { version = "1", default-features = false, features = ["blocking", "rustls-tls"] }
+libc = "0.2"
 mlx-rs = "0.32"
 mlx-sys = "0.6"
 rusqlite = { version = "0.40", features = ["bundled"] }
@@ -60,7 +62,7 @@ exclude = [".claude/", ".yomu/", "workspace/"]
 
 [features]
 test-mlx = []
-test-support = []
+test-support = ["hf-hub/rurico-test-support"]
 # Gate the `mlx_smoke` binary and its integration test behind a feature so
 # `tracing-subscriber` does not enter downstream library users' dependency
 # graph. Enable with `cargo build/run/test --features smoke`.

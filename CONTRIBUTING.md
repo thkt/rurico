@@ -46,6 +46,80 @@ clippyの `--all-targets --all-features` はコンパイル検査であり、テ
 coverageも同じfeatureを使う。既存の除外regex・95%の閾値は維持し、
 追加対象を通すための除外は設けない。
 
+### download・probeの合成process検証（Issue #320）
+
+`src/model_probe/tests.rs` の大容量stderr、孫のFD保持、短いtimeoutは、それぞれ
+pipe詰まり、直接child終了後のEOF未到達、実行期限超過という異なる失敗経路を守るため維持する。
+保持範囲外のACKと切り詰めた原因の分類は公開probe入口から確認する。
+`src/owned_process/tests.rs` は同じ本番のcollection・終了経路を使い、両streamの
+256 KiB上限、継続出力中の期限確認、子孫の継続書込み停止、process group消滅とparentのthread数を確認する。
+所有groupの外にwriterが残る合成pipeでは、回収不能を2秒の猶予後にエラーとして返すことも確認する。
+readerの途中I/O失敗は実pipeを包むreaderに注入し、同じ回収経路で停止することと、
+別groupのwriterが動き続けることを確認する。別Mutexや合成exit statusだけを回収の証拠にしない。
+このfixtureのshellがsleepを起動する際のsignal競合も、本番collectorの再試行で回収する。
+失敗時はchild reap・group不在を分けて表示し、元のreaderエラー分類も確認する。
+
+`crates/rurico-ffi/src/process.rs` はmacOSの実childを `waitid(WNOWAIT)` でzombieに保ち、
+signal 0のEPERMをgroup不在と誤認せず、SIGKILLのEPERMも消さず、reap後にだけ不在となることを確認する。
+[XNU xnu-12377.1.9のkillpg1](https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.1.9/bsd/kern/kern_sig.c#L1579-L1624)
+はzombieをgroupのsignal対象から除外し、存在するgroupにsignal対象がなければEPERMを返す。
+collectorはEPERMで回収を中断せず、同じ2秒の猶予内にreap・group不在・両EOFを確認する。
+確認できない場合は失敗を返し、診断にはSIGKILLの失敗と回収状態を含める。
+このFFI検証だけで本番collectorの回収を証明せず、上記の反復process検証と合わせて確認する。
+group操作の失敗注入では実OSのSIGKILL・存在確認を実行した後に操作結果だけを変え、
+本番collectorによるchild reap・group不在・両pipeの閉鎖を確認する。
+観測失敗は後に不在を確認できても元の分類・原因を返し、SIGKILLの非EPERMエラーは
+後続のEPERMで上書きしない。EPERMだけの場合も、回収条件をすべて満たすまで成功にしない。
+これはcollectorのエラー処理の検証であり、実OSでその故障が発生した証拠とは区別する。
+回収不能なpipeの検証はreader失敗なし／PermissionDeniedありの両条件を使い、
+回収猶予超過時にも元のI/Oエラーの分類と原因が残ることを確認する。
+同じ本番collectorで実OSのsignal操作を観測し、child reapとgroup不在を確認した後は
+SIGKILL・signal 0を再送信せず、開いたpipeを猶予超過までdrainすることも確認する。
+
+`src/model_io/download_process/tests.rs` はtest binaryをre-execし、HF I/Oだけをfakeに置き換える。
+本番のdispatch/result送信・collectionを通して、path返却、途中失敗、遅い書込み、hang、
+未登録時の再帰防止と不正requestの診断を確認する。timeoutを毎回別のfixtureで5回繰り返し、今回のworkerの開始とslowの書込みを要求した上で各groupが消滅し、
+未完了ファイルのsizeが返却後に増えず、parentのthread数が開始時に戻ることを確認する。
+孫FD保持も5回繰り返す。この2件は各テストだけを選択してtest binaryをre-execし、
+隔離したprocess内で反復前後のthread数をmacOSの `ps -M -p <PID>` で等値比較する。
+Cargoの並列実行でも他テストのthread増減が混ざらず、漏れの相殺や誤判定を防ぐ。
+外側のテストは子の実行件数・終了結果も確認する。全体の並列実行は維持する。
+既存cache・他利用者の未完了ファイルは削除しないことを合成fixtureで確認する。
+同じ固定revisionのcache miss後に別consumerがpointerを公開し、HFの本番公開primitiveの
+symlink直前で子processを停止する検証も標準checkに含める。正常pointerの内容・inode、
+正常blob・他consumerの未完了ファイルの保全とgroup回収を確認する。
+HTTP/Xet共通の公開primitiveを使うが、通信やHF finalize全体の実行検証ではない。
+ACKの読取りpipeを閉じてからworkerを進める条件では、実際のACK書込み失敗が
+終了コード1となり、download I/Oと未完了ファイル作成が始まらずgroupを回収できることを確認する。
+
+これらはモデル不要・非ignoredで、設定済み `bash scripts/check.sh` の標準nextest対象に含まれる。
+実行対象を絞る場合は以下を使える（全体checkの代替にはしない）。
+
+```sh
+cargo nextest run --locked --workspace --features test-support,test-mlx,smoke \
+  -E 'test(model_probe::tests) | test(model_io::download_process::tests) | test(owned_process::tests) | (package(rurico-ffi) & test(process::tests))'
+```
+
+thread数観測の隔離を変更した場合は、標準checkのnextestに加えて、ホストでCargoの
+並列実行を確認する。coverageもCargoのtest harnessを使うため、nextestだけでは代替できない。
+
+```sh
+cargo test --locked --lib --features test-support,test-mlx,smoke repeated_ -- --test-threads=4
+```
+
+変更行coverageの修正は通常checkだけで確認せず、GPUを利用できるホストで
+CIの`Generate lcov coverage`と同じfeature・除外regexを使って局所計測する。
+`diff-cover`の比較基準にはIssue #320の開始commit
+`d111837c15ffd70f62dabea20d157d3cfa6f3011`を指定し、PR全差分で95%以上を確認する。
+CIでは引き続き同じheadを`origin/main`と比較する。既存の閾値・除外・期限は変更しない。
+計測結果は未測定行とその失敗条件、実行時間・環境・対象差分とともに検証記録へ残す。
+
+上限とOS上の保証範囲、dispatcher登録の移行手順は[README](README.md#downloadprobeの終了管理)を参照。
+合成検証は実networkの通信・HF cache全経路、実consumerの移行、推論・検索品質や
+[#364](https://github.com/thkt/rurico/issues/364)の5000ペア実測を確認しない。
+実行前に開始commit・変更差分・Cargo.lock、実行後にツールチェーン・コマンド・終了コード・
+対象テスト名と結果を既存の検証記録へ残し、未実施の実network検証を別に明示する。
+
 ### vector byte-bindの実SQL検証（Issue #368）
 
 `src/storage/tests.rs` は本番の `ensure_sqlite_vec` を使い、登録後に開いた2つの
@@ -112,9 +186,15 @@ commit、run URLと実行回、保存・復元キー、対象パス、テスト�
 ネットワークアクセスや実モデルを要するテストは `#[ignore]` で gate されており、デフォルトでは実行されない。再有効化方法は各テストの doc comment に記載してある。例:
 
 ```sh
-# 実モデルを HF Hub からダウンロードして tokenizer 動作を検証
-cargo nextest run --run-ignored=ignored-only g_001_real_tokenizer_extract_prefix_tokens
+# 登録済みbinaryでcacheを準備してから、実tokenizerの既存assertionを実行する。
+cargo run --locked --features smoke --bin mlx_smoke -- prepare-cache
+cargo nextest run --locked --features test-support,test-mlx,smoke --run-ignored=ignored-only \
+  -E 'test(g_001_real_tokenizer_extract_prefix_tokens) | test(regression_prefix_merge_standalone_vs_full_tokenization_diverges)'
 ```
+
+lib test harnessはmain登録を持たないため、実tokenizerの2件はdownloadを呼ばず
+検証済みcacheを読む。`prepare-cache`は既存`mlx_smoke`のmodeで、専用helperの配布ではない。
+cacheがない場合は準備コマンドを示して失敗し、合成tokenizerへの置換やassertionの緩和は行わない。
 
 `src/embed/tests.rs` の実tokenizerを使う2件と、`src/reranker/tests.rs` 内
 `mlx_runtime_tests` モジュールのテストがこのカテゴリに該当する。

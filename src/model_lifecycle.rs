@@ -19,6 +19,10 @@ use crate::model_probe::{SetupReason, resolve_probe_env, validate_probe_paths};
 
 /// Download model files from Hugging Face Hub and verify them as `Id::Kind` artifacts.
 ///
+/// The host binary must call [`crate::handle_probe_if_needed`] at the start
+/// of `main()`, even when it does not use model probes. This registers the
+/// download worker dispatcher. Missing registration returns `DownloadFailed`.
+///
 /// # Errors
 ///
 /// Returns [`ArtifactError::DownloadFailed`] if the Hugging Face client cannot be

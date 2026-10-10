@@ -29,17 +29,21 @@ use std::collections::HashMap;
 use std::env;
 use std::fmt;
 use std::fs;
-use std::io::{self, Read, Write};
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::process::{self, Child, Command, Output, Stdio};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
-use std::thread;
-use std::time::{Duration, Instant};
+#[cfg(test)]
+use std::process::Child;
+use std::process::{self, Command, Output};
+use std::time::Duration;
+
+#[cfg(test)]
+use std::{process::Stdio, time::Instant};
 
 #[cfg(test)]
 use std::process::ExitStatus;
 
 use crate::model_io::ModelPaths;
+use crate::owned_process;
 
 /// Handshake token written to stdout by probe subprocesses.
 pub const PROBE_ACK: &str = "RURICO_PROBE_OK";
@@ -232,10 +236,9 @@ pub(crate) fn resolve_probe_env(
 /// Timeout for probe subprocesses.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Default polling interval used by [`wait_with_timeout`] to check whether the
-/// child has exited. Tests inject a smaller interval via
-/// [`wait_with_timeout_with`] to keep timeout-path assertions fast.
-const DEFAULT_WAIT_POLL_INTERVAL: Duration = Duration::from_millis(100);
+/// Polling interval for subprocess collection. Tests use a shorter interval
+/// for deadline checks.
+const DEFAULT_WAIT_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
 /// Exit action computed by [`compute_probe_exit`].
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
@@ -314,7 +317,7 @@ fn emit_ack_to<W: Write>(stdout: &mut W) -> io::Result<()> {
 ///
 /// Symmetric to [`emit_ack_to`] for the failure path. Probe IPC contract:
 /// the child must complete `flush` before [`std::process::exit`] so the
-/// parent's `collect_pipe` observes the full message regardless of stderr's
+/// parent's collector observes the full message regardless of stderr's
 /// buffering policy.
 fn emit_failure_to<W: Write>(stderr: &mut W, msg: &str) -> io::Result<()> {
     write!(stderr, "{msg}")?;
@@ -355,7 +358,7 @@ pub(super) const FORWARD: &[&str] = &[
     // private repo authentication (optional)
     "HF_TOKEN",
     // HF Hub endpoint override — enterprise / private mirror
-    // (hf-hub-0.5.0 api/{tokio,sync}.rs:248-249)
+    // hf-hub 1.0.0 client.rs reads HF_ENDPOINT.
     "HF_ENDPOINT",
     // HTTP(S) proxy — corp proxy on egress. reqwest 0.12 via hyper-util-0.1.20
     // (matcher.rs:230-234) reads upper- and lowercase pairs; only uppercase
@@ -365,8 +368,8 @@ pub(super) const FORWARD: &[&str] = &[
     "HTTPS_PROXY",
     "NO_PROXY",
     "ALL_PROXY",
-    // OpenSSL CA bundle / dir — corp proxy with custom CA on Linux native-tls path
-    // (macOS native-tls uses Security framework keychain, ignored there but harmless)
+    // Compatibility passthrough; the pinned hf-hub uses rustls-tls, so forwarding
+    // these variables does not promise that its TLS backend honors them.
     "SSL_CERT_FILE",
     "SSL_CERT_DIR",
     // macOS dynamic linker
@@ -422,15 +425,10 @@ pub(super) fn child_env_for_spawn(env_pairs: &[(&str, &str)]) -> HashMap<String,
 /// changes that could leave bytes stranded in user-space buffers when the
 /// child exits.
 ///
-/// **Parent** (`wait_with_timeout` + `collect_pipe`): each piped stream is
-/// drained by a dedicated reader thread held by `DrainHandle`. On `recv`
-/// success the thread is `join`ed immediately so that O(N) probe
-/// invocations do not accumulate OS threads. On `recv_timeout` (a
-/// grandchild inherited the pipe FDs and keeps them open past the direct
-/// child's exit) the reader is left running — the thread is blocked on
-/// `read_to_end` and a `join` would inherit the same indefinite block.
-/// The leak is acceptable because grandchild FD inheritance is an
-/// exceptional scenario; the happy path reaps every reader.
+/// **Parent**: stdout/stderr are drained concurrently with nonblocking reads,
+/// retaining at most 256 KiB each. ACK detection continues after truncation.
+/// The owned process group is killed on exit, timeout, or I/O failure and
+/// given at most two seconds for cleanup. No reader thread is detached.
 pub fn probe_via_subprocess_with(
     exe: PathBuf,
     env_pairs: &[(&str, &str)],
@@ -441,75 +439,16 @@ pub fn probe_via_subprocess_with(
     for (key, value) in &env {
         cmd.env(key, value);
     }
-    let mut child = cmd
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
+    let mut child = owned_process::spawn(&mut cmd)
         .map_err(|e| ProbeError::SubprocessFailed(format!("probe spawn failed: {e}")))?;
-
-    let output = wait_with_timeout(&mut child, PROBE_TIMEOUT)?;
-    interpret_probe_output(&output)
-}
-
-/// Reader-thread handle paired with the channel that delivers its drained
-/// bytes. Returned from [`spawn_drain_pipe`] so that [`collect_pipe`] can
-/// `join` the reader thread once the channel recv succeeds — preventing
-/// thread accumulation across many probes (parent IPC contract, see
-/// [`probe_via_subprocess_with`]).
-struct DrainHandle {
-    rx: Receiver<Vec<u8>>,
-    join: thread::JoinHandle<()>,
-}
-
-fn spawn_drain_pipe<R>(pipe: Option<R>, label: &'static str) -> Option<DrainHandle>
-where
-    R: Read + Send + 'static,
-{
-    pipe.map(|mut stream| {
-        let (tx, rx) = mpsc::channel();
-        let join = thread::spawn(move || {
-            let mut buf = Vec::new();
-            if let Err(e) = stream.read_to_end(&mut buf) {
-                tracing::warn!(label, error = %e, "probe: failed to drain child");
-            }
-            let _ = tx.send(buf);
-        });
-        DrainHandle { rx, join }
-    })
-}
-
-/// Upper bound on how long `collect_pipe` waits for a reader thread's buffer.
-///
-/// Capped because a grandchild that inherited the pipe FDs prevents EOF on
-/// the reader's `read_to_end` even after the direct child exits. See
-/// `probe_via_subprocess_with` for the full IPC contract (parent + child).
-const COLLECT_PIPE_TIMEOUT: Duration = Duration::from_secs(2);
-
-fn collect_pipe(handle: Option<DrainHandle>, label: &str) -> Vec<u8> {
-    let Some(DrainHandle { rx, join }) = handle else {
-        return Vec::new();
-    };
-    match rx.recv_timeout(COLLECT_PIPE_TIMEOUT) {
-        Ok(buf) => {
-            // recv success means `tx.send(buf)` ran, which only happens after
-            // `read_to_end` returned. The reader thread is finished or about
-            // to finish — `join` returns promptly without blocking.
-            let _ = join.join();
-            buf
-        }
-        Err(RecvTimeoutError::Timeout) => {
-            tracing::warn!(
-                label,
-                timeout_secs = COLLECT_PIPE_TIMEOUT.as_secs(),
-                "probe: child drain timed out; reader thread will leak"
-            );
-            Vec::new()
-        }
-        Err(RecvTimeoutError::Disconnected) => {
-            tracing::warn!(label, "probe: child reader thread dropped channel");
-            Vec::new()
-        }
-    }
+    let collected = owned_process::collect(
+        &mut child,
+        PROBE_TIMEOUT,
+        DEFAULT_WAIT_POLL_INTERVAL,
+        format!("{PROBE_ACK}\n").as_bytes(),
+    )
+    .map_err(|e| ProbeError::SubprocessFailed(format!("probe collection failed: {e}")))?;
+    interpret_probe_output_with_ack(&collected.output, collected.ack)
 }
 
 /// Re-exec the current binary as a probe subprocess, passing `paths` as env vars.
@@ -532,57 +471,25 @@ pub(crate) fn probe_paths_via_subprocess(
     ])
 }
 
-/// Wait for a child process with a timeout. Kill and return a synthetic
-/// timeout output if the deadline is exceeded.
+#[cfg(test)]
 fn wait_with_timeout(child: &mut Child, timeout: Duration) -> Result<Output, ProbeError> {
     wait_with_timeout_with(child, timeout, DEFAULT_WAIT_POLL_INTERVAL)
 }
 
-/// Like [`wait_with_timeout`] but the polling interval is provided explicitly.
-/// Used by tests to keep timeout-path assertions fast (e.g. 1 ms).
+#[cfg(test)]
 fn wait_with_timeout_with(
     child: &mut Child,
     timeout: Duration,
     poll_interval: Duration,
 ) -> Result<Output, ProbeError> {
-    let deadline = Instant::now() + timeout;
-    let stdout = spawn_drain_pipe(child.stdout.take(), "stdout");
-    let stderr = spawn_drain_pipe(child.stderr.take(), "stderr");
-
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                return Ok(Output {
-                    status,
-                    stdout: collect_pipe(stdout, "stdout"),
-                    stderr: collect_pipe(stderr, "stderr"),
-                });
-            }
-            Ok(None) => {
-                if Instant::now() >= deadline {
-                    tracing::warn!(
-                        timeout_secs = timeout.as_secs(),
-                        "probe subprocess timed out, killing"
-                    );
-                    let _ = child.kill();
-                    let status = child.wait().map_err(|e| {
-                        ProbeError::SubprocessFailed(format!("probe wait after kill failed: {e}"))
-                    })?;
-                    return Ok(Output {
-                        status,
-                        stdout: collect_pipe(stdout, "stdout"),
-                        stderr: collect_pipe(stderr, "stderr"),
-                    });
-                }
-                thread::sleep(poll_interval);
-            }
-            Err(e) => {
-                return Err(ProbeError::SubprocessFailed(format!(
-                    "probe wait failed: {e}"
-                )));
-            }
-        }
-    }
+    owned_process::collect(
+        child,
+        timeout,
+        poll_interval,
+        format!("{PROBE_ACK}\n").as_bytes(),
+    )
+    .map(|collected| collected.output)
+    .map_err(|e| ProbeError::SubprocessFailed(format!("probe collection failed: {e}")))
 }
 
 /// Build a synthetic Output that `interpret_probe_output` maps to
@@ -610,15 +517,23 @@ fn build_timeout_output() -> Output {
 /// - Exit 0 with ACK → [`ProbeStatus::Available`]
 /// - Exit non-zero with ACK → [`ProbeError::ModelLoadFailed`]
 /// - Killed by signal with ACK → [`ProbeStatus::BackendUnavailable`]
+#[cfg(test)]
 pub(crate) fn interpret_probe_output(output: &Output) -> Result<ProbeStatus, ProbeError> {
+    interpret_probe_output_with_ack(
+        output,
+        owned_process::ack_payload_start(&output.stdout, format!("{PROBE_ACK}\n").as_bytes())
+            .is_some(),
+    )
+}
+
+fn interpret_probe_output_with_ack(output: &Output, ack: bool) -> Result<ProbeStatus, ProbeError> {
     if output.status.code() == Some(PROBE_EXIT_ACK_FAILED) {
         return Err(ProbeError::SubprocessFailed(
             "probe child failed to emit handshake ACK".into(),
         ));
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    if !stdout.starts_with(PROBE_ACK) {
+    if !ack {
         return Err(ProbeError::HandlerNotInstalled);
     }
 

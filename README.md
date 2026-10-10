@@ -22,7 +22,7 @@ Apple Silicon (MLX) 上で日本語テキストのembedding・reranking・類似
 | `model_init`      | embed / reranker 共通の初期化エラー型 `ModelInitError`                                                                                                |
 | `model_lifecycle` | kind 汎用の `download_model` / `cached_artifacts`（`embed` / `reranker` からも re-export）                                                            |
 | `model_probe`     | サブプロセス probe 基盤（`ProbeStatus`、`Embedder::probe` / `Reranker::probe` の実装基盤）                                                            |
-| `dispatch`        | top-level probe dispatcher。crate root から `handle_probe_if_needed` を提供し、embed と reranker の probe を一括 wire する                            |
+| `dispatch`        | download・probe dispatcher。crate root から `handle_probe_if_needed` を提供し、downloadと両kindのprobeを一括 wire する                            |
 | `sandbox`         | Codex seatbelt 検出（`exit_if_seatbelt` / `require_unsandboxed_mlx_runtime`）。MLX/Metal が abort する環境で smoke / runtime テストを早期に skip する |
 
 検索品質の評価ハーネス（Recall@k / MRR@k / nDCG@k）は [`amici`](https://github.com/thkt/amici) に移譲した。
@@ -52,7 +52,7 @@ use rurico::embed::{Embed, Embedder, ModelId, download_model};
 use rurico::handle_probe_if_needed;
 use rurico::model_probe::ProbeStatus;
 
-// main() の冒頭でprobeハンドラを登録
+// main() の冒頭でdownload・probeハンドラを登録
 handle_probe_if_needed();
 
 // 未キャッシュならHF Hubからダウンロード
@@ -155,10 +155,48 @@ abortリスクを許容できるスクリプト等ではprobeを省略できる�
 ```rust
 use rurico::embed::{Embed, Embedder, ModelId, download_model};
 
+rurico::handle_probe_if_needed();
 let artifacts = download_model(ModelId::DEFAULT)?;
 let embedder = Embedder::new(&artifacts)?;
 let vector = embedder.embed_query("検索クエリ")?;
 ```
+
+### download・probeの終了管理
+
+`download_model` を使うbinaryは、probeを使わない場合も
+`main()` の冒頭で `rurico::handle_probe_if_needed()` を呼ぶ。
+同じ入口がdownload子processをdispatchする。登録済みCLIの変更は不要だが、
+未登録の利用側にはこの追加が必要になる。未登録、または子processで登録前にdownloadを
+呼んだ場合は `ArtifactError::DownloadFailed` で起動契約不備を返し、再帰起動しない。
+専用helper executableの追加配布は不要で、公開download APIの型は維持する。
+
+[Issue #320](https://github.com/thkt/rurico/issues/320)で合意した上限は、
+probe 30秒、download 300秒、期限後の回収猶予は両者で最大2秒。
+stdout・stderrは各256 KiBまで保持し、超過分も並行して読み捨て、打切りを診断する。
+ACKは改行まで含む完全な行として保持範囲外でも検出し、probeの終了コードと原因分類を保つ。
+所有するprocess groupを正常終了・timeout・I/O失敗のいずれでも停止し、
+pipeは非blockingで読む。reader threadや無期限joinは使わない。
+childのreapとgroup不在を確認するまではSIGKILLを再試行し、signal送信と競合して生まれた子孫も停止する。
+確認後は同じPGIDへのsignal送信・存在確認を止め、残るpipeを同じ回収猶予内でdrainする。
+回収猶予内に終了を確認できない場合は成功扱いせず、回収失敗を返す。
+macOSではzombieだけのgroupにもsignal 0／SIGKILLがEPERMを返すため、
+EPERMはgroup残存として扱う。childのreap、group不在（ESRCH）、両pipeのEOFを
+確認するまで回収済みとせず、元のI/O失敗も保持する。
+これらは処理開始後の期限であり、OSのspawn、ファイル操作、スケジューリング遅延や
+kill不能な状態に対する実時間のhard limitではない。自ら別groupへ離脱する子孫は対象外。
+
+downloadのtimeoutでは子processと同groupの子孫を停止し、停止確認後は継続書込みを残さない。
+固定したhf-hub 1.0.0はblobごとのlockの下で `.incomplete` へ書き、完了後にblobへrenameする。
+Unixのsnapshot公開は[同版への局所修正](vendor/hf-hub/RURICO-PATCH.md)で、既存pointerをunlinkせず
+symlinkを一操作で作る。同じblobへのpointerは再利用し、同一固定revisionを別consumerが
+公開した後にworkerが終了しても、その正常pointerを消さない。壊れたpointerや異なるblobへの
+pointerは変更せずエラーにするため、破損cacheの修復は利用者による明示的な操作が必要になる。
+中断時の `.incomplete` とlockファイルは残し、
+正常blob・snapshotや他利用者の一時ファイルを削除しない。HF/cache/auth/proxy設定は
+呼出元の環境を継承する。process終了でOSのlockは解放され、
+次回downloadで未完了ファイルを再取得する。完了済みの別artifactはcacheとして残る。
+合成processとfake downloadの検証範囲は[CONTRIBUTING](CONTRIBUTING.md#テスト)を参照。
+実networkと実consumerの移行は、この合成検証では確認しない。
 
 ### storage（ベクトル検索）
 

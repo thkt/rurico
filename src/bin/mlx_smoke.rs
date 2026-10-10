@@ -8,6 +8,7 @@
 //!
 //! # Modes
 //!
+//! - `prepare-cache`: download/verify the default embed artifacts with dispatch registered.
 //! - default (no args): model functionality assertions.
 //! - `capture-fixture`: write W1/W2/W3 output to
 //!   `tests/fixtures/phase2_baseline/w{1,2,3}.bin`.
@@ -59,6 +60,8 @@ fn init_tracing_subscriber() {
 }
 
 fn main() {
+    // Required before every mode: re-exec download/probe children dispatch here.
+    handle_probe_if_needed();
     let mode = env::args().nth(1).unwrap_or_default();
     if mode == "compare-records" {
         comparison::compare_files(
@@ -73,10 +76,13 @@ fn main() {
     }
     init_tracing_subscriber();
 
-    // Also acts as a probe subprocess when probe env vars are set.
-    handle_probe_if_needed();
-
     sandbox::exit_if_seatbelt(env!("CARGO_BIN_NAME"));
+
+    if mode == "prepare-cache" {
+        embed::download_model(embed::ModelId::DEFAULT).expect("model cache preparation failed");
+        eprintln!("mlx_smoke: embed cache prepared");
+        return;
+    }
 
     let artifacts = embed::cached_artifacts(embed::ModelId::DEFAULT)
         .expect("cache lookup failed")
