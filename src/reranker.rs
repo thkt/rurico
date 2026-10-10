@@ -30,8 +30,6 @@ pub(crate) const PROBE_ENV_CONFIG: &str = "__RURICO_RERANKER_PROBE_CONFIG";
 /// Probe env-var key for the reranker model tokenizer path.
 pub(crate) const PROBE_ENV_TOKENIZER: &str = "__RURICO_RERANKER_PROBE_TOKENIZER";
 
-// ── Domain alias ─────────────────────────────────────────────────────────────
-
 /// Verified reranker model artifacts.
 ///
 /// Produced by [`CandidateArtifacts::verify`] or [`download_model`].
@@ -40,16 +38,12 @@ pub(crate) const PROBE_ENV_TOKENIZER: &str = "__RURICO_RERANKER_PROBE_TOKENIZER"
 /// without error, and that the weights are for a reranker model (not an embed model).
 pub type Artifacts = VerifiedArtifacts<RerankerKind>;
 
-// ── CandidateArtifacts ───────────────────────────────────────────────────────
-
 /// Unverified reranker model artifact paths.
 ///
 /// Type alias for [`crate::artifacts::CandidateArtifacts<RerankerKind>`] so the
 /// downstream-visible name `reranker::CandidateArtifacts` keeps working while
 /// the underlying definition lives in `artifacts.rs` (single source of truth).
 pub type CandidateArtifacts = artifacts::CandidateArtifacts<RerankerKind>;
-
-// ── RerankerModelId ───────────────────────────────────────────────────────────
 
 /// Identifies a ruri-v3 reranker model variant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -85,8 +79,6 @@ impl ModelArtifact for RerankerModelId {
         self.revision()
     }
 }
-
-// ── RerankerError (runtime) ───────────────────────────────────────────────────
 
 /// Errors from reranker operations at runtime.
 ///
@@ -176,8 +168,6 @@ impl RerankerError {
     }
 }
 
-// ── RankedResult ─────────────────────────────────────────────────────────────
-
 /// A scored document with its original position in the input slice.
 #[derive(Debug, Clone)]
 pub struct RankedResult {
@@ -186,8 +176,6 @@ pub struct RankedResult {
     /// Relevance score in `[0, 1]`.
     pub score: f32,
 }
-
-// ── Rerank trait ──────────────────────────────────────────────────────────────
 
 /// Reranking provider.
 ///
@@ -227,8 +215,6 @@ pub trait Rerank: Send + Sync {
     /// Returns the same errors as [`Rerank::score_batch`].
     fn rerank(&self, query: &str, documents: &[&str]) -> Result<Vec<RankedResult>, RerankerError>;
 }
-
-// ── Reranker ─────────────────────────────────────────────────────────────────
 
 /// Thread-safe cross-encoder reranker backed by MLX.
 ///
@@ -289,10 +275,7 @@ impl Reranker {
     /// or non-finite logits before sigmoid. Backend messages are opaque.
     /// An empty input returns an empty vector without inference.
     pub fn score_batch(&self, pairs: &[(&str, &str)]) -> Result<Vec<f32>, RerankerError> {
-        if pairs.is_empty() {
-            return Ok(Vec::new());
-        }
-        self.lock_inner()?.score_batch(pairs)
+        processing::score_batch_with(pairs, |pairs| self.lock_inner()?.score_batch(pairs))
     }
 
     /// Rerank documents by relevance to a query.
@@ -309,12 +292,7 @@ impl Reranker {
         query: &str,
         documents: &[&str],
     ) -> Result<Vec<RankedResult>, RerankerError> {
-        if documents.is_empty() {
-            return Ok(Vec::new());
-        }
-        let pairs: Vec<(&str, &str)> = documents.iter().map(|&d| (query, d)).collect();
-        let scores = self.score_batch(&pairs)?;
-        Ok(sort_results(&scores))
+        processing::rerank_with(query, documents, |pairs| self.score_batch(pairs))
     }
 
     /// Test whether the reranker model can load without aborting the caller.
@@ -367,8 +345,6 @@ fn sort_results(scores: &[f32]) -> Vec<RankedResult> {
     });
     results
 }
-
-// ── Probe infrastructure ──────────────────────────────────────────────────────
 
 fn probe_via_subprocess(artifacts: &Artifacts) -> Result<ProbeStatus, ModelInitError> {
     probe_paths_via_subprocess(

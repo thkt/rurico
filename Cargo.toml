@@ -74,6 +74,10 @@ required-features = ["smoke"]
 name = "mlx_smoke"
 required-features = ["smoke"]
 
+[[bench]]
+name = "reranker_latency"
+harness = false
+
 [dependencies]
 bytemuck = { workspace = true }
 hf-hub = { workspace = true }

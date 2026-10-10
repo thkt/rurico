@@ -10,7 +10,9 @@ use crate::model_lifecycle::{cached_artifacts, download_model, probe_env_to_path
 use crate::model_probe::SetupReason;
 use crate::reranker::RerankerModelId;
 use crate::test_support::{
-    FAKE_BACKBONE_KEY, MINIMAL_TOKENIZER_JSON, VALID_CONFIG_JSON, setup_fake_hf_cache,
+    FAKE_BACKBONE_KEY, MINIMAL_TOKENIZER_JSON, VALID_CONFIG_JSON,
+    assert_probe_env_to_paths_preserves_snapshot_symlink_filename,
+    assert_probe_env_to_paths_returns_paths_when_all_present, setup_fake_hf_cache,
     write_fake_safetensors,
 };
 
@@ -36,7 +38,7 @@ const _: fn(ModelId) -> Result<VerifiedArtifacts<EmbedKind>, ArtifactError> =
 const _: fn(RerankerModelId) -> Result<VerifiedArtifacts<RerankerKind>, ArtifactError> =
     download_model::<RerankerModelId>;
 
-// T-012: cached_artifacts(ModelId::DEFAULT) with all artifacts present → Ok(Some(VerifiedArtifacts<EmbedKind>))
+// cached_artifacts(ModelId::DEFAULT) with all artifacts present → Ok(Some(VerifiedArtifacts<EmbedKind>))
 #[test]
 fn cached_artifacts_for_embed_id_returns_some_when_cache_populated() {
     let hf_home = tempfile::tempdir().unwrap();
@@ -75,7 +77,7 @@ fn cached_artifacts_for_embed_id_returns_some_when_cache_populated() {
     });
 }
 
-// T-013: cached_artifacts(RerankerModelId::default()) missing tokenizer → Ok(None)
+// cached_artifacts(RerankerModelId::default()) missing tokenizer → Ok(None)
 #[test]
 fn cached_artifacts_for_reranker_id_returns_none_when_tokenizer_missing() {
     let hf_home = tempfile::tempdir().unwrap();
@@ -106,65 +108,21 @@ fn cached_artifacts_for_reranker_id_returns_none_when_tokenizer_missing() {
     });
 }
 
-// T-014: probe_env_to_paths::<EmbedKind>(...) with three valid paths → Some(Ok(CandidateArtifacts<EmbedKind>))
+// Both kind-bound return types and the original paths are checked by the same
+// production entry point. Artifact content validation belongs to artifacts.
 #[test]
-fn probe_env_to_paths_for_embed_kind_returns_candidate_when_all_paths_valid() {
-    let hf_home = tempfile::tempdir().unwrap();
-    let cache_root = hf_home.path().join("hub");
-    fs::create_dir_all(&cache_root).unwrap();
-    let m = cache_root.join("model.safetensors");
-    let c = cache_root.join("config.json");
-    let t = cache_root.join("tokenizer.json");
-    fs::write(&m, b"").unwrap();
-    fs::write(&c, b"{}").unwrap();
-    fs::write(&t, b"{}").unwrap();
-
-    let hf_home_path = hf_home.path().to_path_buf();
-    temp_env::with_vars([("HF_HOME", Some(hf_home_path.to_str().unwrap()))], || {
-        let result: Option<Result<CandidateArtifacts<EmbedKind>, SetupReason>> =
-            probe_env_to_paths::<EmbedKind>(
-                Some(m.to_string_lossy().into_owned()),
-                Some(c.to_string_lossy().into_owned()),
-                Some(t.to_string_lossy().into_owned()),
-            );
-        let inner = result.expect("probe_env_to_paths should return Some when model var is set");
-        assert!(
-            inner.is_ok(),
-            "expected Ok(CandidateArtifacts<EmbedKind>) for three valid paths"
-        );
-    });
+fn probe_env_to_paths_preserves_valid_paths_for_both_kinds() {
+    assert_probe_env_to_paths_returns_paths_when_all_present::<EmbedKind>();
+    assert_probe_env_to_paths_returns_paths_when_all_present::<RerankerKind>();
 }
 
-// T-015: probe_env_to_paths::<RerankerKind>(...) with three valid paths → Some(Ok(CandidateArtifacts<RerankerKind>))
+#[cfg(unix)]
 #[test]
-fn probe_env_to_paths_for_reranker_kind_returns_candidate_when_all_paths_valid() {
-    let hf_home = tempfile::tempdir().unwrap();
-    let cache_root = hf_home.path().join("hub");
-    fs::create_dir_all(&cache_root).unwrap();
-    let m = cache_root.join("model.safetensors");
-    let c = cache_root.join("config.json");
-    let t = cache_root.join("tokenizer.json");
-    fs::write(&m, b"").unwrap();
-    fs::write(&c, b"{}").unwrap();
-    fs::write(&t, b"{}").unwrap();
-
-    let hf_home_path = hf_home.path().to_path_buf();
-    temp_env::with_vars([("HF_HOME", Some(hf_home_path.to_str().unwrap()))], || {
-        let result: Option<Result<CandidateArtifacts<RerankerKind>, SetupReason>> =
-            probe_env_to_paths::<RerankerKind>(
-                Some(m.to_string_lossy().into_owned()),
-                Some(c.to_string_lossy().into_owned()),
-                Some(t.to_string_lossy().into_owned()),
-            );
-        let inner = result.expect("probe_env_to_paths should return Some when model var is set");
-        assert!(
-            inner.is_ok(),
-            "expected Ok(CandidateArtifacts<RerankerKind>) for three valid paths"
-        );
-    });
+fn probe_env_to_paths_preserves_snapshot_symlinks_for_both_kinds() {
+    assert_probe_env_to_paths_preserves_snapshot_symlink_filename::<EmbedKind>();
+    assert_probe_env_to_paths_preserves_snapshot_symlink_filename::<RerankerKind>();
 }
 
-// T-105-002a: probe_env_to_paths_returns_none_when_embed_model_var_absent
 #[test]
 fn probe_env_to_paths_returns_none_when_embed_model_var_absent() {
     let result: Option<Result<CandidateArtifacts<EmbedKind>, SetupReason>> =
@@ -175,7 +133,6 @@ fn probe_env_to_paths_returns_none_when_embed_model_var_absent() {
     );
 }
 
-// T-105-002b: probe_env_to_paths_returns_none_when_reranker_model_var_absent
 #[test]
 fn probe_env_to_paths_returns_none_when_reranker_model_var_absent() {
     let result: Option<Result<CandidateArtifacts<RerankerKind>, SetupReason>> =
@@ -186,7 +143,6 @@ fn probe_env_to_paths_returns_none_when_reranker_model_var_absent() {
     );
 }
 
-// T-105-002c: probe_env_to_paths_returns_err_when_embed_config_missing
 #[test]
 fn probe_env_to_paths_returns_err_when_embed_config_missing() {
     let result: Option<Result<CandidateArtifacts<EmbedKind>, SetupReason>> =
@@ -198,7 +154,6 @@ fn probe_env_to_paths_returns_err_when_embed_config_missing() {
     );
 }
 
-// T-105-002d: probe_env_to_paths_returns_err_when_reranker_tokenizer_missing
 #[test]
 fn probe_env_to_paths_returns_err_when_reranker_tokenizer_missing() {
     let result: Option<Result<CandidateArtifacts<RerankerKind>, SetupReason>> =

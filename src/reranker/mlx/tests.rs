@@ -7,6 +7,52 @@ fn load_rejects_incomplete_weights_before_mlx_allocation() {
     });
 }
 
+#[test]
+fn empty_public_requests_bypass_a_poisoned_model_lock() {
+    use crate::reranker::Reranker;
+    use crate::sandbox::require_unsandboxed_mlx_runtime;
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+    use std::sync::Mutex;
+    use tokenizers::models::wordlevel::WordLevel;
+
+    require_unsandboxed_mlx_runtime();
+    let mut config: Config = serde_json::from_str(include_str!(
+        "../../../tests/fixtures/modernbert_configs/ruri-v3-reranker-310m.json"
+    ))
+    .unwrap();
+    config.vocab_size = 8;
+    config.hidden_size = 4;
+    config.intermediate_size = 6;
+    config.num_attention_heads = 2;
+    config.num_hidden_layers = 2;
+    // A tiny untrained model supplies valid MLX state; no weights or inference are needed.
+    let reranker = Reranker {
+        inner: Mutex::new(RerankerInner {
+            model: RerankerModel::new(&config).unwrap(),
+            tokenizer: tokenizers::Tokenizer::new(WordLevel::default()),
+        }),
+    };
+    let poisoned = catch_unwind(AssertUnwindSafe(|| {
+        let _guard = reranker.inner.lock().unwrap();
+        panic!("poison the model lock");
+    }));
+    assert!(poisoned.is_err());
+    assert!(reranker.inner.is_poisoned());
+    assert!(reranker.score_batch(&[]).unwrap().is_empty());
+    assert!(reranker.rerank("query", &[]).unwrap().is_empty());
+
+    for error in [
+        reranker.score_batch(&[("query", "doc")]).unwrap_err(),
+        reranker.rerank("query", &["doc"]).unwrap_err(),
+    ] {
+        let RerankerError::Inference { message, source } = error else {
+            panic!("expected poisoned-lock error");
+        };
+        assert_eq!(message, "reranker lock poisoned");
+        assert!(source.is_none());
+    }
+}
+
 #[cfg(feature = "test-mlx")]
 mod runtime {
     use std::collections::BTreeMap;

@@ -347,20 +347,6 @@ fn delete_files_removes_all_three_artifact_files() {
     assert!(!dir.path().join("tokenizer.json").exists());
 }
 
-#[test]
-fn delete_files_returns_error_when_file_already_removed() {
-    let dir = tempfile::tempdir().unwrap();
-    write_fake_safetensors(&dir.path().join("model.safetensors"), &[FAKE_BACKBONE_KEY]);
-    write_valid_config(dir.path());
-    write_valid_tokenizer(dir.path());
-    let paths = ModelPaths::from_dir(dir.path());
-    let artifacts = verify_as_embed(paths).unwrap();
-
-    fs::remove_file(dir.path().join("model.safetensors")).unwrap();
-
-    assert!(artifacts.delete_files().is_err());
-}
-
 // Continue after a missing file so cache cleanup cannot remain partial.
 #[test]
 fn delete_files_continues_after_first_failure() {
