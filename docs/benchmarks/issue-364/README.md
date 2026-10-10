@@ -19,7 +19,7 @@
 
 ## 対象版・方法
 
-基準はmainの`16e5ca97e4079917b7f16b48c7dc003ffdd77407`で、今回と同じbenchmarkファイルとCargoのbench登録だけを追加した。変更版は同commitに今回の差分を加えた未commitソース。測定後に検証記録と案内リンクを追加し、独立評価で指摘された重複helperテスト1件を削除した。固定budgetテストを指すdoc commentとADRの参照も修正した。実モデルテスト・benchmark・製品動作・Cargo.lockは測定時から変更していない。
+基準はmainの`16e5ca97e4079917b7f16b48c7dc003ffdd77407`で、今回と同じbenchmarkファイルとCargoのbench登録だけを追加した。変更版は同commitに今回の差分を加えた未commitソース。測定後に検証記録と案内リンクを追加し、独立評価で指摘された重複helperテスト1件を削除した。固定budgetテストを指すdoc commentとADRの参照も修正した。公開後のCIでは公開APIへの2行が未実行で差分coverageが93%となったため、未学習の極小MLXモデルとpoisoned lockを使う空入力の配線検証へ置き換えた。非空入力はlockエラーになる対照を置き、公式weightsのロードや推論は行わない。固定キャッシュを使うignored実モデルテスト・benchmark・製品動作・Cargo.lockは測定時から変更していない。
 
 両側とも`cargo bench --locked --bench reranker_latency --no-run`でビルドし、benchプロファイルのopt-level=3、LTO有効、codegen-units=1を使用した。Cargo並列数は2。同じF32のruri-v3-reranker-310m、revision `bb46934ee9ed09f850b9fcff17501b3ef7ddb2b3`を使用し、モデル3ファイルとCargo.lockのSHAを照合した。
 
@@ -37,7 +37,7 @@
 
 電源はAC、測定前後の熱・性能警告は記録されていなかった。ただし実行順・背景負荷の全量・熱状態の厳密な同一性は保証できない。安全監視の負荷もwall timeに含まれる。検索品質や全入力の性能改善は今回の測定範囲外である。
 
-測定前の`bash scripts/check.sh`はRust 410件、doctest 3件、Python 4件、clippy、format、visibilityを通過した。公開前の重複helperテスト削除後も同じcheckを再実行し、Rust 409件、doctest 3件、Python 4件、clippy、format、visibilityが成功した。標準checkでignoredの27件を実モデルの成功へ加算していない。独立評価と公開headのCIは別途確認する。
+測定前の`bash scripts/check.sh`はRust 410件、doctest 3件、Python 4件、clippy、format、visibilityを通過した。公開前の重複helperテスト削除後も同じcheckを再実行し、Rust 409件、doctest 3件、Python 4件、clippy、format、visibilityが成功した。公開APIの配線検証への修正後も同じcheckが成功し、Rustは410件となった。標準checkでignoredの27件を実モデルの成功へ加算していない。独立評価と公開headのCIは別途確認する。
 
 次は現行のbucket=128・一度に2000ペアを処理する経路のメモリ使用を切り分け、安全に5000ペアを検証できる条件を決める必要がある。未完了の検証をskipや閾値緩和で通過させない。
 

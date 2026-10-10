@@ -320,18 +320,8 @@ mod mlx_runtime_tests {
 }
 
 #[test]
-fn empty_inputs_bypass_inference_and_nonempty_inputs_delegate_in_order() {
+fn nonempty_inputs_delegate_in_order_and_preserve_errors() {
     use super::processing::{rerank_with, score_batch_with};
-    assert!(
-        score_batch_with(&[], |_| panic!("empty batch reached inference"))
-            .unwrap()
-            .is_empty()
-    );
-    assert!(
-        rerank_with("query", &[], |_| panic!("empty rerank reached inference"))
-            .unwrap()
-            .is_empty()
-    );
     let pairs = [("query", "first"), ("query", "second")];
     assert_eq!(
         score_batch_with(&pairs, |actual| {

@@ -175,9 +175,11 @@ W1/W2/W3の既存fixtureを再生成せず、同じbinaryのrawと再生成summa
 通常checkでは、固定budgetの4値、probeエラーの分類・message・typed source、
 両kindのprobe-env/path解決とsnapshot symlink、partial deleteのNotFoundと残り2ファイルの削除を確認する。
 エラー変換は`model_init`、probe-env/pathは`model_lifecycle`のテストが所有する。
-rerankerの空入力とdispatchは、本番が呼ぶ関数でlock/inference境界を置き換えて確認する。
-空入力で境界を呼ばないこと、非空入力の委譲・pair順・エラー保持、ログのbatch/bucket/sub-batchの
-各fieldを確認する。これは部品の分岐・組立検証であり、実モデル推論の成功ではない。
+rerankerの非空入力の委譲・pair組立は模擬score境界で、dispatchは本番plannerを直接呼んで確認する。
+非空入力の委譲・pair順・エラー保持、ログのbatch/bucket/sub-batchの各fieldを確認する。
+公開APIの空入力は、weightsをロードしない極小の未学習MLXモデルとpoisoned lockで確認する。
+非空入力で同じlockのエラーになる対照を置き、空入力がlockを取得しない配線を検証する。
+MLX構造体の初期化を含むが、公式モデル推論や検索品質の成功ではない。
 
 実モデルのsingleton・batch入力順・降順rerank、公開APIの空入力とdispatchログを
 1回のロードで検証するテストと、
