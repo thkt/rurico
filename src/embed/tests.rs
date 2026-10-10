@@ -1,5 +1,5 @@
 use super::*;
-use crate::model_io::{EOS_TOKEN_ID, artifacts_from_cache, load_tokenizer};
+use crate::model_io::{EOS_TOKEN_ID, artifacts_from_cache};
 use crate::test_support::{
     assert_cache_lookup_returns_none_when_empty,
     assert_cache_lookup_returns_some_when_all_files_present, hf_client_for_cache,
@@ -115,13 +115,15 @@ fn max_content_equals_max_seq_len_minus_2_minus_prefix_len() {
     assert_eq!(max_content(10), 8180);
 }
 
-/// Requires HF Hub model download (network access).
+/// Prepare the real model cache with `mlx_smoke prepare-cache` (see CONTRIBUTING).
 #[test]
 #[ignore]
 fn g_001_real_tokenizer_extract_prefix_tokens() {
-    let artifacts = download_model(ModelId::DEFAULT).expect("download model");
-    let tokenizer = load_tokenizer(&artifacts.paths.tokenizer).unwrap();
-    let prefix_tokens = extract_prefix_tokens(&tokenizer, DOCUMENT_PREFIX).unwrap();
+    let artifacts = cached_artifacts(ModelId::DEFAULT)
+        .expect("cache lookup failed")
+        .expect("model not cached: run cargo run --locked --features smoke --bin mlx_smoke -- prepare-cache");
+    let tokenizer = &artifacts.tokenizer;
+    let prefix_tokens = extract_prefix_tokens(tokenizer, DOCUMENT_PREFIX).unwrap();
     assert!(!prefix_tokens.is_empty());
 }
 
@@ -204,20 +206,22 @@ fn truncate_for_query_zero_max_len_returns_unchanged() {
 // MLX-dependent embedding tests (short text, long text, batch, prefix-merge)
 // are covered by `tests/mlx_smoke.rs` via subprocess isolation.
 
-/// Requires HF Hub model download (network access).
+/// Prepare the real model cache with `mlx_smoke prepare-cache` (see CONTRIBUTING).
 #[test]
 #[ignore]
 fn regression_prefix_merge_standalone_vs_full_tokenization_diverges() {
     // Verify that the prefix boundary actually diverges for these texts,
     // confirming the need for Approach A.
-    let artifacts = download_model(ModelId::DEFAULT).expect("download model");
-    let tokenizer = load_tokenizer(&artifacts.paths.tokenizer).unwrap();
-    let prefix_tokens = extract_prefix_tokens(&tokenizer, DOCUMENT_PREFIX).unwrap();
+    let artifacts = cached_artifacts(ModelId::DEFAULT)
+        .expect("cache lookup failed")
+        .expect("model not cached: run cargo run --locked --features smoke --bin mlx_smoke -- prepare-cache");
+    let tokenizer = &artifacts.tokenizer;
+    let prefix_tokens = extract_prefix_tokens(tokenizer, DOCUMENT_PREFIX).unwrap();
     let pe = 1 + prefix_tokens.len(); // BOS + prefix length
 
     let merge_texts = &["apple pie", "the cat", "Rust"];
     for &text in merge_texts {
-        let full = tokenize_with_prefix(&tokenizer, text, DOCUMENT_PREFIX).unwrap();
+        let full = tokenize_with_prefix(tokenizer, text, DOCUMENT_PREFIX).unwrap();
         let ids = &full.input_ids;
         // The prefix portion in full tokenization should NOT match standalone
         // prefix tokens — this confirms the merge behavior exists.

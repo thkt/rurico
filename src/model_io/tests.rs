@@ -139,14 +139,11 @@ fn compute_sub_batch_size_returns_one_when_bucket_exceeds_token_budget() {
     assert_eq!(compute_sub_batch_size(usize::MAX, None), 1);
 }
 
-// compute_sub_batch_size は budget_override=Some で override し 1 で floor する
 #[test]
 fn compute_sub_batch_size_with_some_override_takes_priority_over_const_and_floors_at_one() {
     assert_eq!(compute_sub_batch_size(8192, Some(2048)), 1);
 }
 
-// <ModelId as ModelArtifact>::Kind == EmbedKind
-//        and <RerankerModelId as ModelArtifact>::Kind == RerankerKind
 #[test]
 fn model_artifact_kind_associated_type_is_fixed_per_id() {
     use crate::artifacts::{EmbedKind, RerankerKind};
@@ -164,51 +161,5 @@ fn model_artifact_kind_associated_type_is_fixed_per_id() {
     assert_kind::<ModelId, EmbedKind>();
     assert_kind::<RerankerModelId, RerankerKind>();
 
-    // Force at least one runtime assertion so the test body is not empty.
     assert_eq!(ModelId::DEFAULT.repo_id(), "cl-nagoya/ruri-v3-310m");
-}
-
-use crate::embed::ModelId;
-
-#[test]
-fn download_artifacts_with_routes_success_to_caller() {
-    let dir = tempfile::tempdir().unwrap();
-    let fake = ModelPaths::from_dir(dir.path());
-    let expected = fake.model.clone();
-    let result = download_artifacts_with(
-        ModelId::DEFAULT,
-        DOWNLOAD_TIMEOUT,
-        move |_repo_id, _revision| Ok(fake),
-    )
-    .unwrap();
-    assert_eq!(result.model, expected);
-}
-
-#[test]
-fn download_artifacts_with_routes_error_to_caller() {
-    let err = download_artifacts_with(ModelId::DEFAULT, DOWNLOAD_TIMEOUT, |_repo_id, _revision| {
-        Err(ModelIoError::Download("simulated".to_owned()))
-    })
-    .unwrap_err();
-    assert!(
-        matches!(err, ModelIoError::Download(ref s) if s == "simulated"),
-        "{err}"
-    );
-}
-
-#[test]
-fn download_artifacts_with_returns_timeout_when_worker_exceeds_budget() {
-    let err = download_artifacts_with(
-        ModelId::DEFAULT,
-        Duration::from_millis(50),
-        |_repo_id, _revision| {
-            thread::sleep(Duration::from_secs(2));
-            Err(ModelIoError::Download("unreachable".to_owned()))
-        },
-    )
-    .unwrap_err();
-    assert!(
-        matches!(err, ModelIoError::Download(ref s) if s.contains("timeout")),
-        "expected timeout message, got: {err}"
-    );
 }

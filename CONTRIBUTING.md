@@ -46,6 +46,41 @@ clippyの `--all-targets --all-features` はコンパイル検査であり、テ
 coverageも同じfeatureを使う。既存の除外regex・95%の閾値は維持し、
 追加対象を通すための除外は設けない。
 
+### download・probeの合成process検証（Issue #320）
+
+`src/model_probe/tests.rs` の大容量stderr、孫のFD保持、短いtimeoutは、それぞれ
+pipe詰まり、直接child終了後のEOF未到達、実行期限超過という異なる失敗経路を守るため維持する。
+保持範囲外のACKと切り詰めた原因の分類は公開probe入口から確認する。
+`src/owned_process/tests.rs` は同じ本番のcollection・終了経路を使い、両streamの
+256 KiB上限、継続出力中の期限確認、子孫の継続書込み停止、process group消滅とparentのthread数を確認する。
+所有groupの外にwriterが残る合成pipeでは、回収不能を2秒の猶予後にエラーとして返すことも確認する。
+readerの途中I/O失敗は実pipeを包むreaderに注入し、同じ回収経路で停止することと、
+別groupのwriterが動き続けることを確認する。別Mutexや合成exit statusだけを回収の証拠にしない。
+
+`src/model_io/download_process/tests.rs` はtest binaryをre-execし、HF I/Oだけをfakeに置き換える。
+本番のdispatch/result送信・collectionを通して、path返却、途中失敗、遅い書込み、hang、
+未登録時の再帰防止と不正requestの診断を確認する。timeoutを毎回別のfixtureで5回繰り返し、今回のworkerの開始とslowの書込みを要求した上で各groupが消滅し、
+未完了ファイルのsizeが返却後に増えず、parentのthread数が開始時に戻ることを確認する。
+孫FD保持も5回繰り返す。thread数はmacOSの `ps -M -p <parent PID>` で観測する。
+既存cache・他利用者の未完了ファイルは削除しないことを合成fixtureで確認する。
+同じ固定revisionのcache miss後に別consumerがpointerを公開し、HFの本番公開primitiveの
+symlink直前で子processを停止する検証も標準checkに含める。正常pointerの内容・inode、
+正常blob・他consumerの未完了ファイルの保全とgroup回収を確認する。
+HTTP/Xet共通の公開primitiveを使うが、通信やHF finalize全体の実行検証ではない。
+
+これらはモデル不要・非ignoredで、設定済み `bash scripts/check.sh` の標準nextest対象に含まれる。
+実行対象を絞る場合は以下を使える（全体checkの代替にはしない）。
+
+```sh
+cargo nextest run --locked --workspace --features test-support,test-mlx,smoke -E 'test(model_probe::tests) | test(model_io::download_process::tests) | test(owned_process::tests)'
+```
+
+上限とOS上の保証範囲、dispatcher登録の移行手順は[README](README.md#downloadprobeの終了管理)を参照。
+合成検証は実networkの通信・HF cache全経路、実consumerの移行、推論・検索品質や
+[#364](https://github.com/thkt/rurico/issues/364)の5000ペア実測を確認しない。
+実行前に開始commit・変更差分・Cargo.lock、実行後にツールチェーン・コマンド・終了コード・
+対象テスト名と結果を既存の検証記録へ残し、未実施の実network検証を別に明示する。
+
 ### vector byte-bindの実SQL検証（Issue #368）
 
 `src/storage/tests.rs` は本番の `ensure_sqlite_vec` を使い、登録後に開いた2つの
@@ -112,9 +147,15 @@ commit、run URLと実行回、保存・復元キー、対象パス、テスト�
 ネットワークアクセスや実モデルを要するテストは `#[ignore]` で gate されており、デフォルトでは実行されない。再有効化方法は各テストの doc comment に記載してある。例:
 
 ```sh
-# 実モデルを HF Hub からダウンロードして tokenizer 動作を検証
-cargo nextest run --run-ignored=ignored-only g_001_real_tokenizer_extract_prefix_tokens
+# 登録済みbinaryでcacheを準備してから、実tokenizerの既存assertionを実行する。
+cargo run --locked --features smoke --bin mlx_smoke -- prepare-cache
+cargo nextest run --locked --features test-support,test-mlx,smoke --run-ignored=ignored-only \
+  -E 'test(g_001_real_tokenizer_extract_prefix_tokens) | test(regression_prefix_merge_standalone_vs_full_tokenization_diverges)'
 ```
+
+lib test harnessはmain登録を持たないため、実tokenizerの2件はdownloadを呼ばず
+検証済みcacheを読む。`prepare-cache`は既存`mlx_smoke`のmodeで、専用helperの配布ではない。
+cacheがない場合は準備コマンドを示して失敗し、合成tokenizerへの置換やassertionの緩和は行わない。
 
 `src/embed/tests.rs` の実tokenizerを使う2件と、`src/reranker/tests.rs` 内
 `mlx_runtime_tests` モジュールのテストがこのカテゴリに該当する。

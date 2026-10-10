@@ -5,21 +5,14 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
-use std::thread;
 use std::time::Duration;
 
 use serde::de::DeserializeOwned;
 
 use crate::artifacts::ModelKind;
 
-/// Hard upper bound for a full `download_model` call (init + 3 file downloads).
-///
-/// Guards against an unreachable HF Hub endpoint or stalled corporate proxy
-/// from blocking the calling thread indefinitely. The download thread itself
-/// is detached on timeout and continues until the OS reclaims it on process
-/// exit; the user-visible behaviour is a deterministic `ModelIoError::Download`
-/// after the deadline.
+/// Processing deadline for init and all three downloads in an owned worker.
+/// Cleanup after the deadline has a separate two-second grace.
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// EOS (end of sequence) token ID for ruri-v3 models.
@@ -165,52 +158,7 @@ mod hf_backend;
 
 pub use hf_backend::download_artifacts;
 
-/// Generic seam — worker closure decides how to materialize `ModelPaths`.
-///
-/// The orchestration (thread spawn / mpsc / `recv_timeout`) and the actual
-/// download are split here so unit tests can pin worker success / failure /
-/// timeout paths without driving real HF Hub I/O. Production calls go
-/// through [`download_artifacts`].
-pub(crate) fn download_artifacts_with<Id, F>(
-    model: Id,
-    timeout: Duration,
-    download: F,
-) -> Result<ModelPaths, ModelIoError>
-where
-    Id: ModelArtifact,
-    F: FnOnce(&str, &str) -> Result<ModelPaths, ModelIoError> + Send + 'static,
-{
-    let repo_id: &'static str = model.repo_id();
-    let revision: &'static str = model.revision();
-
-    let (tx, rx) = mpsc::sync_channel(1);
-    thread::spawn(move || {
-        let _ = tx.send(download(repo_id, revision));
-    });
-
-    rx.recv_timeout(timeout).map_err(|e| match e {
-        mpsc::RecvTimeoutError::Timeout => {
-            tracing::error!(
-                repo_id,
-                revision,
-                timeout_secs = timeout.as_secs(),
-                "download_artifacts: HF Hub download timed out"
-            );
-            ModelIoError::Download(format!(
-                "download exceeded {} second timeout (HF Hub may be unreachable or proxy stalled)",
-                timeout.as_secs()
-            ))
-        }
-        mpsc::RecvTimeoutError::Disconnected => {
-            tracing::error!(
-                repo_id,
-                revision,
-                "download_artifacts: worker thread disconnected before sending result"
-            );
-            ModelIoError::Download("download worker terminated unexpectedly".to_owned())
-        }
-    })?
-}
+pub(crate) mod download_process;
 
 /// Check whether model files exist in the local HF Hub cache.
 ///
