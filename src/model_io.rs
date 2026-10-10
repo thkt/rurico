@@ -291,7 +291,7 @@ pub(crate) fn compute_sub_batch_size(bucket_len: usize, budget_override: Option<
 ///
 /// Panics if `masks` is `Some` and its length differs from `ids`.
 pub(crate) fn pad_sequences(
-    ids: &[Vec<u32>],
+    ids: &[impl AsRef<[u32]>],
     masks: Option<&[Vec<u32>]>,
     target_len: Option<usize>,
 ) -> (Vec<u32>, Vec<u32>, usize, usize) {
@@ -303,13 +303,14 @@ pub(crate) fn pad_sequences(
     );
 
     let batch_size = ids.len();
-    let actual_max = ids.iter().map(Vec::len).max().unwrap_or(0);
+    let actual_max = ids.iter().map(|ids| ids.as_ref().len()).max().unwrap_or(0);
     let max_len = target_len.map_or(actual_max, |t| t.max(actual_max));
 
     let mut flat_ids = vec![0u32; batch_size * max_len];
     let mut flat_mask = vec![0u32; batch_size * max_len];
 
     for (i, id_seq) in ids.iter().enumerate() {
+        let id_seq = id_seq.as_ref();
         let offset = i * max_len;
         flat_ids[offset..offset + id_seq.len()].copy_from_slice(id_seq);
         match masks {

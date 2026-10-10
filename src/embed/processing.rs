@@ -1,8 +1,8 @@
 //! Token planning, bucket distribution and readback validation for the MLX backend.
 use super::metrics::EmbedKind;
 use super::{
-    CHUNK_OVERLAP_TOKENS, DOCUMENT_PREFIX, EmbedError, MAX_SEQ_LEN, first_non_finite,
-    tokenize_with_prefix,
+    CHUNK_OVERLAP_TOKENS, DOCUMENT_PREFIX, EmbedError, MAX_SEQ_LEN, encode_with_prefix,
+    first_non_finite,
 };
 use crate::model_io::assign_bucket;
 
@@ -14,6 +14,12 @@ pub(super) struct IndexedChunk {
     pub(super) global_idx: usize,
     /// Tokenized chunk payload (includes prefix + BOS/EOS).
     pub(super) tokens: Vec<u32>,
+}
+
+impl AsRef<[u32]> for IndexedChunk {
+    fn as_ref(&self) -> &[u32] {
+        &self.tokens
+    }
 }
 
 /// Partition indexed chunks into the four length buckets.
@@ -158,17 +164,19 @@ pub(super) fn plan_document_chunks(
     let mut chunks_per_doc: Vec<usize> = Vec::new();
 
     for &text in texts {
-        let tok = tokenize_with_prefix(tokenizer, text, DOCUMENT_PREFIX)?;
+        let encoding = encode_with_prefix(tokenizer, text, DOCUMENT_PREFIX)?;
         // Estimate text token count from the full tokenization to decide short/long path.
         // The estimate may be off by 1 due to prefix boundary merging, but that only
         // affects the path selection for texts near the boundary — both paths are correct.
-        let text_token_count = tok.seq_len.saturating_sub(2 + prefix_tokens.len());
+        let text_token_count = encoding.len().saturating_sub(2 + prefix_tokens.len());
 
         if text_token_count <= max_content_tokens {
             // Short document: use full tokenization as-is (FR-012)
-            all_chunk_tokens.push(tok.input_ids);
+            all_chunk_tokens.push(encoding.get_ids().to_vec());
             chunks_per_doc.push(1);
         } else {
+            // Do not retain the whole-document Encoding while encoding chunks.
+            drop(encoding);
             let chunks = plan_long_document(tokenizer, text, max_content_tokens)?;
             chunks_per_doc.push(chunks.len());
             all_chunk_tokens.extend(chunks);
@@ -243,9 +251,9 @@ pub(super) fn shrink_chunk_to_fit(
             )));
         }
         let byte_end = offsets[*end - 1].1;
-        let tok = tokenize_with_prefix(tokenizer, &text[byte_start..byte_end], DOCUMENT_PREFIX)?;
-        if tok.seq_len <= MAX_SEQ_LEN {
-            return Ok(tok.input_ids);
+        let encoding = encode_with_prefix(tokenizer, &text[byte_start..byte_end], DOCUMENT_PREFIX)?;
+        if encoding.len() <= MAX_SEQ_LEN {
+            return Ok(encoding.get_ids().to_vec());
         }
         *end -= 1;
     }

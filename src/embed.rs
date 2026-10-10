@@ -46,8 +46,6 @@ pub(crate) const PROBE_ENV_CONFIG: &str = "__RURICO_PROBE_CONFIG";
 /// Probe env-var key for the embedding model tokenizer path.
 pub(crate) const PROBE_ENV_TOKENIZER: &str = "__RURICO_PROBE_TOKENIZER";
 
-// ── Domain alias ─────────────────────────────────────────────────────────────
-
 /// Verified embedding model artifacts.
 ///
 /// Produced by [`CandidateArtifacts::verify`] or [`download_model`].
@@ -56,16 +54,12 @@ pub(crate) const PROBE_ENV_TOKENIZER: &str = "__RURICO_PROBE_TOKENIZER";
 /// without error, and that the weights are for an embed model (not a reranker).
 pub type Artifacts = VerifiedArtifacts<EmbedKind>;
 
-// ── CandidateArtifacts ───────────────────────────────────────────────────────
-
 /// Unverified embedding model artifact paths.
 ///
 /// Type alias for [`crate::artifacts::CandidateArtifacts<EmbedKind>`] so the
 /// downstream-visible name `embed::CandidateArtifacts` keeps working while the
 /// underlying definition lives in `artifacts.rs` (single source of truth).
 pub type CandidateArtifacts = artifacts::CandidateArtifacts<EmbedKind>;
-
-// ── Constants ────────────────────────────────────────────────────────────────
 
 /// Output vector dimensionality for the default model (`cl-nagoya/ruri-v3-310m`).
 ///
@@ -94,8 +88,6 @@ pub(crate) const CHUNK_OVERLAP_TOKENS: usize = 2048;
 pub(crate) const fn max_content(prefix_len: usize) -> usize {
     MAX_SEQ_LEN - 2 - prefix_len
 }
-
-// ── ChunkedEmbedding ─────────────────────────────────────────────────────────
 
 /// Embedding result for a single text, potentially split into multiple chunks.
 ///
@@ -257,8 +249,6 @@ impl ChunkedEmbedding {
     }
 }
 
-// ── Token helpers ─────────────────────────────────────────────────────────────
-
 /// Extract prefix tokens by encoding the prefix string without special tokens.
 pub(crate) fn extract_prefix_tokens(
     tokenizer: &tokenizers::Tokenizer,
@@ -291,8 +281,6 @@ pub(crate) fn truncate_for_query(
     let len = input_ids.len();
     (input_ids, attention_mask, len)
 }
-
-// ── ModelId ───────────────────────────────────────────────────────────────────
 
 /// Identifies a ruri-v3 embedding model variant.
 ///
@@ -347,10 +335,6 @@ impl ModelArtifact for ModelId {
         }
     }
 }
-
-// ── EmbedInitError ────────────────────────────────────────────────────────────
-
-// ── EmbedError (runtime) ──────────────────────────────────────────────────────
 
 /// Errors from embedding operations at runtime.
 ///
@@ -435,8 +419,6 @@ impl EmbedError {
     }
 }
 
-// ── EmbedOptions ──────────────────────────────────────────────────────────────
-
 /// Best-effort performance hints for batch embedding.
 ///
 /// Both fields default to `None`, which preserves the implementation's
@@ -458,8 +440,6 @@ pub struct EmbedOptions {
     /// to other processes (e.g. WindowServer) between forwards.
     pub forward_pause: Option<Duration>,
 }
-
-// ── Embed trait ───────────────────────────────────────────────────────────────
 
 /// Embedding provider.
 ///
@@ -563,8 +543,6 @@ pub trait Embed: Send + Sync {
     fn embed_text(&self, text: &str, prefix: &str) -> Result<Vec<f32>, EmbedError>;
 }
 
-// ── TokenizedInput ────────────────────────────────────────────────────────────
-
 /// Output of [`tokenize_with_prefix`]: token IDs, attention mask, and sequence length.
 pub struct TokenizedInput {
     /// Token IDs produced by the tokenizer.
@@ -573,6 +551,20 @@ pub struct TokenizedInput {
     pub attention_mask: Vec<u32>,
     /// Number of tokens (including special tokens).
     pub seq_len: usize,
+}
+
+/// Share prefix encoding without materializing IDs/masks for rejected candidates.
+fn encode_with_prefix(
+    tokenizer: &tokenizers::Tokenizer,
+    text: &str,
+    prefix: &str,
+) -> Result<tokenizers::Encoding, EmbedError> {
+    let mut prefixed = String::with_capacity(prefix.len() + text.len());
+    prefixed.push_str(prefix);
+    prefixed.push_str(text);
+    tokenizer
+        .encode(prefixed, true)
+        .map_err(EmbedError::tokenizer)
 }
 
 /// Tokenize `text` with a prefix prepended (e.g. query/document prefix).
@@ -585,12 +577,7 @@ pub fn tokenize_with_prefix(
     text: &str,
     prefix: &str,
 ) -> Result<TokenizedInput, EmbedError> {
-    let mut prefixed = String::with_capacity(prefix.len() + text.len());
-    prefixed.push_str(prefix);
-    prefixed.push_str(text);
-    let encoding = tokenizer
-        .encode(prefixed, true)
-        .map_err(EmbedError::tokenizer)?;
+    let encoding = encode_with_prefix(tokenizer, text, prefix)?;
     let input_ids = encoding.get_ids().to_vec();
     let attention_mask = encoding.get_attention_mask().to_vec();
     let seq_len = input_ids.len();

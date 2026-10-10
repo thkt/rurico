@@ -197,10 +197,9 @@ impl EmbedderInner {
         detailed: bool,
     ) -> Result<Vec<Vec<f32>>, EmbedError> {
         let t_pad = detailed.then(Instant::now);
-        let sub_tokens: Vec<Vec<u32>> = sub_batch.iter().map(|c| c.tokens.clone()).collect();
         let (input_ids, attention_mask, batch_size, max_len) =
-            pad_sequences(&sub_tokens, None, Some(BUCKET_BOUNDS[bucket_idx]));
-        metrics.real_tokens += sub_tokens.iter().map(Vec::len).sum::<usize>();
+            pad_sequences(sub_batch, None, Some(BUCKET_BOUNDS[bucket_idx]));
+        metrics.real_tokens += sub_batch.iter().map(|c| c.tokens.len()).sum::<usize>();
         metrics.padded_tokens += batch_size * max_len;
         metrics.batch_size = metrics.batch_size.max(batch_size);
         metrics.max_seq_len = metrics.max_seq_len.max(max_len);

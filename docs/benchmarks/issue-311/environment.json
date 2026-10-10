@@ -1,0 +1,37 @@
+{
+  "sw_vers": {
+    "exit": 0,
+    "stdout": "ProductName:\t\tmacOS\nProductVersion:\t\t27.0.1\nBuildVersion:\t\t26A434\n",
+    "stderr": ""
+  },
+  "uname -m": {
+    "exit": 0,
+    "stdout": "arm64\n",
+    "stderr": ""
+  },
+  "rustc -vV": {
+    "exit": 0,
+    "stdout": "rustc 1.99.0 (b940084d7 2026-09-28)\nbinary: rustc\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\ncommit-date: 2026-09-28\nhost: aarch64-apple-darwin\nrelease: 1.99.0\nLLVM version: 23.1.1\n",
+    "stderr": ""
+  },
+  "cargo --version": {
+    "exit": 0,
+    "stdout": "cargo 1.99.0 (5f94df478 2026-08-27)\n",
+    "stderr": ""
+  },
+  "xcodebuild -version": {
+    "exit": 0,
+    "stdout": "Xcode 27.0\nBuild version 27A266a\n",
+    "stderr": ""
+  },
+  "xcrun --sdk macosx --show-sdk-version": {
+    "exit": 0,
+    "stdout": "27.0\n",
+    "stderr": ""
+  },
+  "system_profiler SPHardwareDataType": {
+    "exit": 0,
+    "stdout": "      Model Name: MacBook Pro\n      Model Identifier: Mac15,3\n      Chip: Apple M3\n      Total Number of Cores: 8 (4 Performance and 4 Efficiency)\n      Memory: 24 GB",
+    "stderr": ""
+  }
+}

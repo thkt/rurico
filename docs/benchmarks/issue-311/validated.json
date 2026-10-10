@@ -1,0 +1,14 @@
+{
+  "records": 122,
+  "inferences": 97,
+  "warm_groups": 24,
+  "warm_repetitions": 3,
+  "summaries": 24,
+  "summary_equal": true,
+  "cpu_records": 70,
+  "cpu_summary_equal": true,
+  "process_observations": 2829,
+  "competing_observations": 0,
+  "complete": true,
+  "scope": "Fixed310m fixture/order/chunks/options/readback validation and Rust allocator-request observations. Debug dependency CPU harness is not product release latency; no new official numerical or amici quality evaluation. Polling cannot exclude unknown or brief GPU activity."
+}
