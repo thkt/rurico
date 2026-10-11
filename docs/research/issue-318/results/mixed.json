@@ -1,0 +1,154 @@
+[
+  {
+    "case": "mixed",
+    "event": "context",
+    "hidden": 768,
+    "intermediate": 3072,
+    "model": "cl-nagoya/ruri-v3-reranker-310m",
+    "revision": "bb46934ee9ed09f850b9fcff17501b3ef7ddb2b3"
+  },
+  {
+    "event": "mixed",
+    "lock_wait_ns": 8750,
+    "model": "embed",
+    "parallel": false,
+    "trial": 0,
+    "wall_ns": 65443583
+  },
+  {
+    "event": "mixed",
+    "lock_wait_ns": null,
+    "model": "reranker",
+    "parallel": false,
+    "trial": 0,
+    "wall_ns": 52841417
+  },
+  {
+    "active_bytes": 2519393088,
+    "event": "mixed_peak",
+    "parallel": false,
+    "peak_bytes": 2775247176,
+    "trial": 0,
+    "wall_ns": 118580333
+  },
+  {
+    "event": "mixed",
+    "lock_wait_ns": null,
+    "model": "reranker",
+    "parallel": true,
+    "trial": 0,
+    "wall_ns": 78213209
+  },
+  {
+    "event": "mixed",
+    "lock_wait_ns": 250,
+    "model": "embed",
+    "parallel": true,
+    "trial": 0,
+    "wall_ns": 78227500
+  },
+  {
+    "active_bytes": 2519393088,
+    "event": "mixed_peak",
+    "parallel": true,
+    "peak_bytes": 2872644748,
+    "trial": 0,
+    "wall_ns": 78532000
+  },
+  {
+    "event": "mixed",
+    "lock_wait_ns": 417,
+    "model": "embed",
+    "parallel": true,
+    "trial": 1,
+    "wall_ns": 70555709
+  },
+  {
+    "event": "mixed",
+    "lock_wait_ns": null,
+    "model": "reranker",
+    "parallel": true,
+    "trial": 1,
+    "wall_ns": 70565834
+  },
+  {
+    "active_bytes": 2519393088,
+    "event": "mixed_peak",
+    "parallel": true,
+    "peak_bytes": 2837573328,
+    "trial": 1,
+    "wall_ns": 70937750
+  },
+  {
+    "event": "mixed",
+    "lock_wait_ns": 375,
+    "model": "embed",
+    "parallel": false,
+    "trial": 1,
+    "wall_ns": 36570792
+  },
+  {
+    "event": "mixed",
+    "lock_wait_ns": null,
+    "model": "reranker",
+    "parallel": false,
+    "trial": 1,
+    "wall_ns": 35727208
+  },
+  {
+    "active_bytes": 2519393088,
+    "event": "mixed_peak",
+    "parallel": false,
+    "peak_bytes": 2764968168,
+    "trial": 1,
+    "wall_ns": 72635042
+  },
+  {
+    "event": "mixed",
+    "lock_wait_ns": 500,
+    "model": "embed",
+    "parallel": false,
+    "trial": 2,
+    "wall_ns": 42894083
+  },
+  {
+    "event": "mixed",
+    "lock_wait_ns": null,
+    "model": "reranker",
+    "parallel": false,
+    "trial": 2,
+    "wall_ns": 40339583
+  },
+  {
+    "active_bytes": 2519393088,
+    "event": "mixed_peak",
+    "parallel": false,
+    "peak_bytes": 2775247176,
+    "trial": 2,
+    "wall_ns": 83559541
+  },
+  {
+    "event": "mixed",
+    "lock_wait_ns": 250,
+    "model": "embed",
+    "parallel": true,
+    "trial": 2,
+    "wall_ns": 78783375
+  },
+  {
+    "event": "mixed",
+    "lock_wait_ns": null,
+    "model": "reranker",
+    "parallel": true,
+    "trial": 2,
+    "wall_ns": 78793333
+  },
+  {
+    "active_bytes": 2519393088,
+    "event": "mixed_peak",
+    "parallel": true,
+    "peak_bytes": 2849828480,
+    "trial": 2,
+    "wall_ns": 79167375
+  }
+]

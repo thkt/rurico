@@ -1,0 +1,71 @@
+[
+  {
+    "label": "queue",
+    "source_sha256": "12bacb24556e46e188e16d836b486c6b1a6a9132abc0261795a0c3dca6af5391",
+    "binary_sha256": "8dee94b3a620e21a72607427bbc017f8a3dea36fac06be134e74374e8d8a8ba0",
+    "build_exit": 0,
+    "build_seconds": 88.96071845799452,
+    "runner_exit": 1,
+    "status": {
+      "case": "deadline",
+      "complete": false,
+      "exit_code": 101,
+      "group_absent": true
+    },
+    "change_before": "if stopped(cancel.load(Ordering::Relaxed), deadline) {\n                    break;",
+    "change_after": "if completed == 0 && stopped(cancel.load(Ordering::Relaxed), deadline) {\n                    break;",
+    "forward_records_before_exit": 2,
+    "failure_assertion": "measurement deadline expired before forward",
+    "sampled_rss_peak_bytes": 1661665280,
+    "pressure_levels": [
+      1
+    ],
+    "sampled_swap_increase_bytes": 0.0
+  },
+  {
+    "label": "sequential",
+    "source_sha256": "ba2629a463cd4131a3c14a3adf13e111ff62e6cac5cd94e491969182d89ee15b",
+    "binary_sha256": "5590c5f6bb3e361d1b92b0e0acf125eb74c60dfa1868f87a9445817ac7397f69",
+    "build_exit": 0,
+    "build_seconds": 67.89939733300707,
+    "runner_exit": 1,
+    "status": {
+      "case": "deadline",
+      "complete": false,
+      "exit_code": 101,
+      "group_absent": true
+    },
+    "change_before": "if stopped(cancel.load(Ordering::Relaxed), deadline) {\n                break;",
+    "change_after": "if start == 0 && stopped(cancel.load(Ordering::Relaxed), deadline) {\n                break;",
+    "forward_records_before_exit": 1,
+    "failure_assertion": "measurement deadline expired before forward",
+    "sampled_rss_peak_bytes": 1661206528,
+    "pressure_levels": [
+      1
+    ],
+    "sampled_swap_increase_bytes": 0.0
+  },
+  {
+    "label": "restored",
+    "source_sha256": "72e547f7adde5a0673fcc928a8221672a150cecc5882f06c9e0de08435eb72d9",
+    "binary_sha256": "ccd1a5b7e8a1532210ff35b6e9b041ab99f38369ec64abf6a1e0d6dbcfc1fee8",
+    "build_exit": 0,
+    "build_seconds": 68.18974270799663,
+    "runner_exit": 0,
+    "status": {
+      "case": "deadline",
+      "complete": true,
+      "exit_code": 0,
+      "group_absent": true
+    },
+    "change_before": null,
+    "change_after": null,
+    "forward_records_before_exit": 6,
+    "failure_assertion": null,
+    "sampled_rss_peak_bytes": 1661861888,
+    "pressure_levels": [
+      1
+    ],
+    "sampled_swap_increase_bytes": 0.0
+  }
+]

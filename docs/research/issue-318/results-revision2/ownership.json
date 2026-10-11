@@ -1,0 +1,868 @@
+[
+  {
+    "case": "ownership",
+    "event": "context",
+    "hidden": 768,
+    "intermediate": 3072,
+    "model": "cl-nagoya/ruri-v3-310m",
+    "revision": "18b60fb8c2b9df296fb4212bb7d23ef94e579cd3"
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      },
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 458,
+    "shared": true,
+    "trial": 0,
+    "turn": 0,
+    "wall_ns": 97861833,
+    "worker": 1
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 97867208,
+    "shared": true,
+    "trial": 0,
+    "turn": 0,
+    "wall_ns": 136423208,
+    "worker": 0
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      },
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 38321209,
+    "shared": true,
+    "trial": 0,
+    "turn": 1,
+    "wall_ns": 112882750,
+    "worker": 1
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 74364667,
+    "shared": true,
+    "trial": 0,
+    "turn": 1,
+    "wall_ns": 110717458,
+    "worker": 0
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      },
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 36111917,
+    "shared": true,
+    "trial": 0,
+    "turn": 2,
+    "wall_ns": 108158333,
+    "worker": 1
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 71831083,
+    "shared": true,
+    "trial": 0,
+    "turn": 2,
+    "wall_ns": 107806417,
+    "worker": 0
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      },
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 35695458,
+    "shared": true,
+    "trial": 0,
+    "turn": 3,
+    "wall_ns": 119177417,
+    "worker": 1
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 83287167,
+    "shared": true,
+    "trial": 0,
+    "turn": 3,
+    "wall_ns": 125735708,
+    "worker": 0
+  },
+  {
+    "active_bytes": 2516962096,
+    "event": "ownership_peak",
+    "peak_bytes": 2772816680,
+    "shared": true,
+    "trial": 0
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 83,
+    "shared": false,
+    "trial": 0,
+    "turn": 0,
+    "wall_ns": 68136750,
+    "worker": 0
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 459,
+    "shared": false,
+    "trial": 0,
+    "turn": 1,
+    "wall_ns": 70744750,
+    "worker": 0
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      },
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 833,
+    "shared": false,
+    "trial": 0,
+    "turn": 0,
+    "wall_ns": 142491500,
+    "worker": 1
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 584,
+    "shared": false,
+    "trial": 0,
+    "turn": 2,
+    "wall_ns": 70509375,
+    "worker": 0
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 208,
+    "shared": false,
+    "trial": 0,
+    "turn": 3,
+    "wall_ns": 69794458,
+    "worker": 0
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      },
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 208,
+    "shared": false,
+    "trial": 0,
+    "turn": 1,
+    "wall_ns": 137235583,
+    "worker": 1
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      },
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 791,
+    "shared": false,
+    "trial": 0,
+    "turn": 2,
+    "wall_ns": 82966708,
+    "worker": 1
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      },
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 542,
+    "shared": false,
+    "trial": 0,
+    "turn": 3,
+    "wall_ns": 80255125,
+    "worker": 1
+  },
+  {
+    "active_bytes": 2517027632,
+    "event": "ownership_peak",
+    "peak_bytes": 2890923800,
+    "shared": false,
+    "trial": 0
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 125,
+    "shared": false,
+    "trial": 1,
+    "turn": 0,
+    "wall_ns": 69335584,
+    "worker": 0
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 125,
+    "shared": false,
+    "trial": 1,
+    "turn": 1,
+    "wall_ns": 71193541,
+    "worker": 0
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      },
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 208,
+    "shared": false,
+    "trial": 1,
+    "turn": 0,
+    "wall_ns": 140990292,
+    "worker": 1
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 458,
+    "shared": false,
+    "trial": 1,
+    "turn": 2,
+    "wall_ns": 71595458,
+    "worker": 0
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 208,
+    "shared": false,
+    "trial": 1,
+    "turn": 3,
+    "wall_ns": 68728333,
+    "worker": 0
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      },
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 84,
+    "shared": false,
+    "trial": 1,
+    "turn": 1,
+    "wall_ns": 139825250,
+    "worker": 1
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      },
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 500,
+    "shared": false,
+    "trial": 1,
+    "turn": 2,
+    "wall_ns": 72084625,
+    "worker": 1
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      },
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 333,
+    "shared": false,
+    "trial": 1,
+    "turn": 3,
+    "wall_ns": 71330750,
+    "worker": 1
+  },
+  {
+    "active_bytes": 2517027632,
+    "event": "ownership_peak",
+    "peak_bytes": 2889799936,
+    "shared": false,
+    "trial": 1
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      },
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 500,
+    "shared": true,
+    "trial": 1,
+    "turn": 0,
+    "wall_ns": 85418000,
+    "worker": 1
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 85419542,
+    "shared": true,
+    "trial": 1,
+    "turn": 0,
+    "wall_ns": 125262125,
+    "worker": 0
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      },
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 39606500,
+    "shared": true,
+    "trial": 1,
+    "turn": 1,
+    "wall_ns": 118504417,
+    "worker": 1
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 78734750,
+    "shared": true,
+    "trial": 1,
+    "turn": 1,
+    "wall_ns": 124240542,
+    "worker": 0
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      },
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 45302833,
+    "shared": true,
+    "trial": 1,
+    "turn": 2,
+    "wall_ns": 128527208,
+    "worker": 1
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 83031000,
+    "shared": true,
+    "trial": 1,
+    "turn": 2,
+    "wall_ns": 122470333,
+    "worker": 0
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      },
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 39198333,
+    "shared": true,
+    "trial": 1,
+    "turn": 3,
+    "wall_ns": 123602333,
+    "worker": 1
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 84212125,
+    "shared": true,
+    "trial": 1,
+    "turn": 3,
+    "wall_ns": 123329000,
+    "worker": 0
+  },
+  {
+    "active_bytes": 2517027632,
+    "event": "ownership_peak",
+    "peak_bytes": 2772882216,
+    "shared": true,
+    "trial": 1
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      },
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 250,
+    "shared": true,
+    "trial": 2,
+    "turn": 0,
+    "wall_ns": 84783542,
+    "worker": 1
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 84785416,
+    "shared": true,
+    "trial": 2,
+    "turn": 0,
+    "wall_ns": 124469750,
+    "worker": 0
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      },
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 39494917,
+    "shared": true,
+    "trial": 2,
+    "turn": 1,
+    "wall_ns": 121363333,
+    "worker": 1
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 81668042,
+    "shared": true,
+    "trial": 2,
+    "turn": 1,
+    "wall_ns": 121214625,
+    "worker": 0
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      },
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 39371750,
+    "shared": true,
+    "trial": 2,
+    "turn": 2,
+    "wall_ns": 117848458,
+    "worker": 1
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 78295875,
+    "shared": true,
+    "trial": 2,
+    "turn": 2,
+    "wall_ns": 114655083,
+    "worker": 0
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      },
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 36161625,
+    "shared": true,
+    "trial": 2,
+    "turn": 3,
+    "wall_ns": 107834042,
+    "worker": 1
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 71520709,
+    "shared": true,
+    "trial": 2,
+    "turn": 3,
+    "wall_ns": 107636959,
+    "worker": 0
+  },
+  {
+    "active_bytes": 2517027632,
+    "event": "ownership_peak",
+    "peak_bytes": 2772882216,
+    "shared": true,
+    "trial": 2
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 250,
+    "shared": false,
+    "trial": 2,
+    "turn": 0,
+    "wall_ns": 70274792,
+    "worker": 0
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      },
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 166,
+    "shared": false,
+    "trial": 2,
+    "turn": 0,
+    "wall_ns": 140941833,
+    "worker": 1
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 208,
+    "shared": false,
+    "trial": 2,
+    "turn": 1,
+    "wall_ns": 70459291,
+    "worker": 0
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 83,
+    "shared": false,
+    "trial": 2,
+    "turn": 2,
+    "wall_ns": 78404541,
+    "worker": 0
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      },
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 375,
+    "shared": false,
+    "trial": 2,
+    "turn": 1,
+    "wall_ns": 153486208,
+    "worker": 1
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 292,
+    "shared": false,
+    "trial": 2,
+    "turn": 3,
+    "wall_ns": 74747042,
+    "worker": 0
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      },
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 375,
+    "shared": false,
+    "trial": 2,
+    "turn": 2,
+    "wall_ns": 85651583,
+    "worker": 1
+  },
+  {
+    "event": "ownership",
+    "forwards": [
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      },
+      {
+        "batch_size": 1,
+        "sequence_length": 128
+      }
+    ],
+    "lock_wait_ns": 375,
+    "shared": false,
+    "trial": 2,
+    "turn": 3,
+    "wall_ns": 79434375,
+    "worker": 1
+  },
+  {
+    "active_bytes": 2517027632,
+    "event": "ownership_peak",
+    "peak_bytes": 2901662044,
+    "shared": false,
+    "trial": 2
+  }
+]

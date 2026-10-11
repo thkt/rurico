@@ -1,0 +1,328 @@
+[
+  {
+    "case": "deadline",
+    "event": "context",
+    "hidden": 768,
+    "intermediate": 3072,
+    "model": "cl-nagoya/ruri-v3-reranker-310m",
+    "revision": "bb46934ee9ed09f850b9fcff17501b3ef7ddb2b3"
+  },
+  {
+    "event": "trial",
+    "overlap": false,
+    "trial": 0
+  },
+  {
+    "event": "deadline_forward",
+    "forward_wall_ns": 341277292,
+    "overrun_at_end_ns": 331278417,
+    "remaining_at_start_ns": 9998875,
+    "rows": 10
+  },
+  {
+    "active_bytes": 1260879276,
+    "bucket": 128,
+    "cache_bytes": 98440296,
+    "event": "forward",
+    "ids_dtype": "u32",
+    "output_dtype": "f32",
+    "peak_bytes": 3040215440,
+    "prepared_bytes": 960,
+    "rows": 10,
+    "wall_ns": 341446417
+  },
+  {
+    "cancelled": false,
+    "completed": 10,
+    "event": "stream",
+    "overlap": false,
+    "requested": 50,
+    "wall_ns": 341787292
+  },
+  {
+    "complete_vec_rejected": true,
+    "completed": 10,
+    "event": "deadline_result",
+    "measurement_deadline_ms": 10,
+    "overlap": false,
+    "trial": 0
+  },
+  {
+    "event": "trial",
+    "overlap": true,
+    "trial": 0
+  },
+  {
+    "delivered_ns": 164791,
+    "event": "producer",
+    "prepared_ns": 161416,
+    "send_ok": true,
+    "start_ns": 75125
+  },
+  {
+    "delivered_ns": 347583,
+    "event": "producer",
+    "prepared_ns": 347541,
+    "send_ok": true,
+    "start_ns": 295250
+  },
+  {
+    "event": "deadline_forward",
+    "forward_wall_ns": 357181583,
+    "overrun_at_end_ns": 347182833,
+    "remaining_at_start_ns": 9998750,
+    "rows": 10
+  },
+  {
+    "active_bytes": 1260879276,
+    "bucket": 128,
+    "cache_bytes": 98440296,
+    "event": "forward",
+    "ids_dtype": "u32",
+    "output_dtype": "f32",
+    "peak_bytes": 3040215440,
+    "prepared_bytes": 960,
+    "rows": 10,
+    "wall_ns": 357355583
+  },
+  {
+    "end_ns": 357763666,
+    "event": "consumer",
+    "start_ns": 171333
+  },
+  {
+    "delivered_ns": 357854625,
+    "event": "producer",
+    "prepared_ns": 482583,
+    "send_ok": false,
+    "start_ns": 423291
+  },
+  {
+    "cancelled": false,
+    "completed": 10,
+    "event": "stream",
+    "overlap": true,
+    "requested": 50,
+    "wall_ns": 367896750
+  },
+  {
+    "complete_vec_rejected": true,
+    "completed": 10,
+    "event": "deadline_result",
+    "measurement_deadline_ms": 10,
+    "overlap": true,
+    "trial": 0
+  },
+  {
+    "event": "trial",
+    "overlap": false,
+    "trial": 1
+  },
+  {
+    "event": "deadline_forward",
+    "forward_wall_ns": 342224416,
+    "overrun_at_end_ns": 332225333,
+    "remaining_at_start_ns": 9999083,
+    "rows": 10
+  },
+  {
+    "active_bytes": 1260879276,
+    "bucket": 128,
+    "cache_bytes": 98440296,
+    "event": "forward",
+    "ids_dtype": "u32",
+    "output_dtype": "f32",
+    "peak_bytes": 3040215440,
+    "prepared_bytes": 960,
+    "rows": 10,
+    "wall_ns": 342392500
+  },
+  {
+    "cancelled": false,
+    "completed": 10,
+    "event": "stream",
+    "overlap": false,
+    "requested": 50,
+    "wall_ns": 342710334
+  },
+  {
+    "complete_vec_rejected": true,
+    "completed": 10,
+    "event": "deadline_result",
+    "measurement_deadline_ms": 10,
+    "overlap": false,
+    "trial": 1
+  },
+  {
+    "event": "trial",
+    "overlap": true,
+    "trial": 1
+  },
+  {
+    "delivered_ns": 151166,
+    "event": "producer",
+    "prepared_ns": 149083,
+    "send_ok": true,
+    "start_ns": 67708
+  },
+  {
+    "delivered_ns": 348333,
+    "event": "producer",
+    "prepared_ns": 348250,
+    "send_ok": true,
+    "start_ns": 286041
+  },
+  {
+    "event": "deadline_forward",
+    "forward_wall_ns": 350147375,
+    "overrun_at_end_ns": 340148750,
+    "remaining_at_start_ns": 9998625,
+    "rows": 10
+  },
+  {
+    "active_bytes": 1260879276,
+    "bucket": 128,
+    "cache_bytes": 98440296,
+    "event": "forward",
+    "ids_dtype": "u32",
+    "output_dtype": "f32",
+    "peak_bytes": 3040215440,
+    "prepared_bytes": 960,
+    "rows": 10,
+    "wall_ns": 350385000
+  },
+  {
+    "end_ns": 350853083,
+    "event": "consumer",
+    "start_ns": 156291
+  },
+  {
+    "delivered_ns": 350970875,
+    "event": "producer",
+    "prepared_ns": 514000,
+    "send_ok": false,
+    "start_ns": 445166
+  },
+  {
+    "cancelled": false,
+    "completed": 10,
+    "event": "stream",
+    "overlap": true,
+    "requested": 50,
+    "wall_ns": 364152083
+  },
+  {
+    "complete_vec_rejected": true,
+    "completed": 10,
+    "event": "deadline_result",
+    "measurement_deadline_ms": 10,
+    "overlap": true,
+    "trial": 1
+  },
+  {
+    "event": "trial",
+    "overlap": false,
+    "trial": 2
+  },
+  {
+    "event": "deadline_forward",
+    "forward_wall_ns": 355864042,
+    "overrun_at_end_ns": 345865000,
+    "remaining_at_start_ns": 9999042,
+    "rows": 10
+  },
+  {
+    "active_bytes": 1260879276,
+    "bucket": 128,
+    "cache_bytes": 98440296,
+    "event": "forward",
+    "ids_dtype": "u32",
+    "output_dtype": "f32",
+    "peak_bytes": 3040215440,
+    "prepared_bytes": 960,
+    "rows": 10,
+    "wall_ns": 356094167
+  },
+  {
+    "cancelled": false,
+    "completed": 10,
+    "event": "stream",
+    "overlap": false,
+    "requested": 50,
+    "wall_ns": 356513542
+  },
+  {
+    "complete_vec_rejected": true,
+    "completed": 10,
+    "event": "deadline_result",
+    "measurement_deadline_ms": 10,
+    "overlap": false,
+    "trial": 2
+  },
+  {
+    "event": "trial",
+    "overlap": true,
+    "trial": 2
+  },
+  {
+    "delivered_ns": 163834,
+    "event": "producer",
+    "prepared_ns": 161209,
+    "send_ok": true,
+    "start_ns": 73792
+  },
+  {
+    "delivered_ns": 338417,
+    "event": "producer",
+    "prepared_ns": 338334,
+    "send_ok": true,
+    "start_ns": 272584
+  },
+  {
+    "event": "deadline_forward",
+    "forward_wall_ns": 329537500,
+    "overrun_at_end_ns": 319539083,
+    "remaining_at_start_ns": 9998417,
+    "rows": 10
+  },
+  {
+    "active_bytes": 1260879276,
+    "bucket": 128,
+    "cache_bytes": 98440296,
+    "event": "forward",
+    "ids_dtype": "u32",
+    "output_dtype": "f32",
+    "peak_bytes": 3040215440,
+    "prepared_bytes": 960,
+    "rows": 10,
+    "wall_ns": 329674750
+  },
+  {
+    "end_ns": 330003167,
+    "event": "consumer",
+    "start_ns": 171334
+  },
+  {
+    "delivered_ns": 330071209,
+    "event": "producer",
+    "prepared_ns": 475167,
+    "send_ok": false,
+    "start_ns": 407500
+  },
+  {
+    "cancelled": false,
+    "completed": 10,
+    "event": "stream",
+    "overlap": true,
+    "requested": 50,
+    "wall_ns": 339806417
+  },
+  {
+    "complete_vec_rejected": true,
+    "completed": 10,
+    "event": "deadline_result",
+    "measurement_deadline_ms": 10,
+    "overlap": true,
+    "trial": 2
+  }
+]

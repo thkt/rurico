@@ -382,6 +382,13 @@ Python参照環境の通常インストール・依存整合・厳密な導入�
 そのSQLite研究検証はPython標準ライブラリで実行できる。製品入口との照合は通常のRust searchテストに含まれるが、
 amiciの固定版parserとround-trip確認は標準checkの対象外なので、同ページのホスト手順で別途確認する。
 
+### 上限付き逐次推論の設計比較（Issue #318）
+
+[調査の入口](docs/research/issue-318/README.md)に、既存tokenizer/MLX/cleanupを使う
+研究用crateと、入力保持・forwardサイズ・overlap・cancel・公平性・実行所有権の比較を示す。
+pure plannerの境界試験は標準checkのlibtestに含む。実モデル比較は別のホスト検証であり、
+製品上限・deadline・新しいruntime方式の採用や5000ペアの完了を標準check成功から判断しない。
+
 ### 構成識別の設計例（Issue #315）
 
 embedding・FTS構成の保存と照合の未採用案は、[設計報告と実行例](docs/research/issue-315/README.md)を参照する。
