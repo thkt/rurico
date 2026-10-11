@@ -372,6 +372,9 @@ cargo run --features smoke --bin mlx_smoke
 Python参照環境の通常インストール・依存整合・厳密な導入版・モデル不要テストもCIの`test`ジョブで検証する。
 [Python環境の検証手順](docs/research/issue-307/README.md#ホストで実行する)を使い、実モデル比較とは区別する。
 [準備時点の記録](docs/research/issue-307/report.md)から測定状況と未確認範囲を確認できる。
+候補SHAに対応する継続確認は[Issue #366の入口](docs/research/issue-307/README.md#候補commitの継続検証issue-366)を使う。
+通常の軽量検証と、固定入力の実モデル数値＋amici検索評価を明示的に分ける。
+標準checkは候補照合・失敗時の未完了制御を検証するが、実モデルlaneを実行しない。
 
 ### 検索意味とquery planの設計比較（Issue #314）
 

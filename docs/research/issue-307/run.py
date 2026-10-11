@@ -11,7 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from compare import compare, require
-from reference import REVISIONS, capture, environment
+from reference import REVISIONS, environment
+from reference_process import capture_isolated
 
 ROOT = Path(__file__).resolve().parents[3]
 HERE = Path(__file__).resolve().parent
@@ -36,9 +37,9 @@ def command(args, cwd=ROOT):
     return subprocess.check_output(args,cwd=cwd,text=True).strip()
 
 
-def source():
-    names = command(["git","ls-files","--cached","--others","--exclude-standard"]).splitlines()
-    return {name:sha(ROOT/name) for name in names if (ROOT/name).is_file()
+def source(root=ROOT):
+    names = command(["git","ls-files","--cached","--others","--exclude-standard"], cwd=root).splitlines()
+    return {name:sha(root/name) for name in names if (root/name).is_file()
             and "__pycache__" not in Path(name).parts}
 
 
@@ -98,21 +99,20 @@ def models(out):
     return paths, manifest
 
 
-def numerical(out):
+def numerical(out, root=ROOT, candidate=None):
     require(platform.system() == "Darwin" and platform.machine() == "arm64", "Apple Silicon host required")
     packages = environment()
     require(not os.environ.get("RUSTFLAGS") and not os.environ.get("CARGO_ENCODED_RUSTFLAGS"), "use the documented default build flags")
-    before = source()
-    subprocess.run(["git","merge-base","--is-ancestor",START,"HEAD"],cwd=ROOT,check=True)
-    # Only test support may differ from the agreed start. Source hashes identify
-    # the uncommitted implementation as well as the fixed production baseline.
-    write(out/"environment.json",{"start_commit":START,"head":command(["git","rev-parse","HEAD"]),"machine":machine(),"python_packages":packages,
+    before = source(root)
+    subprocess.run(["git","merge-base","--is-ancestor",START,"HEAD"],cwd=root,check=True)
+    write(out/"environment.json",{"start_commit":START,"head":command(["git","rev-parse","HEAD"], cwd=root),"candidate_sha":candidate,
+                                "dirty":bool(command(["git","status","--porcelain"], cwd=root)),"input_sha256":sha(HERE/"inputs.json"),"machine":machine(),"python_packages":packages,
                                 "source":before,"started_utc":datetime.now(timezone.utc).isoformat(),
                                 "mlx":"mlx-rs/MLX versions resolved by the hashed Cargo.lock and mlx-sys source"})
     paths, model_manifest = models(out)
     inputs = json.loads((HERE/"inputs.json").read_text())
     build = ["cargo","test","--locked","--lib","--features","smoke","--no-run","--message-format=json"]
-    build_result = subprocess.run(build,cwd=ROOT,text=True,capture_output=True)
+    build_result = subprocess.run(build,cwd=root,text=True,capture_output=True)
     (out/"build.private.log").write_text(build_result.stdout+build_result.stderr)
     write(out/"build-attempt.json",{"command":build,"exit_code":build_result.returncode})
     require(build_result.returncode == 0,"build failed; inspect build.private.log")
@@ -121,19 +121,19 @@ def numerical(out):
                    and r.get("executable") and r["target"]["name"] == "rurico" and r["profile"]["test"]]
     require(len(executables) == 1,"could not identify library test executable")
     binary = executables[0]
-    write(out/"build.json",{"command":build,"executable_sha256":sha(binary),"cargo_lock_sha256":sha(ROOT/"Cargo.lock"),
+    write(out/"build.json",{"command":build,"executable_sha256":sha(binary),"cargo_lock_sha256":sha(root/"Cargo.lock"),
                            "rustflags":None,"profile":"test"})
     for kind in REVISIONS:
         env = dict(os.environ,RURICO_307_INPUTS=str(HERE/"inputs.json"),RURICO_307_OUTPUT=str(out/f"rurico-{kind}.json"),RURICO_307_MODEL_DIR=str(paths[kind]))
         test = f"research::official_comparison_{kind}"
         # Logs remain private: existing loader logs may contain local paths.
         with (out/f"{kind}.private.log").open("x") as log:
-            subprocess.run([binary,test,"--exact","--ignored","--nocapture","--test-threads=1"],cwd=ROOT,env=env,stdout=log,stderr=log,check=True)
+            subprocess.run([binary,test,"--exact","--ignored","--nocapture","--test-threads=1"],cwd=root,env=env,stdout=log,stderr=log,check=True)
         observed = json.loads((out/f"rurico-{kind}.json").read_text())
-        reference = capture(kind,paths[kind],observed,inputs)
+        reference = capture_isolated(kind,paths[kind],observed,inputs,out)
         write(out/f"reference-{kind}.json",reference)
         write(out/f"comparison-{kind}.json",compare(observed,reference,inputs))
-    require(before == source(),"source changed during observation")
+    require(before == source(root),"source changed during observation")
     require(sha(binary) == json.loads((out/"build.json").read_text())["executable_sha256"],"binary changed")
     for kind,path in paths.items():
         for name,info in model_manifest[kind]["files"].items():
