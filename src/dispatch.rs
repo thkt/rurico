@@ -1,4 +1,4 @@
-//! Top-level probe dispatcher that wires the embed and reranker domains into
+//! Top-level download/probe dispatcher that wires the model domains into
 //! a single `main()` entry point.
 //!
 //! Lives above `model_probe`, `embed`, and `reranker` to break the dependency
@@ -6,16 +6,26 @@
 //! `embed`/`reranker` re-exported `model_probe` symbols.
 
 use std::env;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static INSTALLED: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn installed() -> bool {
+    INSTALLED.load(Ordering::Acquire)
+}
 
 use crate::artifacts::{EmbedKind, RerankerKind};
+use crate::model_io::download_process;
 use crate::model_lifecycle;
 use crate::{embed, model_probe, reranker};
 
-/// Single entry point for probe subprocess dispatch in host binaries.
+/// Single entry point for download and probe subprocess dispatch in host binaries.
 ///
-/// Call at the start of `main()`. When invoked as a probe subprocess (detected
+/// Required at the start of `main()` for download, even without probes.
+/// When invoked as a probe subprocess (detected
 /// via env vars), this function loads the appropriate model and exits via
-/// [`std::process::exit`]. Otherwise returns immediately.
+/// [`std::process::exit`]. A download worker instead fetches its requested artifacts
+/// and exits. Otherwise registers the dispatcher and returns immediately.
 ///
 /// # Process Behavior
 ///
@@ -35,6 +45,11 @@ pub fn handle_probe_if_needed_with<F>(get: F)
 where
     F: Fn(&str) -> Option<String>,
 {
+    INSTALLED.store(true, Ordering::Release);
+    if let Some(request) = get(download_process::REQUEST_ENV) {
+        download_process::dispatch_download(&request);
+    }
+
     if let Some(result) = model_lifecycle::probe_env_to_paths::<EmbedKind>(
         get(embed::PROBE_ENV_MODEL),
         get(embed::PROBE_ENV_CONFIG),

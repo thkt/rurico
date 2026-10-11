@@ -50,7 +50,7 @@ def environment():
     return installed
 
 
-def capture(kind, snapshot, observed, inputs):
+def capture(kind, snapshot, observed, inputs, observe=None):
     import torch
     from sentence_transformers import SentenceTransformer, CrossEncoder
 
@@ -86,13 +86,15 @@ def capture(kind, snapshot, observed, inputs):
                 text = case["prefix"] + text
                 raw = tokenizer(text, truncation=False)
                 encoded = wrapper.preprocess([text])
-                # Official wrapper handles strip/truncation/pooling. Normalize
-                # explicitly because the model card's encode does not request it.
+                if observe:
+                    observe(case["id"], list(encoded["input_ids"].shape))
                 value = wrapper.encode([text], batch_size=1, normalize_embeddings=True,
                                        convert_to_numpy=True, show_progress_bar=False)[0].tolist()
             else:
                 raw = tokenizer(case["query"],text,truncation=False)
                 encoded = wrapper.preprocess([(case["query"], text)])
+                if observe:
+                    observe(case["id"], list(encoded["input_ids"].shape))
                 logit = []
 
                 class RecordingSigmoid(torch.nn.Module):

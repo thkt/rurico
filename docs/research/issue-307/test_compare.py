@@ -145,8 +145,33 @@ class Diagnostics(unittest.TestCase):
         result = metrics_delta(baseline,measured)[0]
         self.assertAlmostEqual(result["delta"],.1)
         self.assertEqual(result["measured"]["ci_upper"],.9)
-        with self.assertRaisesRegex(ValueError,"condition differs"):
-            metrics_delta(baseline,{**measured,"normalization":{"nfkc":False}})
+        for key in ("schema_version", "kind", "fixture_hash", "aggregation", "merge_config", "normalization"):
+            with self.subTest(condition=key), self.assertRaisesRegex(ValueError, f"condition differs: {key}"):
+                metrics_delta(baseline, {**measured, key:"different"})
+        row = measured["global"][0]
+        for rows, reason in (([], "empty search metrics"),
+                             ([{**row,"name":"other"}], "metric set differs"),
+                             ([{**row,"k":5}], "cutoff differs"),
+                             ([{**row,"ci_lower":1}], "inverted CI")):
+            for side in ("baseline", "measured"):
+                before, after = baseline, measured
+                if side == "baseline":
+                    before = {**baseline,"global":rows}
+                else:
+                    after = {**measured,"global":rows}
+                with self.subTest(side=side, reason=reason), self.assertRaisesRegex(ValueError, reason):
+                    metrics_delta(before, after)
+        for key in ("point_estimate", "ci_lower", "ci_upper"):
+            for value in (math.nan, math.inf, -math.inf):
+                for side in ("baseline", "measured"):
+                    before, after = baseline, measured
+                    changed = [{**row,key:value}]
+                    if side == "baseline":
+                        before = {**baseline,"global":changed}
+                    else:
+                        after = {**measured,"global":changed}
+                    with self.subTest(side=side, key=key, value=value), self.assertRaisesRegex(ValueError, "non-finite"):
+                        metrics_delta(before, after)
 
 
 if __name__ == "__main__":
