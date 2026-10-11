@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import platform
+import signal
 import struct
 import traceback
 import subprocess
@@ -60,23 +61,24 @@ def machine():
             "python":platform.python_version(),"tools":versions}
 
 
-def models(out):
+def models(out, revisions=None):
     from huggingface_hub import snapshot_download, hf_hub_url, get_hf_file_metadata
     paths, manifest = {}, {}
-    for kind,(repo,rev) in REVISIONS.items():
+    for kind,(repo,rev) in (REVISIONS if revisions is None else revisions).items():
         path = Path(snapshot_download(repo,revision=rev,allow_patterns=["*.json","README.md","model.safetensors","tokenizer.model"]))
         files = {}
         for name in ("model.safetensors","config.json","tokenizer.json","tokenizer.model","tokenizer_config.json","special_tokens_map.json","README.md"):
             item = path/name
             metadata = get_hf_file_metadata(hf_hub_url(repo,name,revision=rev))
             require(metadata.commit_hash == rev, "HF revision mismatch")
-            digest = sha(item)
             # LFS SHA-256 or Git blob SHA-1; validate actual content, not cache labels.
             etag = metadata.etag.strip('"')
             if len(etag) == 64:
+                digest = sha(item)
                 require(etag == digest, "HF LFS content mismatch")
             else:
                 data = item.read_bytes()
+                digest = hashlib.sha256(data).hexdigest()
                 git_hash = hashlib.sha1(f"blob {len(data)}\0".encode()+data).hexdigest()
                 require(etag == git_hash, "HF blob content mismatch")
             files[name] = {"sha256":digest,"hub_etag":etag}
@@ -99,18 +101,28 @@ def models(out):
     return paths, manifest
 
 
-def numerical(out, root=ROOT, candidate=None):
+def numerical(out, root=ROOT, candidate=None, variant=None):
     require(platform.system() == "Darwin" and platform.machine() == "arm64", "Apple Silicon host required")
     packages = environment()
     require(not os.environ.get("RUSTFLAGS") and not os.environ.get("CARGO_ENCODED_RUSTFLAGS"), "use the documented default build flags")
     before = source(root)
-    subprocess.run(["git","merge-base","--is-ancestor",START,"HEAD"],cwd=root,check=True)
-    write(out/"environment.json",{"start_commit":START,"head":command(["git","rev-parse","HEAD"], cwd=root),"candidate_sha":candidate,
-                                "dirty":bool(command(["git","status","--porcelain"], cwd=root)),"input_sha256":sha(HERE/"inputs.json"),"machine":machine(),"python_packages":packages,
+    start, input_path, revisions = START, HERE/"inputs.json", REVISIONS
+    if variant is not None:
+        from variants import MODELS, START as variant_start, cases
+        start = variant_start
+        revision, dimensions = MODELS[variant]
+        revisions = {"embedding": (f"cl-nagoya/ruri-v3-{variant}", revision)}
+        input_path = out/"inputs.json"
+        write(input_path, cases(variant))
+    subprocess.run(["git","merge-base","--is-ancestor",start,"HEAD"],cwd=root,check=True)
+    write(out/"environment.json",{"start_commit":start,"head":command(["git","rev-parse","HEAD"], cwd=root),"candidate_sha":candidate,
+                                "dirty":bool(command(["git","status","--porcelain"], cwd=root)),"input_sha256":sha(input_path),"machine":machine(),"python_packages":packages,
                                 "source":before,"started_utc":datetime.now(timezone.utc).isoformat(),
                                 "mlx":"mlx-rs/MLX versions resolved by the hashed Cargo.lock and mlx-sys source"})
-    paths, model_manifest = models(out)
-    inputs = json.loads((HERE/"inputs.json").read_text())
+    paths, model_manifest = models(out, revisions)
+    inputs = json.loads(input_path.read_text())
+    if variant is not None:
+        require(model_manifest["embedding"]["config"]["hidden_size"] == dimensions, "fixed model dimension mismatch")
     build = ["cargo","test","--locked","--lib","--features","smoke","--no-run","--message-format=json"]
     build_result = subprocess.run(build,cwd=root,text=True,capture_output=True)
     (out/"build.private.log").write_text(build_result.stdout+build_result.stderr)
@@ -123,16 +135,24 @@ def numerical(out, root=ROOT, candidate=None):
     binary = executables[0]
     write(out/"build.json",{"command":build,"executable_sha256":sha(binary),"cargo_lock_sha256":sha(root/"Cargo.lock"),
                            "rustflags":None,"profile":"test"})
-    for kind in REVISIONS:
-        env = dict(os.environ,RURICO_307_INPUTS=str(HERE/"inputs.json"),RURICO_307_OUTPUT=str(out/f"rurico-{kind}.json"),RURICO_307_MODEL_DIR=str(paths[kind]))
+    for kind in revisions:
+        env = dict(os.environ,RURICO_307_INPUTS=str(input_path),RURICO_307_OUTPUT=str(out/f"rurico-{kind}.json"),RURICO_307_MODEL_DIR=str(paths[kind]))
         test = f"research::official_comparison_{kind}"
+        if variant is not None:
+            env["RURICO_367_MODEL"] = variant
+            test = "research::official_comparison_variant"
         # Logs remain private: existing loader logs may contain local paths.
         with (out/f"{kind}.private.log").open("x") as log:
             subprocess.run([binary,test,"--exact","--ignored","--nocapture","--test-threads=1"],cwd=root,env=env,stdout=log,stderr=log,check=True)
         observed = json.loads((out/f"rurico-{kind}.json").read_text())
         reference = capture_isolated(kind,paths[kind],observed,inputs,out)
         write(out/f"reference-{kind}.json",reference)
-        write(out/f"comparison-{kind}.json",compare(observed,reference,inputs))
+        if variant is None:
+            result = compare(observed,reference,inputs)
+        else:
+            from variants import evaluate
+            result = evaluate(variant,observed,reference,inputs)
+        write(out/f"comparison-{kind}.json", result)
     require(before == source(root),"source changed during observation")
     require(sha(binary) == json.loads((out/"build.json").read_text())["executable_sha256"],"binary changed")
     for kind,path in paths.items():
@@ -145,7 +165,7 @@ def numerical(out, root=ROOT, candidate=None):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("mode",choices=["numerical","amici"])
+    parser.add_argument("mode",choices=["numerical","variants","amici"])
     parser.add_argument("output",type=Path)
     args = parser.parse_args()
     require(os.environ.get("CODEX_SANDBOX") != "seatbelt","run on unsandboxed host")
@@ -153,13 +173,44 @@ def main():
     out = args.output.resolve()
     require(not out.is_relative_to(ROOT),"evidence directory must be outside checkout")
     out.mkdir(parents=True,exist_ok=False)
+    if args.mode == "variants":
+        def interrupted(signum, frame):
+            raise KeyboardInterrupt("variant validation interrupted")
+        signal.signal(signal.SIGTERM, interrupted)
     try:
         if args.mode == "numerical":
             numerical(out)
+        elif args.mode == "variants":
+            from variants import MODELS, START as variant_start, cases, observe
+            lane_source = source()
+            write(out/"plan.json", {"start_commit": variant_start, "head": command(["git","rev-parse","HEAD"]),
+                "source": lane_source, "cargo_lock_sha256": lane_source["Cargo.lock"],
+                "public_document_options": {"token_budget": 8192,
+                    "default_trait_batch": "documents whose chunks are at most 512 tokens; mixed and empty included",
+                    "unverified": "default-budget batch with multiple long documents"},
+                "models": {model: {"repository": f"cl-nagoya/ruri-v3-{model}", "revision": rev,
+                    "dimensions": dim, "inputs": cases(model)["embedding"]} for model,(rev,dim) in MODELS.items()},
+                "criteria": {"cosine_min": .99999, "max_abs": 1e-5,
+                    "counts_order_dimensions_finite": "exact; input/document/chunk order preserved",
+                    "applies_to": "normalized same-token vectors, padding, public/direct, batch/single, query/text",
+                    "wrapper": "independent token/mask and numerical diagnostics; no preprocessing adoption",
+                    "hidden_probes": "three sampled positions, max abs diagnostic only"}})
+            results = {}
+            for variant in MODELS:
+                directory = out/variant
+                directory.mkdir()
+                require(lane_source == source(), "source changed between models")
+                observe(directory, variant)
+                result = json.loads((directory/"comparison-embedding.json").read_text())
+                results[variant] = result["contract_within_predeclared_criteria"]
+            require(lane_source == source(), "source changed across model lane")
+            write(out/"variants.json", {"execution": "complete", "contracts": results,
+                "note": "Separate model evidence; no shared vector index or product tolerance adoption."})
+            require(all(results.values()), "variant criteria crossed; inspect comparisons, do not relax tolerances")
         else:
             from search_quality import run
             run(out)
-    except Exception as e:
+    except BaseException as e:
         (out/"failure.private.log").write_text(traceback.format_exc())
         # Error text/traceback may contain personal paths; keep it private.
         write(out/"incomplete.json",{"execution":"incomplete","stage":args.mode,"error_type":type(e).__name__,

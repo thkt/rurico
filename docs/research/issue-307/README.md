@@ -337,3 +337,117 @@ rerankerも同様にファイル名の`embedding`を`reranker`へ変える。再
 `results/numerical-rechecked/rurico-reranker.json.gz`を再生した公式参照の再実行である。
 新しい`reference-reranker.json.gz`とそのRust出力を展開して比較でき、
 全体の再実行には上記の`run.py numerical`を使う。結果と失敗時の経緯は[report.md](report.md)に記載した。
+
+## 4 embeddingモデルの実出力検証（Issue #367）
+
+[#367](https://github.com/thkt/rurico/issues/367)の入口は `run.py variants`。
+既存の `numerical` と同じRust観測・公式参照・比較器を共用し、310mの既存入力を
+このlane内で一度だけ観測する。#367のために `numerical`、reranker、amiciを追加実行しない。
+`candidate.py` の#366入口はcommit済み候補の数値・検索品質用であり、今回の未commit差分の
+4モデル実出力検証には使わない。過去の310m実測は[報告](report.md)の対象版の証拠であり、
+今回の版や他3モデルの成功へ投影しない。
+
+要求の照合版 `c8f250d60a5afb9944b9008d22ad6f4dda2d7103` から開始版
+`fa31e0256b6d437d2fb1009fdb2b1eea0f97da45` への関連差分を確認した。
+`src/embed.rs` はprefix encodeの共通化、`reference.py` は観測eventの追加があり、
+ModelIdのrevision・次元の説明、config fixture、weights検証、報告本文は変わっていない。
+引き継ぎREADME blob `e82e8f3ecc7cc18dbf20bbe911b566cab37c1603` と
+報告blob `7dfa0a8c4248548bb81edbf183e0ea3ee72e45c5` は開始版と一致した。
+開始時のローカル `origin/main` もこの開始版だが、sandboxのDNS制限でremoteの最新mainは
+再照合できていない。ホストでremoteと対象差分を照合する。
+Cargo.lockの開始時SHA-256は
+`96418da46475476d6f3c09f26d12160ceeed8c47da016250cdd344616a2d422c`。
+過去の報告のPython版と現行requirementsの版は区別し、再実行は現行の厳密な環境検査を使う。
+
+### 事前条件と判定
+
+固定revisionは製品の[ModelId](../../../src/embed.rs)と[variants.py](variants.py)で照合する。
+
+| model | revision | 次元 | 入力数 |
+| --- | --- | ---: | ---: |
+| 30m | `24899e5de370b56d179604a007c0d727bf144504` | 256 | 11 |
+| 70m | `07a8b0aba47d29d2ca21f89b915c1efe2c23d1cc` | 384 | 11 |
+| 130m | `e3114c6ee10dbab8b4b235fbc6dcf9dd4d5ac1a6` | 512 | 11 |
+| 310m | `18b60fb8c2b9df296fb4212bb7d23ef94e579cd3` | 768 | 13 |
+
+入力の正本は既存[inputs.json](inputs.json)と `variants.cases`。
+30m/70m/130mはshort、日本語、コード、local-after、limit-after、query/topic/空prefixの
+8条件にdocument/query/空prefixの空文字3条件を加える。310mは既存10条件に同じ空文字3条件を加える。
+空の文書batchも別に確認する。local-afterはpadding混在、limit-afterは複数chunkの順序を観測するために保持する。
+各modelのdoc数・chunk数とtoken長は実tokenizationから検査し、異なるtokenizerへ310mの数値を仮定しない。
+文書は入力のdocument prefix条件を元の順で抽出し、chunkはplanner順で返す。
+各batchのキー・件数・token/mask・shapeを独立した数値比較の前に検査する。
+
+公開文書の全入力は4モデル共通の既存 `EmbedOptions { token_budget: Some(8192), ..Default::default() }`
+で観測する。長文の各forwardは1 chunkとし、短文・空文書の混在batchは
+`&dyn Embed` の既定 `embed_documents_batch` でも別に確認する。
+製品の既定token budgetは変更しない。既定設定で複数の長文を同時に処理する条件は、
+310mでmemory pressure停止を再現したため、今回の成功範囲に含めない。
+`plan.json`とRust生出力にoption・実shapeを残し、旧default条件の成功へ読み替えない。
+
+事前の診断基準は既存#307のcosine ≥ 0.99999かつ最大絶対差 ≤ 1e-5。
+同一tokenの正規化vector、padding差、公開入口と直接演算、batch/single、queryとquery prefix付きtextへ適用する。
+vectorの次元・件数・入力/doc/chunk順と有限性は必須。
+具象 `embedding_dims()` と実返却vector、`&dyn Embed` のquery/document入口を同じinstanceで確認する。
+公式wrapperの独立tokenizationとwrapper出力は別の診断として残す。
+末尾空白・空prefix本文などのwrapper前処理差を、製品の前処理変更や新しい許容差の根拠へ自動昇格させない。
+hidden probeは3位置の最大絶対差だけを記録し、embeddingの基準をhidden stateへ適用しない。
+基準を超えた場合は比較結果を保存して調査し、通過目的で緩めない。
+
+HF metadataのrevision/ETagと内容hash、F32 header、config次元、Rust/Pythonが使う3ファイルの
+実path、具象次元、記録されたrepo/revisionを照合する。終了時にsource・実行ファイル・モデル内容を再照合する。
+model identityやdimの不一致は拒否し、cache/headerの確認だけでは実推論成功にならない。
+このlaneは索引へvectorを保存せず、モデルごとにprocess・結果directoryを分ける。
+consumerで索引を用意する場合はrepo/revision/dimを索引の識別条件として保ち、異なるモデルの結果を同じ索引へ追加しない。
+現行sqlite-vecの固定次元・不正BLOB拒否は[既存SQL検証](../../../CONTRIBUTING.md#vector-byte-bindの実sql検証issue-368)を再利用する。
+同じ次元の構成互換性を判定する公開APIやconsumer migrationは導入しない（#315の別判断）。
+
+### 実行と証拠保存
+
+通常checkはモデル不要で、上のignored観測を実行しない。
+Rustの通常laneでは、固定model/revision/次元の選択と未知指定の拒否、config/具象次元の照合、
+公開APIへの入力・prefix・optionの受渡し、文書/chunk順を保つ記録を確認する。
+短文laneの512-token境界、全chunkの長さによる選別、空batchの実呼出しと、
+直接演算へ渡すtoken/maskのflatten順・shape・混在batchの先頭5行もモデル不要で検証する。
+これらの合成出力は記録処理の検証だけに使い、実推論や公式数値一致の根拠にはしない。
+既存の比較器・反例・process取消しテストと実モデルlaneはそれぞれ維持する。
+個別のRust再実行は前節の `cargo test --locked --lib --features smoke research::` を使う。
+
+Apple Silicon、対応Xcode/Metal、
+Rust 1.96以上、cargo-nextest、uvとネットワークを用意し、前節のPython 3.12.13新規venv・
+requirements通常install・pip check・`reference.environment()`を行う。
+`cargo fetch --locked` と設定済み `bash scripts/check.sh` はそのまま維持する。
+Python依存は独立したCPU参照用で、製品は引き続きMLX-only。
+
+以下は前節で作成した `reference_env` を使い、sandbox外・repo rootから実行する。
+新規outputはcheckout外へ置き、既存の結果を上書きしない。
+
+```sh
+"$reference_env/bin/python" -m unittest discover -s docs/research/issue-307 -p 'test_*.py'
+python3 -m unittest discover -b -s scripts -p 'test_*.py'
+"$reference_env/bin/python" docs/research/issue-307/run.py variants /tmp/rurico-367-output-new
+```
+
+cacheはHF標準の `HF_HUB_CACHE`（未指定時 `HF_HOME/hub`、HF_HOMEも未指定時
+`~/.cache/huggingface/hub`）をRust/Pythonで共用する。各モデルの
+`models--cl-nagoya--ruri-v3-{model}/snapshots/{revision}` に固定weights/config/tokenizerと
+公式wrapper用JSON等を取得する。4モデルは順にloadし、同時に保持しない。
+必要容量・実行時間はこの変更では未測定であり、SLA・資源上限を新設しない。
+
+`plan.json` は実測前に入力・全4モデル・基準・開始版・HEAD・未commit差分を含むsource hashと
+Cargo.lock hashを保存する。モデルごとのdirectoryにenvironment、model manifest、build、
+Rust生出力、公式参照生出力、comparison、completeを残す。private logは公開資料へ自動転記しない。
+[既存#366の中断所見](validation-366.md#過去の指摘と証拠の適用性)を踏まえ、同じprocess group所有runnerを再利用する。
+SIGTERM/SIGINTでは現モデルのRust・参照workerを回収してからincompleteを記録し、後続モデルを開始しない。
+既存の実process中断テストへvariants入口の条件を統合した。SIGKILLで入口自体を終了した場合の回収は未確認。
+`variants.json` は4モデルそれぞれの判定をまとめ、終了0には全モデルの事前基準内を要求する。
+`complete.json` は実行完了であって基準内の保証ではない。失敗時の `incomplete.json` と
+完了していないモデルdirectoryは未確認として保持する。
+
+準備時にはモデル不要の比較器・manifest・新しい誤記録の反例を確認した。
+2026-10-11〜12の[ホスト検証記録](validation-367.md)に、4モデルの現版実出力と公式数値比較を記録した。
+310mは保存できたRust出力を照合し、メモリ確保後に公式CPU参照だけを分離実行して完了した。
+[結果JSON](results/model-variants-20261012.json)から条件・件数・sourceと結果hashを辿れる。
+単一runの全体入口の終了0は確認していない。既定設定の大きな長文batchも今回の成功範囲に含めない。
+標準check・固定Python参照17件の成功と、変更文書を含む独立評価・同じheadのCIは区別する。
+過去の結果を再生成して不一致を消したり、他モデルの成功で未実行モデルを埋めたりしない。

@@ -1,0 +1,132 @@
+{
+  "issue": 367,
+  "start_commit": "fa31e0256b6d437d2fb1009fdb2b1eea0f97da45",
+  "cargo_lock_sha256": "96418da46475476d6f3c09f26d12160ceeed8c47da016250cdd344616a2d422c",
+  "criteria": {
+    "cosine_min": 0.99999,
+    "max_abs": 1e-05,
+    "scope": "normalized same-token, padding, public/direct, batch/single, query/text"
+  },
+  "public_document_token_budget": 8192,
+  "default_trait_batch_scope": "short and empty documents; chunks at most 512 tokens",
+  "single_whole_lane_run_complete": false,
+  "models": {
+    "30m": {
+      "identity": {
+        "concrete_dimensions": 256,
+        "expected_dimensions": 256,
+        "repository": "cl-nagoya/ruri-v3-30m",
+        "revision": "24899e5de370b56d179604a007c0d727bf144504"
+      },
+      "inputs": 11,
+      "batches": 25,
+      "batch_rows": 29,
+      "documents": 6,
+      "default_short_documents": 5,
+      "official_reference_units": 36,
+      "contract_within_predeclared_criteria": true,
+      "same_token_min_cosine": 0.9999999999970035,
+      "same_token_max_abs": 4.991888999938965e-07,
+      "comparison_sha256": "7d72cbf89c6273b0e8169bb97f9c1d734f94d3630330c730c21a05f244cf49b5",
+      "rust_output_sha256": "bbf54d0738e822a64878f27fbeaa3ae75206636b09d6aefc234d5e6150960007",
+      "source_sha256": {
+        "src/embed/research.rs": "b5b5fef322dc836d6e7ac63fdbf8a317503ce0d47fab2e410a6dbe79205787aa",
+        "src/research.rs": "d51a430783e87d7ce52485884dde66fc24a3451c68778c7873f0dbfa99ad224c",
+        "docs/research/issue-307/variants.py": "cc910fa495c74f585900650a2590a19418e1d0b723ae2c0afa748b08a4cdc3fb",
+        "docs/research/issue-307/run.py": "452e1e5952610492c162b827950a153d039f84d716fc8b175b42fecc04a48101",
+        "docs/research/issue-307/compare.py": "e1d679cbdb17ff9312a61ec317c36f91dc8c5a301783adc249317934df96051a",
+        "docs/research/issue-307/reference.py": "c718362fa557ac71ca9393ac9787767276443170b05f04b6f081a133cfa41ece",
+        "docs/research/issue-307/reference_process.py": "c1ec929f57ba7a7b762edc8baadb505f17bff06b3ea73cfa96d72e0f2a17223c"
+      }
+    },
+    "70m": {
+      "identity": {
+        "concrete_dimensions": 384,
+        "expected_dimensions": 384,
+        "repository": "cl-nagoya/ruri-v3-70m",
+        "revision": "07a8b0aba47d29d2ca21f89b915c1efe2c23d1cc"
+      },
+      "inputs": 11,
+      "batches": 25,
+      "batch_rows": 29,
+      "documents": 6,
+      "default_short_documents": 5,
+      "official_reference_units": 36,
+      "contract_within_predeclared_criteria": true,
+      "same_token_min_cosine": 0.9999999999910361,
+      "same_token_max_abs": 9.834766387939453e-07,
+      "comparison_sha256": "4d66af87c2bfd00a464883ec1bbc07d915e00110e8835a1be3e5b96a1b3bea60",
+      "rust_output_sha256": "f4909b7ebb8952054ebacb53cfa1e68053466fd90e8671489285aabefa57e520",
+      "source_sha256": {
+        "src/embed/research.rs": "b5b5fef322dc836d6e7ac63fdbf8a317503ce0d47fab2e410a6dbe79205787aa",
+        "src/research.rs": "d51a430783e87d7ce52485884dde66fc24a3451c68778c7873f0dbfa99ad224c",
+        "docs/research/issue-307/variants.py": "cc910fa495c74f585900650a2590a19418e1d0b723ae2c0afa748b08a4cdc3fb",
+        "docs/research/issue-307/run.py": "452e1e5952610492c162b827950a153d039f84d716fc8b175b42fecc04a48101",
+        "docs/research/issue-307/compare.py": "e1d679cbdb17ff9312a61ec317c36f91dc8c5a301783adc249317934df96051a",
+        "docs/research/issue-307/reference.py": "c718362fa557ac71ca9393ac9787767276443170b05f04b6f081a133cfa41ece",
+        "docs/research/issue-307/reference_process.py": "c1ec929f57ba7a7b762edc8baadb505f17bff06b3ea73cfa96d72e0f2a17223c"
+      }
+    },
+    "130m": {
+      "identity": {
+        "concrete_dimensions": 512,
+        "expected_dimensions": 512,
+        "repository": "cl-nagoya/ruri-v3-130m",
+        "revision": "e3114c6ee10dbab8b4b235fbc6dcf9dd4d5ac1a6"
+      },
+      "inputs": 11,
+      "batches": 25,
+      "batch_rows": 29,
+      "documents": 6,
+      "default_short_documents": 5,
+      "official_reference_units": 36,
+      "contract_within_predeclared_criteria": true,
+      "same_token_min_cosine": 0.9999999999811353,
+      "same_token_max_abs": 1.1324882507324219e-06,
+      "comparison_sha256": "ff1cb6eb36a8b4739543b4a4fbb3a1c1b222c66bd15e8cd5fba46aaecd86221b",
+      "rust_output_sha256": "a6c025fcc95c4e8e230bace05e69cda2af715c508e03ae26b344a5e6a27d2791",
+      "source_sha256": {
+        "src/embed/research.rs": "b5b5fef322dc836d6e7ac63fdbf8a317503ce0d47fab2e410a6dbe79205787aa",
+        "src/research.rs": "d51a430783e87d7ce52485884dde66fc24a3451c68778c7873f0dbfa99ad224c",
+        "docs/research/issue-307/variants.py": "cc910fa495c74f585900650a2590a19418e1d0b723ae2c0afa748b08a4cdc3fb",
+        "docs/research/issue-307/run.py": "452e1e5952610492c162b827950a153d039f84d716fc8b175b42fecc04a48101",
+        "docs/research/issue-307/compare.py": "e1d679cbdb17ff9312a61ec317c36f91dc8c5a301783adc249317934df96051a",
+        "docs/research/issue-307/reference.py": "c718362fa557ac71ca9393ac9787767276443170b05f04b6f081a133cfa41ece",
+        "docs/research/issue-307/reference_process.py": "c1ec929f57ba7a7b762edc8baadb505f17bff06b3ea73cfa96d72e0f2a17223c"
+      }
+    },
+    "310m": {
+      "identity": {
+        "concrete_dimensions": 768,
+        "expected_dimensions": 768,
+        "repository": "cl-nagoya/ruri-v3-310m",
+        "revision": "18b60fb8c2b9df296fb4212bb7d23ef94e579cd3"
+      },
+      "inputs": 13,
+      "batches": 29,
+      "batch_rows": 33,
+      "documents": 8,
+      "default_short_documents": 6,
+      "official_reference_units": 42,
+      "contract_within_predeclared_criteria": true,
+      "same_token_min_cosine": 0.9999999999865813,
+      "same_token_max_abs": 9.5367431640625e-07,
+      "comparison_sha256": "8bcdd30e8fa1b3c391d512538231c79c2baf5c9f6308132add3a77fac247d186",
+      "rust_output_sha256": "20ac7a809218dbcf343250405442ba6c644f90e0f55def75e4165f0a7469aef0",
+      "source_sha256": {
+        "src/embed/research.rs": "b5b5fef322dc836d6e7ac63fdbf8a317503ce0d47fab2e410a6dbe79205787aa",
+        "src/research.rs": "d51a430783e87d7ce52485884dde66fc24a3451c68778c7873f0dbfa99ad224c",
+        "docs/research/issue-307/variants.py": "cc910fa495c74f585900650a2590a19418e1d0b723ae2c0afa748b08a4cdc3fb",
+        "docs/research/issue-307/run.py": "452e1e5952610492c162b827950a153d039f84d716fc8b175b42fecc04a48101",
+        "docs/research/issue-307/compare.py": "e1d679cbdb17ff9312a61ec317c36f91dc8c5a301783adc249317934df96051a",
+        "docs/research/issue-307/reference.py": "c718362fa557ac71ca9393ac9787767276443170b05f04b6f081a133cfa41ece",
+        "docs/research/issue-307/reference_process.py": "c1ec929f57ba7a7b762edc8baadb505f17bff06b3ea73cfa96d72e0f2a17223c"
+      }
+    }
+  },
+  "limits": [
+    "Default-budget simultaneous long-document batch is not verified by these results",
+    "310m uses a completed Rust capture and fresh official CPU reference from separate runs",
+    "No product tolerance, resource limit, model default, consumer migration, or quantization adoption"
+  ]
+}
