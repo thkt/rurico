@@ -4,6 +4,120 @@
 このディレクトリのコードは調査用であり、製品の許容差や既存fixtureを書き換えない。
 実測結果・確認した相違・限界は [report.md](report.md) に置く。
 
+## 候補commitの継続検証（Issue #366）
+
+[Issue #366](https://github.com/thkt/rurico/issues/366)の候補検証は
+[`candidate.py`](candidate.py)から明示的に起動する。常時モデルを取得するworkflowや
+self-hosted runnerへのPRコード自動投入は追加せず、対応ホストで必要な候補を指定する。
+通常CI・標準checkは軽量laneを維持する。実モデルlaneはそれらの成功とは別の受入証拠である。
+ここでいうモデル出力のcaptureは数値の記録であり、UI媒体や画面撮影は不要。
+
+embedding/rerankerの演算、tokenizer・prefix・truncation・chunk planner、bucket/padding/mask、
+model loader、MLXやCargo依存、公式参照環境、FTS/vector/RRFの意味に影響する変更では、
+採用判断の前に同じ候補の実モデルlane全体を実行する。文書だけの変更やモデル不要の入口修正では、
+軽量laneが守る条件と残る実測範囲を説明する。#366の入口自体は少なくとも一度、数値と検索を
+通して対応ホストで確認する。skip、モデル・Metal不在、中断、0件、旧記録の再集計はその代替にならない。
+
+### 起動と候補の固定
+
+下記のPython環境準備とホスト条件を満たし、リポジトリrootから実行する。
+候補にはローカルに存在し、amiciが公開originから取得できる**完全なcommit SHA**を指定する。
+branch名・短縮SHAは拒否する。入口は候補のcommitted sourceだけを新規隔離コピーへ取り出す。
+元checkoutの未commit変更はモデル推論へ混ぜず、検証入口側のdirty状態・source hashとして別に記録する。
+未commitの製品変更を検証したことにはならない。結果に対応するSHAをPRのheadと照合する。
+検証入口だけを未commitで変更した場合は、そのsource hashも結果とPR説明へ引き継ぐ。
+
+```sh
+reference_env=/tmp/rurico-307-reference-env.XXXXXX # 下記で準備した実際のpath
+candidate_sha=266fc41ff6bdf7ca5110e55a7315f8cbb5022cc6 # 例。評価対象の完全SHAへ置換
+"$reference_env/bin/python" docs/research/issue-307/candidate.py \
+  --candidate "$candidate_sha" --lane light --output /tmp/rurico-366-light-001
+"$reference_env/bin/python" docs/research/issue-307/candidate.py \
+  --candidate "$candidate_sha" --lane model --output /tmp/rurico-366-model-001
+```
+
+`light`は既存のPython環境・比較器・wrapperテストと候補照合のモデル不要テストを実行する。
+新しい制御テストは標準checkの`scripts/test_candidate_quality.py`にも含まれる。
+参照テストにはTorch等の導入が必要。固定310mモデルをdownload・推論せず、
+小さなローカルcheckpointによるCPU検証を含む。
+`model`は既存`run.py`の数値測定と`search_quality.py`のamici評価を順に呼ぶ。
+数値参照はnative入力とbatchごとに新しい子processで実行し、終了してから次へ進む。
+混在batchを含む元のshape・FP32・eager・4 threadsを維持する。各processはモデルを読み直すため、
+測定時間の改善は目的にしない。`reference-events.jsonl`に入力ID・推論shape・開始／完了を残し、
+全数値参照が完了してからamiciのビルド・評価へ進む。
+数値・検索ハーネスは複製しない。固定入力hashが候補と異なる場合は不一致を保持して調査する。
+
+HF/GitHub/Cargoへの接続と、固定した両310mモデルのcache、対応Xcode/Metalが必要。
+モデルcacheは既存のHF snapshotを再利用し、revision/ETag・重み/config/tokenizerの内容hashを
+開始時と終了時に照合する。amiciの通常/dev依存2箇所のみ候補SHAへ変更し、lockを局所解決する。
+元consumer checkout・fixture・評価コード・baselineは変更しない。
+出力先ごとに空の`amici/build-target`を作り、Cargoの依存解決・metadata・ビルドへ同じ
+`CARGO_TARGET_DIR`を渡す。既存targetは再利用せず、metadataのtargetとの一致も検査する。
+固定amiciのcapture/verifyモードは`fixture_dir`引数を読まないため、その引数では参照先を変更できない。
+新規ビルドで今回の隔離コピーの`CARGO_MANIFEST_DIR`を埋め込み、両モードのprivate logにある
+実際のfixture pathが今回のコピーと一致しなければ未完了として停止する。
+HFとCargoの取得cacheは再利用できるが、amiciのbuild targetは実行ごとに増える。
+成果物の確認・保管後、不要な出力先のbuild targetは利用者が削除できる。
+Cargo metadataとlockの双方が唯一のrurico packageを同じ候補へ解決し、
+取得済みrurico sourceが隔離候補と一致することを推論前後に検査する。
+旧rev、別source、未取得候補では失敗し、baseline再生成やconsumer修正で通過させない。
+
+### 結果の読み方と再実行
+
+| 成果物 | 確認する内容 |
+| --- | --- |
+| `started.json` / `candidate.json` | 候補SHA、入口と候補のhead/dirty/source hash、候補Cargo.lock、入力・requirements hash、lane |
+| `numerical/` | 既存の両モデル出力と独立した公式参照、全件数・順序・有限性・固定診断値、Python/model/tokenizer/環境・binary hash |
+| `amici/`の直下の成果物 | 固定consumer commit、manifest/lock差分、解決済みpackage/source、既存metrics・分類別CI・baseline verify終了値、モデル・環境 |
+| `complete.json` | 全工程の完了、候補SHAとlane、成果物hash、実測有無、診断・既存baselineの一致を別に記録 |
+| `incomplete.json` / `failure.private.log` | 失敗・中断工程と原因。新規出力先で再実行するための手掛かり |
+
+`complete`は実行完了であり、製品採用の承認ではない。model laneはembedding 23 batch/27行、
+reranker 12 batch/16行、amici固定fixture 60文書/168クエリを確認する。
+数値の診断は#307の基準をそのまま使い、hidden probeには正規化embeddingの基準を適用しない。
+token列・padding・公開wrapper/API・順位を含む既存診断と、amici自身のbaseline許容差を別に記録する。
+実行が完了して診断またはbaselineに不一致があれば、成果物を保持して終了1となる。
+構造不正・工程失敗では`incomplete`となる。強制終了で`incomplete.json`さえ保存できなくても、
+全体の`complete.json`がなければ未完了である。lightの完了は`model_measurement: false`で、実測成功ではない。
+数値工程と検索の各外部commandは専用process groupで起動し、SIGTERM/SIGINTや工程例外時には同じgroupの子孫を停止し、
+直接childの回収とgroup不在を確認してから`incomplete`を保存する。
+2秒の回収猶予でgroup不在を確認できなければ回収失敗を記録し、成功とは扱わない。
+lightのunittest runnerにもSIGTERMを例外として伝える。外側はまずrunnerへ停止を通知し、
+最大10秒、テストの後片付けを待ってからrunnerのgroupを回収する。
+制御テストの後片付けは検証用入口へSIGTERMを送り、その入口が所有する別groupの回収を待つ。
+後片付けが応答しない場合はrunnerのgroupを強制停止するが、任意の別sessionの回収は保証しない。
+SIGKILL等で入口自体が終了した場合の回収は保証しない。
+
+再実行は同じ候補SHA・固定入力・参照環境で、未使用の出力ディレクトリを指定する。
+停止したrunの再開・出力上書き・結果後の閾値緩和・baseline上書きは行わない。
+保存済みデータの比較器再実行は下記の手順でできるが、新候補の実測と区別する。
+PR/採用判断には候補SHA、入口source hash、lane、完了状態、診断超過、amici verify結果、
+実行日時・環境と選択した小さな成果物への参照を残す。同じ候補の結果へ辿れない旧実測は流用しない。
+公開前に成果物を確認し、private log・隔離checkout・archive・モデル・認証情報・巨大な生JSONは公開しない。
+
+数値比較は固定入力の独立したモデル診断、検索は
+[accepted ADR-0006](../../decisions/0006-eval-harness-migration-to-amici.md)に従うamiciのreference compositionである。
+検索metrics/許容差の所有者はamiciのままで、recall等を含む実アプリ全体の品質は未確認。
+新しい製品品質閾値、性能/SLA、consumer migration、別backendの根拠にしない。
+
+### 引き継ぎ根拠と検証の限界
+
+開始版は`266fc41ff6bdf7ca5110e55a7315f8cbb5022cc6`（照合したlocal `origin/main`と一致）。
+引き継ぎ[report.md](report.md)のblob `7dfa0a8c4248548bb81edbf183e0ea3ee72e45c5`は現物と一致した。
+Issueの参照main `c8f250d60a5afb9944b9008d22ad6f4dda2d7103`以後、この研究ディレクトリでは
+requirementsの6 pinが更新されている。#307の旧実測、#353の[更新記録](validation-353.md)は
+その版と条件の証拠として保ち、現在の候補・現行requirementsの実測成功へ読み替えない。
+遠隔mainの最新性と新しい候補の実測は、このローカル照合だけでは確認していない。
+公開されたIssueの要求が正本であり、報告内の未採用仮説は今回の追加要求ではない。
+
+2026-10-11の[候補検証記録](validation-366.md)に、候補入口の通し測定の結果、
+memory pressureで中断した通し測定を区別して記載した。
+
+標準checkは新しいモデル不要の候補照合・未完了制御テストを実行するが、実モデルlaneは起動しない。
+CIのPython環境導入と既存テストも実モデルlaneの代替にならない。
+対応ホストの担当AIが上記のmodel入口全体を実行し、同じsource hashの結果を確認してから
+変更文書を含めた既存の独立評価へ戻す。撮影は不要。通常check・同じheadのCIは別に確認する。
+
 ## Python依存の固定と更新
 
 [requirements.txt](requirements.txt) を、導入版と検証対象の唯一の正本とする。

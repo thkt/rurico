@@ -3,7 +3,7 @@
 
 /// Typed artifact verification: [`CandidateArtifacts`](embed::CandidateArtifacts) → [`VerifiedArtifacts`](artifacts::VerifiedArtifacts).
 pub mod artifacts;
-/// Top-level probe dispatch wiring embed and reranker domains.
+/// Top-level download/probe dispatch wiring the model domains.
 pub mod dispatch;
 /// Embedding models and the [`Embed`](embed::Embed) trait.
 pub mod embed;
@@ -40,3 +40,5 @@ pub use dispatch::{handle_probe_if_needed, handle_probe_if_needed_with};
 
 #[cfg(all(test, feature = "smoke"))]
 mod research;
+
+mod owned_process;

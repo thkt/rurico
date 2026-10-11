@@ -69,12 +69,18 @@ impl<R: Rerank> LazyReranker<R> {
     /// returns [`RerankerError::InitFailed`] sharing the same source.
     /// For a closure that only returns `Ok`, annotate its error type or use [`Self::new`].
     ///
+    /// The host must register download dispatch at the start of `main`, before
+    /// constructing the lazy closure; the re-executed child uses the same entry.
+    ///
     /// ```no_run
     /// use rurico::reranker::{LazyReranker, Reranker, RerankerModelId, download_model};
+    /// fn main() {
+    /// rurico::handle_probe_if_needed();
     /// let lazy = LazyReranker::with_error(|| -> Result<_, Box<dyn std::error::Error + Send + Sync>> {
     ///     let artifacts = download_model(RerankerModelId::default())?;
     ///     Ok(Reranker::new(&artifacts)?)
     /// });
+    /// }
     /// ```
     pub fn with_error<F, E>(init: F) -> Self
     where
