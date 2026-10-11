@@ -188,3 +188,96 @@ R1-1は現行fixtureで、R2-1は同条件の局所比較で解消を確認し�
 長時間安定性と同じheadのCIは未確認のまま残す。分離した310m参照の終了0を、
 中断した全体runの成功に読み替えない。これらの追加保証を今回の完了条件には加えない。
 旧run・生結果・歴史的source hashは保持し、commit・push・公開は行っていない。
+
+
+## CIの差分coverage失敗への修正（2026-10-12）
+
+公開head `b22c575efbe04d6ad3b7188f06707f5091966f96` から修正した。
+[CI run 38158845188](https://github.com/thkt/rurico/actions/runs/38158845188) の
+coverage job 114527335722は、集計後の変更行95% gateで77行すべてが未実行となり失敗した。
+test・security・zizmorの成功と、同じheadの全CI成功は区別する。
+原因は、モデル選択と公開APIの観測記録がignoredの実モデル入口だけから呼ばれていたことである。
+過去の標準check成功や独立評価を、今回のCI失敗の解消へ読み替えない。
+
+公開入口の観測を既存 `Embed` 境界の記録関数へ分け、モデル不要で実行する。
+新しいbackendや製品APIは追加しない。cache選択、configの期待次元検査、
+具象 `embedding_dims()` の照合は実モデル入口で行う。
+次元照合は観測した具象値と期待値を返し、JSONには両方を記録する。
+具象値の取得と照合は公開text/documentの実行前になったが、値を返すだけのaccessorであり、
+公開APIの入力・prefix・順序・option・呼出回数は変わらない。
+旧numerical入口の310m/default条件と、variantsのtoken_budget=8192・短文の既定trait batchを保つ。
+
+shapeの準備と開始ログはembedding/reranker共通の既存 `shape()` が担当する。
+embeddingではモデルload後、forward直前に開始を記録する。
+各batchの完了ログは次のbatch開始または公開text開始でも進行を確認できるため整理した。
+公開text、文書batch、既定短文batch、singleton、queryの進捗ログは保つ。
+このログ整理による速度改善は測定していない。
+演算に渡すtoken/mask/shape、モデルload・forward・pool・eval・readback・解放の順序は同じである。
+
+### 通常テストの保証と費用
+
+既存の件数拒否テストは、zipで不足・過剰出力が消える不具合を防ぐため維持した。
+公開記録の新しいテストは、入力のrepeat/prefixを失う、doc/queryを誤選択する、
+文書や複数chunkを並べ替える、8192 optionを落とす、既定短文batchや空batchの実呼出しを
+省く、観測shapeやモデル識別を誤記する退行を検出する。
+512-token chunkを含め、後続に513-token chunkがある文書を除外する対照を使う。
+入力とは異なる順のtoken記録を照合し、文書の選別と元の順序を別々に確認する。
+合成vectorは一要素の識別値であり、公式一致・実モデルの次元/有限性の証拠にはしない。
+モデル選択と次元照合のテストは、未知指定の既定modelへのfallbackと、
+768次元を256次元として記録する構成を拒否する。
+
+既存batchテストには、flattenしたID/maskとshapeの対照を統合した。
+7件の短文から先頭5行だけを選ぶ条件も確認し、混在診断の行数増加・選択順の変更を防ぐ。
+既存の2短文・長文の対照だけでは、この先頭5行の上限が失われても検出できなかった。
+件数・次元・有限性・数値逸脱を検出する既存Python比較器と反例は重ねて作らず維持する。
+一時sourceコピーで短文選別を「先頭chunkだけ」に改変すると、新しい公開記録テストは
+短文結果にlong文書が混ざったassertionで失敗した（終了101）。
+同じ本体sourceの通常実行は成功しており、ビルド失敗を検出成功とは扱っていない。
+この反例のログはcheckout外の `/tmp/rurico-367-recorder-counterexample/test.log` に保存した。
+恒久テストの削除や除外pathへの移動はなく、失う検出条件もない。
+追加したspyの保守は公開記録の契約に限定する。モデル取得・巨大fixture・network待機は追加しない。
+
+Python 3.15.0で既存比較器7件は0.011秒、モデル契約反例3件は0.060秒、
+manifest検証1件は0.006秒で成功した。
+MLX-onlyの既存build資産を一時領域へ複製し、固定lock・既存featuresでRustの対象5件が成功した。
+追加3件と既存2件を含み、実行部分は0.01秒、実モデル3入口はignoredのままである。
+標準check全体、固定Python 3.12.13参照環境全体、新しい実モデル推論は実行していない。
+実行時間・不安定さ・保守費用の改善量は未測定であり、テスト数や行数を改善の指標にはしない。
+
+Rust 1.99.0の同じlib testを追加でinstrument-coverage付きでコンパイルし、
+対象5件だけを実行したLCOVと開始版のローカル `origin/main` の変更行を突き合わせた。
+変更された実行行267行中254行を通り、局所診断は95.13108614%だった。
+未実行13行はcache/具象modelの配線とignored入口に残る。
+これはworkspace全体を実行するCIのcargo-llvm-cov成功ではない。
+ローカルdiff-cover launcherはPython moduleがなく起動できず、LCOVのDA行とGitの差分を照合した値である。
+ホストの既定coverage jobは元のコマンドで実行し、最新mainとの同じheadのgateを確認する。
+局所Rustログ・LCOV・差分診断はcheckout外の `/tmp/rurico-367-diagnostic-coverage` に保存した。
+
+固定版natural-japanese `9a78a42964096da509b8f3e011f0085a5f080151` を照合して追記を通読した。
+lintは一時cacheとoffline指定で試したがSudachiPyがなく未完了だった。
+手動観点で文の主旨・条件・数量・断定・出典を確認し、lint成功とは扱わない。
+
+### 保存実測の適用性と引継ぎ
+
+旧host-returnの14記録と追加証拠本体、追加証拠の39記録のhashを照合した。
+4モデルの生Rust出力と独立した公式参照を現行 `variants.evaluate` で再集計し、
+保存comparisonとの完全一致を確認した。
+[小結果JSON](results/model-variants-20261012.json)のRust出力/comparison hash、件数、model/revision、
+開始commitとCargo.lock、各environmentの入力hashを照合した。事前planの基準も維持する。
+310mは保存Rust観測とfresh公式CPU参照のmodel manifestが同一であり、分離実行のまま扱う。
+推論演算、入力、参照依存、比較器と数値基準は変更していない。
+今回のRust差分は選択・次元照合・観測記録・ログの責務とモデル不要テストであり、
+保存数値は上記optionと固定依存に対する証拠として適用できる。再集計は新しい推論成功ではない。
+
+開始版と引継ぎreport/README blobは前節の値を再照合した。
+旧reportは同一bytesで、現行READMEはモデル別の実行と通常laneの説明を更新した版である。
+acceptedなADR-0011/0014、未採用の#315案と、既存PRの根拠リンクは前節の参照を保つ。
+既存PR本文と保存本文にアップロード済み媒体リンクはなく、captureは未設定でUI媒体も不要である。
+次の独立評価ではPR全体と今回の修正・変更文書を照合し、以前の受入や指摘IDを再利用しない。
+新しいPR説明には4モデルの結果、開始版と固定依存、310mの分離実行、token_budget=8192と
+短文の既定batch、全体入口の連続完了・既定複数長文・SIGKILL・長時間安定性の未確認を残す。
+旧310m報告・#366記録・requirements・README/CONTRIBUTING・ADR・#315の公開リンクも保持する。
+
+設定済み `bash scripts/check.sh` とtest/coverage/security/zizmorはホストが変更後の同じheadで確認する。
+今回のcheck/capture契約、coverage閾値・除外regex・feature・timeoutは変更していない。
+commit・push・公開と新しい実モデル測定は行っていない。

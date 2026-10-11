@@ -404,7 +404,16 @@ consumerで索引を用意する場合はrepo/revision/dimを索引の識別条�
 
 ### 実行と証拠保存
 
-通常checkはモデル不要で、上のignored観測を実行しない。Apple Silicon、対応Xcode/Metal、
+通常checkはモデル不要で、上のignored観測を実行しない。
+Rustの通常laneでは、固定model/revision/次元の選択と未知指定の拒否、config/具象次元の照合、
+公開APIへの入力・prefix・optionの受渡し、文書/chunk順を保つ記録を確認する。
+短文laneの512-token境界、全chunkの長さによる選別、空batchの実呼出しと、
+直接演算へ渡すtoken/maskのflatten順・shape・混在batchの先頭5行もモデル不要で検証する。
+これらの合成出力は記録処理の検証だけに使い、実推論や公式数値一致の根拠にはしない。
+既存の比較器・反例・process取消しテストと実モデルlaneはそれぞれ維持する。
+個別のRust再実行は前節の `cargo test --locked --lib --features smoke research::` を使う。
+
+Apple Silicon、対応Xcode/Metal、
 Rust 1.96以上、cargo-nextest、uvとネットワークを用意し、前節のPython 3.12.13新規venv・
 requirements通常install・pip check・`reference.environment()`を行う。
 `cargo fetch --locked` と設定済み `bash scripts/check.sh` はそのまま維持する。
