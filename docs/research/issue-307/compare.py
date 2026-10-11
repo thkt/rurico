@@ -9,6 +9,8 @@ import json
 import math
 from pathlib import Path
 
+LOGIT_MAX_ABS = 1e-4
+SCORE_MAX_ABS = 2.5e-5
 
 def require(condition, message):
     if not condition:
@@ -40,7 +42,7 @@ def reranker_diff(reference, actual):
     require(0 <= reference[1] <= 1 and 0 <= actual[1] <= 1, "score outside [0,1]")
     logit, score = (abs(x-y) for x, y in zip(reference, actual))
     return {"logit_abs": logit, "score_abs": score,
-            "within_criteria": logit <= 1e-4 and score <= 2.5e-5}
+            "within_criteria": logit <= LOGIT_MAX_ABS and score <= SCORE_MAX_ABS}
 
 
 def ranking_diff(keys, reference, actual, actual_order=None):
