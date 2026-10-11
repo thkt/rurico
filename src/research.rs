@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::embed::research::capture as capture_embedding;
+use crate::embed::research::{capture as capture_embedding, capture_model};
 use crate::model_io::{BUCKET_BOUNDS, ModelPaths, assign_bucket, pad_sequences};
 use crate::reranker::capture_research;
 use crate::sandbox::require_unsandboxed_mlx_runtime;
@@ -199,4 +199,19 @@ fn official_comparison_embedding() {
 fn official_comparison_reranker() {
     require_unsandboxed_mlx_runtime();
     capture_research(&inputs().reranker);
+}
+
+#[test]
+#[ignore = "Issue #367: fixed model, unsandboxed Metal, explicit output required"]
+fn official_comparison_variant() {
+    use crate::embed::ModelId;
+    require_unsandboxed_mlx_runtime();
+    let (model, dimensions) = match env::var("RURICO_367_MODEL").unwrap().as_str() {
+        "30m" => (ModelId::RuriV3_30m, 256),
+        "70m" => (ModelId::RuriV3_70m, 384),
+        "130m" => (ModelId::RuriV3_130m, 512),
+        "310m" => (ModelId::RuriV3_310m, 768),
+        _ => panic!("unknown #367 model"),
+    };
+    capture_model(&inputs().embedding, model, Some(dimensions));
 }

@@ -149,7 +149,7 @@ class CandidateQuality(unittest.TestCase):
                     self.assertFalse((measured/"complete.json").exists())
 
     def test_sigterm_entry_stops_stage_descendants_before_incomplete(self):
-        for stage in ("numerical", "amici", "model-free-tests"):
+        for stage in ("numerical", "amici", "model-free-tests", "variants"):
             with self.subTest(stage=stage):
                 with tempfile.TemporaryDirectory() as directory:
                     out = Path(directory)
@@ -174,6 +174,11 @@ import candidate, search_quality
 snapshot = candidate.identity(candidate.ROOT)
 stub = Path(sys.argv[1])
 with patch.object(candidate, 'HERE', Path(sys.argv[1])), patch.object(candidate, 'prepare', return_value=(candidate.ROOT,snapshot)), patch.object(candidate.platform,'system',return_value='Darwin'), patch.object(candidate.platform,'machine',return_value='arm64'), patch.dict(candidate.os.environ, {'CODEX_SANDBOX':''}):
+    if sys.argv[3] == 'variants':
+        import run
+        run.HERE = stub
+        sys.argv = ['run', 'variants', sys.argv[2]]
+        run.main()
     if sys.argv[3] == 'model-free-tests':
         import functools
         (stub/'test_ready.py').write_text('import unittest\\nclass Ready(unittest.TestCase):\\n    def test_ready(self): pass\\n')
@@ -205,6 +210,8 @@ with patch.object(candidate, 'HERE', Path(sys.argv[1])), patch.object(candidate,
                         try:
                             deadline = time.monotonic()+10
                             work = result if stage == "model-free-tests" else result/stage
+                            if stage == "variants":
+                                work = result/"30m"
                             pidfile = work/"writer.pid"
                             while not pidfile.exists() and entry.poll() is None and time.monotonic() < deadline:
                                 time.sleep(.01)
@@ -214,6 +221,9 @@ with patch.object(candidate, 'HERE', Path(sys.argv[1])), patch.object(candidate,
                             self.assertNotEqual(entry.wait(timeout=10), 0)
                             self.assertEqual(json.loads((result/"incomplete.json").read_text())["stage"], stage)
                             self.assertFalse((result/"complete.json").exists())
+                            if stage == "variants":
+                                self.assertFalse((result/"variants.json").exists())
+                                self.assertFalse((result/"70m").exists())
                             with self.assertRaises(ProcessLookupError):
                                 os.kill(writer, 0)
                             if stage == "model-free-tests":

@@ -14,10 +14,20 @@ use crate::modernbert::ModernBert;
 use crate::research::{Input, batches, save, shape, verify_paths};
 
 pub(crate) fn capture(inputs: &[Input]) {
-    let artifacts = cached_artifacts(ModelId::RuriV3_310m)
+    capture_model(inputs, ModelId::RuriV3_310m, None);
+}
+
+pub(crate) fn capture_model(inputs: &[Input], model: ModelId, dimensions: Option<usize>) {
+    let artifacts = cached_artifacts(model)
         .unwrap()
         .expect("fixed embed cache required");
     verify_paths(&artifacts.paths);
+    if let Some(dimensions) = dimensions {
+        assert_eq!(
+            artifacts.config.hidden_size, dimensions,
+            "fixed model dimension"
+        );
+    }
     let tokenizer = &artifacts.tokenizer;
     let prefix = extract_prefix_tokens(tokenizer, DOCUMENT_PREFIX).unwrap();
     let mut tokens = Vec::new();
@@ -57,6 +67,12 @@ pub(crate) fn capture(inputs: &[Input]) {
     // Drop each model after each shape: exact-length research must not grow the
     // production model's four-bucket mask cache across unbounded shapes.
     for batch in &mut observations {
+        eprintln!(
+            "research embedding batch {} start shape [{}, {}]",
+            batch.id,
+            batch.ids.len(),
+            batch.ids[0].len()
+        );
         let mut model = ModernBert::load(&artifacts.paths.model, &artifacts.config).unwrap();
         let (ids, mask, b, s) = shape(batch);
         let hidden = model.forward(&ids, &mask, b, s).unwrap();
@@ -88,11 +104,13 @@ pub(crate) fn capture(inputs: &[Input]) {
         drop(pooled);
         drop(model);
         clear_inference_cache(Component::Embed);
+        eprintln!("research embedding batch {} complete", batch.id);
     }
     let embedder = Embedder::new(&artifacts).unwrap();
     let text_values: Vec<_> = inputs
         .iter()
         .map(|input| {
+            eprintln!("research embedding public text {}", input.id);
             json!({"id":input.id,
         "value":embedder.embed_text(&input.text(), &input.prefix).unwrap()})
         })
@@ -103,22 +121,71 @@ pub(crate) fn capture(inputs: &[Input]) {
         .collect();
     let texts: Vec<_> = docs.iter().map(|input| input.text()).collect();
     let refs: Vec<_> = texts.iter().map(String::as_str).collect();
+    eprintln!("research embedding public documents batch start");
+    let options = EmbedOptions {
+        token_budget: dimensions.map(|_| 8192),
+        ..EmbedOptions::default()
+    };
     let measured = embedder
-        .embed_documents_batch_with_options_and_metrics(&refs, &EmbedOptions::default())
+        .embed_documents_batch_with_options_and_metrics(&refs, &options)
         .unwrap();
     let documents = document_records(&docs, &measured.embeddings);
+    eprintln!("research embedding public documents batch complete");
     let metrics = measured.metrics.unwrap();
     let shapes: Vec<_> = metrics
         .forwards
         .iter()
         .map(|x| json!({"batch_size":x.batch_size,"seq_len":x.sequence_length}))
         .collect();
-    save(
-        "embedding",
-        &tokens,
-        &observations,
-        &json!({"text":text_values,"documents":documents,"forwards":shapes}),
-    );
+    let mut public = json!({"text":text_values,"documents":documents,"forwards":shapes});
+    if let Some(dimensions) = dimensions {
+        assert_eq!(embedder.embedding_dims(), dimensions);
+        let entrance: &dyn Embed = &embedder;
+        let short_docs: Vec<_> = docs
+            .iter()
+            .copied()
+            .filter(|input| {
+                let record = tokens
+                    .iter()
+                    .find(|record| record["id"] == input.id)
+                    .unwrap();
+                record["chunks"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|chunk| chunk.as_array().unwrap().len() <= 512)
+            })
+            .collect();
+        let short_texts: Vec<_> = short_docs.iter().map(|input| input.text()).collect();
+        let short_refs: Vec<_> = short_texts.iter().map(String::as_str).collect();
+        eprintln!("research embedding public default short documents batch start");
+        let short_outputs = entrance.embed_documents_batch(&short_refs).unwrap();
+        public["default_short_documents"] = json!(document_records(&short_docs, &short_outputs));
+        public["document_token_budget"] = json!(options.token_budget);
+        let singles: Vec<_> = texts
+            .iter()
+            .enumerate()
+            .map(|(index, text)| {
+                eprintln!("research embedding public singleton {}", docs[index].id);
+                entrance.embed_document(text).unwrap()
+            })
+            .collect();
+        public["singleton_documents"] = json!(document_records(&docs, &singles));
+        let queries: Vec<_> = inputs
+            .iter()
+            .filter(|input| input.prefix == super::QUERY_PREFIX)
+            .map(|input| {
+                eprintln!("research embedding public query {}", input.id);
+                json!({"id":input.id,"value":entrance.embed_query(&input.text()).unwrap()})
+            })
+            .collect();
+        assert!(entrance.embed_documents_batch(&[]).unwrap().is_empty());
+        public["queries"] = json!(queries);
+        public["empty_batch"] = json!([]);
+        public["model"] = json!({"repository":model.repo_id(),"revision":model.revision(),
+            "concrete_dimensions":embedder.embedding_dims(),"expected_dimensions":dimensions});
+    }
+    save("embedding", &tokens, &observations, &public);
 }
 
 fn document_records(docs: &[&Input], embeddings: &[ChunkedEmbedding]) -> Vec<Value> {
