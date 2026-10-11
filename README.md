@@ -564,6 +564,8 @@ smoke binary は `sandbox::exit_if_seatbelt` 経由で `SEATBELT_SKIP_EXIT` (78)
 `mlx_smoke` binary は `smoke` Cargo feature でゲートされており、library として rurico を取り込む downstream には `tracing-subscriber` を持ち込まない。harness 用 just recipe（`just embed-verify` / `just embed-baseline` / `just probe-embed` / `just probe-reranker` 等）は `justfile` を参照。
 
 通常CI・checkは `test-support,test-mlx,smoke` を有効にし、実モデルのignoredテストは実行しない。
+4種類のembedding modelの固定実出力・公式比較は
+[Issue #367の明示実モデルlane](docs/research/issue-307/README.md#4-embeddingモデルの実出力検証issue-367)を使う。
 `--all-features` の意味と実行対象・選択検査は[CONTRIBUTING](CONTRIBUTING.md#テスト)を参照。
 
 性能判定と基準rev比較は[CONTRIBUTING](CONTRIBUTING.md#性能判定と基準rev比較issue-359)を参照。

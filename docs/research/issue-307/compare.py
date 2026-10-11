@@ -68,7 +68,7 @@ def ranking_diff(keys, reference, actual, actual_order=None):
             "near_pairs":near, "discordant_pairs":discordant, "within_criteria":not discordant}
 
 
-def validate_batch(batch, kind):
+def validate_batch(batch, kind, dimensions=768):
     # Output values are checked numerically by the comparison's diff function.
     keys, ids, mask, values = (batch[k] for k in ("keys", "ids", "mask", "values"))
     require(len(keys) > 0 and len(set(keys)) == len(keys), "empty/duplicate row keys")
@@ -79,13 +79,13 @@ def validate_batch(batch, kind):
         require(len(row) == len(m) == length, "ragged batch")
         require(all(type(x) is int and 0 <= x < 102400 for x in row), "invalid token ID")
         require(all(x in (0, 1) for x in m) and any(m), "invalid/empty mask")
-        require(len(v) == (768 if kind == "embedding" else 2), "output dimension")
+        require(len(v) == (dimensions if kind == "embedding" else 2), "output dimension")
     probes = batch["hidden_probes"]
     require(len(probes) == (len(keys) if kind == "embedding" else 0), "hidden probe row count")
     for row in probes:
         require(len(row) == 3, "hidden probe count")
         for v in row:
-            require(len(v) == 768, "hidden probe dimension")
+            require(len(v) == dimensions, "hidden probe dimension")
             finite(v)
 
 
@@ -102,7 +102,7 @@ def ordered(records, expected, key="id"):
     require([r[key] for r in records] == expected, "missing/duplicate/reordered records")
 
 
-def compare(rurico, reference, inputs):
+def compare(rurico, reference, inputs, dimensions=768):
     kind = rurico["kind"]
     require(kind in ("embedding", "reranker") and reference["kind"] == kind, "model kind")
     require(rurico["producer"] == "rurico" and reference["producer"] == "transformers", "producer")
@@ -149,8 +149,8 @@ def compare(rurico, reference, inputs):
     numerical, padding, ranking = [], [], []
     rb, tb = {}, {}
     for r, t in zip(rurico["batches"], reference["batches"]):
-        validate_batch(r, kind)
-        validate_batch(t, kind)
+        validate_batch(r, kind, dimensions)
+        validate_batch(t, kind, dimensions)
         if schema == 2:
             require(r.get("conditions") == t.get("conditions") == conditions[r["id"]], "batch conditions")
         require(all(r[k] == t[k] for k in ("id", "keys", "ids", "mask")), "same-token comparison input mismatch")
@@ -207,7 +207,7 @@ def compare(rurico, reference, inputs):
         docs = [x["id"] for x in cases if x["prefix"] == "検索文書: "]
         ordered(public["documents"], docs)
         for p, n, token in zip(public["text"], native, token_diffs):
-            require(len(p["value"]) == len(n["value"]) == 768, "wrapper dimensions")
+            require(len(p["value"]) == len(n["value"]) == dimensions, "wrapper dimensions")
             wrapper.append({"id":p["id"], "tokens_equal":token["wrapper_equal"],
                             "native_wrapper":vector_diff(n["value"],p["value"]),
                             "public_vs_direct":vector_diff(rb[p["id"]+"/text/bucket"]["values"][0],p["value"])})

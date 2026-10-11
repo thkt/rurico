@@ -1,12 +1,14 @@
-//! Issue #307 host-only observations. No production API or inference changes.
+//! Issues #307/#367 observations and model-free record contracts. No production API changes.
 use std::env;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
+use std::panic::catch_unwind;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use crate::embed::ModelId;
 use crate::embed::research::capture as capture_embedding;
 use crate::model_io::{BUCKET_BOUNDS, ModelPaths, assign_bucket, pad_sequences};
 use crate::reranker::capture_research;
@@ -125,6 +127,12 @@ fn batch(
 }
 
 pub(crate) fn shape(batch: &Batch) -> (Vec<u32>, Vec<u32>, i32, i32) {
+    eprintln!(
+        "research batch {} start shape [{}, {}]",
+        batch.id,
+        batch.ids.len(),
+        batch.ids[0].len()
+    );
     (
         batch.ids.concat(),
         batch.mask.concat(),
@@ -185,13 +193,31 @@ fn batches_share_only_equal_shapes_within_a_row() {
     assert_eq!(records[5].keys, ["short", "boundary"]);
     assert_eq!(records[5].ids[0], records[1].ids[0]);
     assert_eq!(records[5].mask[0], records[1].mask[0]);
+    let (ids, mask, batch_size, sequence_length) = shape(&records[5]);
+    assert_eq!((batch_size, sequence_length), (2, 128));
+    assert_eq!(ids, [vec![7; 127], vec![0], vec![8; 128]].concat());
+    assert_eq!(mask, [vec![1; 127], vec![0], vec![1; 128]].concat());
+    let many_short_rows: Vec<_> = (0..7)
+        .map(|i| (format!("doc-{i}"), vec![i + 1; 3], vec![1; 3]))
+        .collect();
+    let records = batches(&many_short_rows);
+    let mixed = records.last().unwrap();
+    assert_eq!(mixed.id, "mixed/bucket");
+    assert_eq!(mixed.keys, ["doc-0", "doc-1", "doc-2", "doc-3", "doc-4"]);
+    let (ids, mask, batch_size, sequence_length) = shape(mixed);
+    assert_eq!((batch_size, sequence_length), (5, 128));
+    assert_eq!(
+        [ids[0], ids[128], ids[256], ids[384], ids[512]],
+        [1, 2, 3, 4, 5]
+    );
+    assert_eq!(mask.iter().sum::<u32>(), 15);
 }
 
 #[test]
 #[ignore = "Issue #307: fixed cached models, unsandboxed Metal, explicit output required"]
 fn official_comparison_embedding() {
     require_unsandboxed_mlx_runtime();
-    capture_embedding(&inputs().embedding);
+    capture_embedding(&inputs().embedding, ModelId::RuriV3_310m, None);
 }
 
 #[test]
@@ -199,4 +225,60 @@ fn official_comparison_embedding() {
 fn official_comparison_reranker() {
     require_unsandboxed_mlx_runtime();
     capture_research(&inputs().reranker);
+}
+
+#[test]
+#[ignore = "Issue #367: fixed model, unsandboxed Metal, explicit output required"]
+fn official_comparison_variant() {
+    require_unsandboxed_mlx_runtime();
+    let (model, dimensions) = variant(&env::var("RURICO_367_MODEL").unwrap());
+    capture_embedding(&inputs().embedding, model, Some(dimensions));
+}
+
+fn variant(name: &str) -> (ModelId, usize) {
+    match name {
+        "30m" => (ModelId::RuriV3_30m, 256),
+        "70m" => (ModelId::RuriV3_70m, 384),
+        "130m" => (ModelId::RuriV3_130m, 512),
+        "310m" => (ModelId::RuriV3_310m, 768),
+        _ => panic!("unknown #367 model"),
+    }
+}
+
+#[test]
+fn variant_selects_fixed_model_and_dimension_without_fallback() {
+    for (name, repo, revision, dimensions) in [
+        (
+            "30m",
+            "cl-nagoya/ruri-v3-30m",
+            "24899e5de370b56d179604a007c0d727bf144504",
+            256,
+        ),
+        (
+            "70m",
+            "cl-nagoya/ruri-v3-70m",
+            "07a8b0aba47d29d2ca21f89b915c1efe2c23d1cc",
+            384,
+        ),
+        (
+            "130m",
+            "cl-nagoya/ruri-v3-130m",
+            "e3114c6ee10dbab8b4b235fbc6dcf9dd4d5ac1a6",
+            512,
+        ),
+        (
+            "310m",
+            "cl-nagoya/ruri-v3-310m",
+            "18b60fb8c2b9df296fb4212bb7d23ef94e579cd3",
+            768,
+        ),
+    ] {
+        let (model, actual_dimensions) = variant(name);
+        assert_eq!(
+            (model.repo_id(), model.revision(), actual_dimensions),
+            (repo, revision, dimensions)
+        );
+    }
+    let error = catch_unwind(|| variant("typo")).unwrap_err();
+    assert_eq!(error.downcast_ref::<&str>(), Some(&"unknown #367 model"));
 }

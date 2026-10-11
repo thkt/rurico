@@ -29,19 +29,43 @@ class ModelManifest(unittest.TestCase):
                 (snapshot/name).parent.mkdir(parents=True,exist_ok=True)
                 (snapshot/name).write_bytes(data)
             digests = {name:hashlib.sha256(data).hexdigest() for name,data in files.items()}
+            git_files = {"config.json", "tokenizer.json", "tokenizer_config.json",
+                         "special_tokens_map.json", "README.md"}
+            etags = {name:hashlib.sha1(f"blob {len(data)}\0".encode()+data).hexdigest()
+                     if name in git_files else digests[name] for name,data in files.items()}
             hub = types.ModuleType("huggingface_hub")
             hub.snapshot_download = lambda *a,**kw: str(snapshot)
             hub.hf_hub_url = lambda repo,name,revision: name
-            hub.get_hf_file_metadata = lambda name: types.SimpleNamespace(commit_hash="pinned",etag=digests[name])
+            hub.get_hf_file_metadata = lambda name: types.SimpleNamespace(commit_hash="pinned",etag=etags[name])
+            opened = []
+            original_open = Path.open
+            def track_open(path, *args, **kwargs):
+                if path.is_relative_to(snapshot):
+                    opened.append(str(path.relative_to(snapshot)))
+                return original_open(path, *args, **kwargs)
             with patch.dict(sys.modules,{"huggingface_hub":hub}), \
                  patch.object(run,"REVISIONS",{"embedding":("model","pinned")}), \
-                 patch.object(run,"sha",wraps=run.sha) as hashed:
+                 patch.object(Path,"open",track_open):
                 _,manifest = run.models(output)
-            self.assertCountEqual([str(c.args[0].relative_to(snapshot)) for c in hashed.call_args_list], files)
+            # Content hashing reads once; later header/config inspection stays independent.
+            self.assertCountEqual(opened, [*files, "model.safetensors", "config.json"])
             self.assertEqual(manifest["embedding"]["files"], {
-                name:{"sha256":digest, **({"hub_etag":digest} if name != "1_Pooling/config.json" else {})}
+                name:{"sha256":digest, **({"hub_etag":etags[name]} if name != "1_Pooling/config.json" else {})}
                 for name,digest in digests.items()})
             self.assertEqual(json.loads((output/"models.json").read_text()),manifest)
+            for name, reason in (("README.md", "HF blob content mismatch"),
+                                 ("model.safetensors", "HF LFS content mismatch")):
+                with self.subTest(name=name):
+                    correct = etags[name]
+                    etags[name] = "0"*len(correct)
+                    rejected = root/(name+"-rejected")
+                    rejected.mkdir()
+                    with patch.dict(sys.modules,{"huggingface_hub":hub}), \
+                         patch.object(run,"REVISIONS",{"embedding":("model","pinned")}), \
+                         self.assertRaisesRegex(ValueError,reason):
+                        run.models(rejected)
+                    self.assertFalse((rejected/"models.json").exists())
+                    etags[name] = correct
 
 
 if __name__ == "__main__":
