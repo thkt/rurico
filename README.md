@@ -578,6 +578,8 @@ benchmarkは性能を測定し、標準checkの合否や検索品質評価とは
 長さ別バッチの調査候補は公開APIへ採用していない。
 [Issue #309の手順](docs/research/issue-309/README.md)で既存の最大長方式と比較する。
 標準checkの成功は、その実モデル・速度・メモリ比較の完了を意味しない。
+4096・1024の固定区分追加は[Issue #308の3構成比較](docs/research/issue-308/README.md)で調査する。
+製品は4区分を維持し、比較の収集完了を区分採用として扱わない。
 
 検索品質の評価（Recall@k / MRR@k / nDCG@k）は [`amici`](https://github.com/thkt/amici) で行う。`CandidateSource` は `{ Fts, Vector }` の閉 enum に固定されている（prefix-ensemble は採用していない）。
 
