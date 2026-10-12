@@ -302,3 +302,119 @@ mod tests {
         assert_eq!(snapshot.readback_elements, Some(vec![3, 3, 6]));
     }
 }
+
+#[cfg(all(test, feature = "smoke"))]
+mod bucket_probe {
+    //! Public-path observations for #308. Compiled only in the existing smoke libtest.
+    use std::{env, time::Duration};
+
+    use mlx_rs::memory;
+    use serde_json::json;
+
+    use crate::embed::{
+        DOCUMENT_PREFIX, Embed, EmbedOptions, Embedder, ModelId, QUERY_PREFIX, cached_artifacts,
+        encode_with_prefix, extract_prefix_tokens, max_content,
+    };
+    use crate::model_io::BUCKET_BOUNDS;
+    use crate::sandbox::require_unsandboxed_mlx_runtime;
+
+    use super::plan_document_chunks;
+
+    fn boundary(tokenizer: &tokenizers::Tokenizer, prefix: &str, target: usize) -> String {
+        for n in target.saturating_sub(32) / 2..=target / 2 + 16 {
+            let text = "猫 ".repeat(n);
+            for candidate in [text.as_str(), text.trim_end()] {
+                if encode_with_prefix(tokenizer, candidate, prefix)
+                    .unwrap()
+                    .len()
+                    == target
+                {
+                    return candidate.to_owned();
+                }
+            }
+        }
+        panic!("cannot construct actual token boundary {target}");
+    }
+
+    #[test]
+    #[ignore = "Issue #308: pinned cache, unsandboxed Metal, explicit host runner"]
+    fn observe_bucket_tables() {
+        require_unsandboxed_mlx_runtime();
+        let name = env::var("RURICO_308_CASE").unwrap();
+        let budget = env::var("RURICO_308_BUDGET").unwrap().parse().unwrap();
+        let repeats: usize = env::var("RURICO_308_REPEATS").unwrap().parse().unwrap();
+        assert!(repeats >= 4);
+        let artifacts = cached_artifacts(ModelId::RuriV3_310m)
+            .unwrap()
+            .expect("fixed embedding cache required");
+        let tokenizer = &artifacts.tokenizer;
+        let targets: Vec<usize> = match name.as_str() {
+            "mixed" => vec![13, 129, 513, 1025, 2049, 4097, 127],
+            "multichunk" => vec![13, 16400, 513],
+            "limit" => vec![8191, 8192, 8193],
+            _ => {
+                let b: usize = name.strip_prefix("boundary").unwrap().parse().unwrap();
+                assert!([128, 512, 1024, 2048, 4096].contains(&b));
+                vec![b - 1, b, b + 1]
+            }
+        };
+        let texts: Vec<_> = targets
+            .iter()
+            .map(|&n| boundary(tokenizer, DOCUMENT_PREFIX, n))
+            .collect();
+        let queries: Vec<_> = targets
+            .iter()
+            .map(|&n| boundary(tokenizer, QUERY_PREFIX, n))
+            .collect();
+        let refs: Vec<_> = texts.iter().map(String::as_str).collect();
+        let prefix = extract_prefix_tokens(tokenizer, DOCUMENT_PREFIX).unwrap();
+        let (chunks, counts) =
+            plan_document_chunks(tokenizer, &refs, &prefix, max_content(prefix.len())).unwrap();
+        let query_tokens: Vec<_> = queries
+            .iter()
+            .map(|q| {
+                encode_with_prefix(tokenizer, q, QUERY_PREFIX)
+                    .unwrap()
+                    .get_ids()
+                    .to_vec()
+            })
+            .collect();
+        let options = EmbedOptions {
+            token_budget: Some(budget),
+            forward_pause: Some(Duration::from_millis(1)),
+        };
+        eprintln!(
+            "bucket308 {}",
+            json!({"event":"input", "case":name, "bounds":BUCKET_BOUNDS,
+            "build_flags":env!("RURICO_BUILD_FLAGS"),
+            "options":options, "texts":texts, "queries":queries, "chunks":chunks,
+            "chunk_counts":counts, "query_tokens":query_tokens,
+            "model_files":[artifacts.paths.model, artifacts.paths.config, artifacts.paths.tokenizer]})
+        );
+        let embedder = Embedder::new(&artifacts).unwrap();
+        for repeat in 0..repeats {
+            memory::reset_peak_memory().unwrap();
+            let measured = embedder
+                .embed_documents_batch_with_options_and_metrics(&refs, &options)
+                .unwrap();
+            let peak = memory::peak_memory().unwrap();
+            let documents: Vec<_> = measured
+                .embeddings
+                .iter()
+                .enumerate()
+                .map(|(id, d)| json!({"id":id,"chunk_ids":d.chunk_ids(),"values":d.chunks()}))
+                .collect();
+            eprintln!(
+                "bucket308 {}",
+                json!({"event":"call","repeat":repeat,"documents":documents,
+                "metrics":measured.metrics.unwrap(),"metal_peak_bytes":peak})
+            );
+        }
+        // Query is a separate lane: it must not warm the measured document process first.
+        let values: Vec<_> = queries
+            .iter()
+            .map(|q| embedder.embed_query(q).unwrap())
+            .collect();
+        eprintln!("bucket308 {}", json!({"event":"queries","values":values}));
+    }
+}

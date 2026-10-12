@@ -318,11 +318,14 @@ mod bucket_probe {
                 .map(|i| pair(if i % 7 == 0 { 4 } else { i % 4 }))
                 .collect(),
             "empty" => Vec::new(),
-            "boundary128" | "boundary512" | "boundary2048" | "limit" => {
+            "boundary128" | "boundary512" | "boundary1024" | "boundary2048" | "boundary4096"
+            | "limit" => {
                 let targets: &[usize] = match name {
                     "boundary128" => &[127, 128, 129],
                     "boundary512" => &[511, 512, 513],
+                    "boundary1024" => &[1023, 1024, 1025],
                     "boundary2048" => &[2047, 2048, 2049],
+                    "boundary4096" => &[4095, 4096, 4097],
                     _ => &[8191, 8192, 8193],
                 };
                 targets
@@ -367,11 +370,15 @@ mod bucket_probe {
         eprintln!(
             "bucket309 {}",
             json!({"event":"input","workload":name,"pairs":owned,
+        "build_flags":env!("RURICO_BUILD_FLAGS"),
         "model":id.repo_id(),"revision":ModelArtifact::revision(id),"dtype":"F32","model_files":[artifacts.paths.model, artifacts.paths.config, artifacts.paths.tokenizer]})
         );
         let mut inner = RerankerInner::new(&artifacts).unwrap();
         let mut last_reference = None;
-        for repeat in 0..4 {
+        let repeats =
+            env::var("RURICO_308_REPEATS").map_or(4, |value| value.parse::<usize>().unwrap());
+        assert!(repeats >= 4);
+        for repeat in 0..repeats {
             memory::reset_peak_memory().unwrap();
             let mut row = inner
                 .observe_length_batch(&pairs, mode == "candidate")
@@ -379,11 +386,12 @@ mod bucket_probe {
             row["repeat"] = json!(repeat);
             row["state"] = json!(if repeat == 0 { "cold" } else { "warm" });
             eprintln!("bucket309 {row}");
-            if mode == "reference" && repeat == 3 {
+            if mode == "reference" && repeat == repeats - 1 {
                 last_reference = Some(row);
             }
         }
-        // Public production route is a separate parity check, outside timed records.
+        // Internal production score_batch parity, outside timed records.
+        // This does not exercise the public Reranker wrapper or its mutex/empty-input handling.
         let observed =
             last_reference.unwrap_or_else(|| inner.observe_length_batch(&pairs, false).unwrap());
         let public = inner.score_batch(&pairs).unwrap();
