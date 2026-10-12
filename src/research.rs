@@ -1,4 +1,4 @@
-//! Issues #307/#367 observations and model-free record contracts. No production API changes.
+//! Issues #307/#318/#367 observations and model-free record contracts. No production API changes.
 use std::env;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -7,6 +7,8 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+
+pub(crate) mod runtime318;
 
 use crate::embed::ModelId;
 use crate::embed::research::capture as capture_embedding;

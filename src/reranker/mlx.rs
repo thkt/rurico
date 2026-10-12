@@ -17,13 +17,13 @@ use mlx_rs::{
 
 use std::path::Path;
 
-pub(super) struct RerankerInner {
+pub(crate) struct RerankerInner {
     model: RerankerModel,
-    tokenizer: tokenizers::Tokenizer,
+    pub(crate) tokenizer: tokenizers::Tokenizer,
 }
 
 impl RerankerInner {
-    pub(super) fn new(artifacts: &Artifacts) -> Result<Self, ModelInitError> {
+    pub(crate) fn new(artifacts: &Artifacts) -> Result<Self, ModelInitError> {
         let config = &artifacts.config;
         let tokenizer = artifacts.tokenizer.clone();
 
@@ -40,12 +40,9 @@ impl RerankerInner {
 
     /// Score every `(query, document)` pair in `pairs`.
     ///
-    /// Pairs are tokenised and bucketed by maximum length, then forwarded in
-    /// sub-batches sized so each forward pass stays under the shared
-    /// [`crate::model_io::TOKEN_BUDGET`] ceiling. Sub-batching mirrors the
-    /// embed path so a large `pairs.len()` cannot allocate an unbounded
-    /// `[N × bucket_len]` flat tensor.
-    pub(super) fn score_batch(
+    /// Retains all pair tokens and scores. The shared [`crate::model_io::TOKEN_BUDGET`]
+    /// splits forward passes; it does not bound total CPU or GPU memory.
+    pub(crate) fn score_batch(
         &mut self,
         pairs: &[(&str, &str)],
     ) -> Result<Vec<f32>, RerankerError> {
@@ -80,7 +77,7 @@ impl RerankerInner {
     }
 
     /// Forward one sub-batch and map logits to `[0, 1]` via sigmoid.
-    fn forward_sub_batch(
+    pub(crate) fn forward_sub_batch(
         &mut self,
         ids_chunk: &[Vec<u32>],
         masks_chunk: &[Vec<u32>],

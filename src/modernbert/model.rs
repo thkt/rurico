@@ -1,5 +1,7 @@
 #[cfg(test)]
 use crate::mlx_cache::testing::{Stage, checkpoint};
+#[cfg(all(test, feature = "smoke"))]
+use crate::research::runtime318;
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -69,6 +71,8 @@ impl Attention {
         let (b, seq_len) = (shape[0], shape[1]);
 
         let qkv = self.Wqkv.forward(xs)?;
+        #[cfg(all(test, feature = "smoke"))]
+        runtime318::tensor("qkv_projection", &qkv);
         let qkv = qkv.reshape(&[b, seq_len, 3, self.num_heads, self.head_dim])?;
         let qkv = qkv.transpose_axes(&[2, 0, 3, 1, 4])?;
 
@@ -121,6 +125,8 @@ impl Mlp {
 
     fn forward(&mut self, xs: &Array) -> Result<Array, Exception> {
         let xs = self.Wi.forward(xs)?;
+        #[cfg(all(test, feature = "smoke"))]
+        runtime318::tensor("glu_projection_before_split", &xs);
         let chunks = xs.split_equal(2, Some(-1))?;
         let gate = nn::gelu(&chunks[0])?;
         let xs = gate.multiply(&chunks[1])?;
@@ -331,7 +337,6 @@ impl ModernBert {
 
         let max_seq = config_dim_to_i32("max_seq_len", self.max_seq_len)?;
         if seq_len > max_seq {
-            // Defense-in-depth: truncate oversize inputs, validating only the effective prefix.
             tracing::warn!(
                 seq_len,
                 max_seq,
@@ -369,6 +374,8 @@ impl ModernBert {
 
         let mut xs = self.embeddings.tok_embeddings.forward(&ids)?;
         xs = self.embeddings.norm.forward(&xs)?;
+        #[cfg(all(test, feature = "smoke"))]
+        runtime318::tensor("embedding_hidden", &xs);
 
         let global_mask = prepare_4d_attention_mask(&mask, batch_size, seq_len)?;
         let local_mask = if let Some(cached) = self.local_mask_cache.get(&seq_len) {
@@ -406,7 +413,6 @@ fn config_dim_to_i32(name: &str, value: usize) -> Result<i32, Exception> {
     })
 }
 
-// Model config constant; layer norm epsilon fits in f32.
 #[allow(clippy::cast_possible_truncation)]
 pub(crate) fn layer_norm_eps_f32(config: &Config) -> f32 {
     config.layer_norm_eps as f32

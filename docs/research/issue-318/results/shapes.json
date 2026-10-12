@@ -1,0 +1,2322 @@
+[
+  {
+    "case": "shapes",
+    "event": "context",
+    "hidden": 768,
+    "intermediate": 3072,
+    "model": "cl-nagoya/ruri-v3-reranker-310m",
+    "revision": "bb46934ee9ed09f850b9fcff17501b3ef7ddb2b3"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      768
+    ],
+    "stage": "embedding_hidden"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      1,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "active_bytes": 1271896048,
+    "bucket": 128,
+    "cache_bytes": 0,
+    "event": "forward",
+    "ids_dtype": "u32",
+    "output_dtype": "f32",
+    "peak_bytes": 1516733364,
+    "prepared_bytes": 96,
+    "rows": 1,
+    "wall_ns": 401128500
+  },
+  {
+    "bucket": 128,
+    "event": "shape_case",
+    "rows": 1
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      768
+    ],
+    "stage": "embedding_hidden"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      10,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "active_bytes": 1359319572,
+    "bucket": 128,
+    "cache_bytes": 0,
+    "event": "forward",
+    "ids_dtype": "u32",
+    "output_dtype": "f32",
+    "peak_bytes": 2620101792,
+    "prepared_bytes": 960,
+    "rows": 10,
+    "wall_ns": 359512125
+  },
+  {
+    "bucket": 128,
+    "event": "shape_case",
+    "rows": 10
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      768
+    ],
+    "stage": "embedding_hidden"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      25,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "active_bytes": 1398832680,
+    "bucket": 128,
+    "cache_bytes": 78643212,
+    "event": "forward",
+    "ids_dtype": "u32",
+    "output_dtype": "f32",
+    "peak_bytes": 2620101792,
+    "prepared_bytes": 2400,
+    "rows": 25,
+    "wall_ns": 885032250
+  },
+  {
+    "bucket": 128,
+    "event": "shape_case",
+    "rows": 25
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      768
+    ],
+    "stage": "embedding_hidden"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      2304
+    ],
+    "stage": "qkv_projection"
+  },
+  {
+    "dtype": "Float32",
+    "event": "tensor",
+    "observation": "lazy Array metadata; not allocated or live GPU bytes",
+    "shape": [
+      50,
+      128,
+      6144
+    ],
+    "stage": "glu_projection_before_split"
+  },
+  {
+    "active_bytes": 1281179276,
+    "bucket": 128,
+    "cache_bytes": 19660800,
+    "event": "forward",
+    "ids_dtype": "u32",
+    "output_dtype": "f32",
+    "peak_bytes": 3040215440,
+    "prepared_bytes": 4800,
+    "rows": 50,
+    "wall_ns": 1730171792
+  },
+  {
+    "bucket": 128,
+    "event": "shape_case",
+    "rows": 50
+  }
+]

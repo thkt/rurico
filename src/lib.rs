@@ -42,3 +42,7 @@ pub use dispatch::{handle_probe_if_needed, handle_probe_if_needed_with};
 mod research;
 
 mod owned_process;
+
+#[cfg(test)]
+#[path = "../docs/research/issue-318/planner.rs"]
+mod runtime318_planner;

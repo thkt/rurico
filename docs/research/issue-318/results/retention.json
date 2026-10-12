@@ -1,0 +1,34 @@
+[
+  {
+    "case": "retention",
+    "event": "context",
+    "hidden": 768,
+    "intermediate": 3072,
+    "model": "cl-nagoya/ruri-v3-reranker-310m",
+    "revision": "bb46934ee9ed09f850b9fcff17501b3ef7ddb2b3"
+  },
+  {
+    "direct_retained_bytes": 4800,
+    "event": "retention",
+    "inputs": 50,
+    "prepared_peak_bytes": 960,
+    "row_cap": 10,
+    "scope": "requested payload, excludes tokenizer scratch/RSS/results"
+  },
+  {
+    "direct_retained_bytes": 48000,
+    "event": "retention",
+    "inputs": 500,
+    "prepared_peak_bytes": 960,
+    "row_cap": 10,
+    "scope": "requested payload, excludes tokenizer scratch/RSS/results"
+  },
+  {
+    "direct_retained_bytes": 480000,
+    "event": "retention",
+    "inputs": 5000,
+    "prepared_peak_bytes": 960,
+    "row_cap": 10,
+    "scope": "requested payload, excludes tokenizer scratch/RSS/results"
+  }
+]

@@ -1,0 +1,685 @@
+[
+  {
+    "case": "overlap",
+    "event": "context",
+    "hidden": 768,
+    "intermediate": 3072,
+    "model": "cl-nagoya/ruri-v3-reranker-310m",
+    "revision": "bb46934ee9ed09f850b9fcff17501b3ef7ddb2b3"
+  },
+  {
+    "active_bytes": 1281179276,
+    "cache_bytes": 19660804,
+    "event": "direct",
+    "peak_bytes": 3040215440,
+    "rows": 50,
+    "trial": 0,
+    "wall_ns": 1709059041
+  },
+  {
+    "event": "trial",
+    "overlap": false,
+    "trial": 0
+  },
+  {
+    "active_bytes": 1355387408,
+    "bucket": 128,
+    "cache_bytes": 3932164,
+    "event": "forward",
+    "ids_dtype": "u32",
+    "output_dtype": "f32",
+    "peak_bytes": 2620101792,
+    "prepared_bytes": 960,
+    "rows": 10,
+    "wall_ns": 387425334
+  },
+  {
+    "active_bytes": 1359319572,
+    "bucket": 128,
+    "cache_bytes": 0,
+    "event": "forward",
+    "ids_dtype": "u32",
+    "output_dtype": "f32",
+    "peak_bytes": 2620101792,
+    "prepared_bytes": 960,
+    "rows": 10,
+    "wall_ns": 365165666
+  },
+  {
+    "active_bytes": 1359319572,
+    "bucket": 128,
+    "cache_bytes": 0,
+    "event": "forward",
+    "ids_dtype": "u32",
+    "output_dtype": "f32",
+    "peak_bytes": 2620101792,
+    "prepared_bytes": 960,
+    "rows": 10,
+    "wall_ns": 343145917
+  },
+  {
+    "active_bytes": 1355387412,
+    "bucket": 128,
+    "cache_bytes": 3932160,
+    "event": "forward",
+    "ids_dtype": "u32",
+    "output_dtype": "f32",
+    "peak_bytes": 2620101792,
+    "prepared_bytes": 960,
+    "rows": 10,
+    "wall_ns": 359128625
+  },
+  {
+    "active_bytes": 1359319572,
+    "bucket": 128,
+    "cache_bytes": 0,
+    "event": "forward",
+    "ids_dtype": "u32",
+    "output_dtype": "f32",
+    "peak_bytes": 2620101792,
+    "prepared_bytes": 960,
+    "rows": 10,
+    "wall_ns": 342996625
+  },
+  {
+    "cancelled": false,
+    "completed": 50,
+    "event": "stream",
+    "overlap": false,
+    "requested": 50,
+    "wall_ns": 1799987584
+  },
+  {
+    "count": 50,
+    "event": "comparison",
+    "max_abs_score_difference": 0.0
+  },
+  {
+    "event": "trial",
+    "overlap": true,
+    "trial": 0
+  },
+  {
+    "delivered_ns": 151375,
+    "event": "producer",
+    "prepared_ns": 149333,
+    "send_ok": true,
+    "start_ns": 70708
+  },
+  {
+    "delivered_ns": 346250,
+    "event": "producer",
+    "prepared_ns": 346167,
+    "send_ok": true,
+    "start_ns": 290125
+  },
+  {
+    "active_bytes": 1359319572,
+    "bucket": 128,
+    "cache_bytes": 0,
+    "event": "forward",
+    "ids_dtype": "u32",
+    "output_dtype": "f32",
+    "peak_bytes": 2620101792,
+    "prepared_bytes": 960,
+    "rows": 10,
+    "wall_ns": 348676916
+  },
+  {
+    "end_ns": 349283208,
+    "event": "consumer",
+    "start_ns": 156708
+  },
+  {
+    "delivered_ns": 349430875,
+    "event": "producer",
+    "prepared_ns": 499250,
+    "send_ok": true,
+    "start_ns": 432708
+  },
+  {
+    "active_bytes": 1355387412,
+    "bucket": 128,
+    "cache_bytes": 3932160,
+    "event": "forward",
+    "ids_dtype": "u32",
+    "output_dtype": "f32",
+    "peak_bytes": 2620101792,
+    "prepared_bytes": 960,
+    "rows": 10,
+    "wall_ns": 362173500
+  },
+  {
+    "end_ns": 711941750,
+    "event": "consumer",
+    "start_ns": 349417167
+  },
+  {
+    "delivered_ns": 712046750,
+    "event": "producer",
+    "prepared_ns": 349912167,
+    "send_ok": true,
+    "start_ns": 349727000
+  },
+  {
+    "active_bytes": 1355387412,
+    "bucket": 128,
+    "cache_bytes": 3932160,
+    "event": "forward",
+    "ids_dtype": "u32",
+    "output_dtype": "f32",
+    "peak_bytes": 2620101792,
+    "prepared_bytes": 960,
+    "rows": 10,
+    "wall_ns": 329702041
+  },
+  {
+    "end_ns": 1042150417,
+    "event": "consumer",
+    "start_ns": 712037792
+  },
+  {
+    "delivered_ns": 1042271333,
+    "event": "producer",
+    "prepared_ns": 712339833,
+    "send_ok": true,
+    "start_ns": 712213375
+  },
+  {
+    "active_bytes": 1355387408,
+    "bucket": 128,
+    "cache_bytes": 3932164,
+    "event": "forward",
+    "ids_dtype": "u32",
+    "output_dtype": "f32",
+    "peak_bytes": 2620101792,
+    "prepared_bytes": 960,
+    "rows": 10,
+    "wall_ns": 363334833
+  },
+  {
+    "end_ns": 1405951500,
+    "event": "consumer",
+    "start_ns": 1042262500
+  },
+  {
+    "active_bytes": 1355387412,
+    "bucket": 128,
+    "cache_bytes": 0,
+    "event": "forward",
+    "ids_dtype": "u32",
+    "output_dtype": "f32",
+    "peak_bytes": 2620101792,
+    "prepared_bytes": 960,
+    "rows": 10,
+    "wall_ns": 359231666
+  },
+  {
+    "end_ns": 1765587667,
+    "event": "consumer",
+    "start_ns": 1406043792
+  },
+  {
+    "cancelled": false,
+    "completed": 50,
+    "event": "stream",
+    "overlap": true,
+    "requested": 50,
+    "wall_ns": 1765688292
+  },
+  {
+    "count": 50,
+    "event": "comparison",
+    "max_abs_score_difference": 0.0
+  },
+  {
+    "active_bytes": 1261354628,
+    "cache_bytes": 39485448,
+    "event": "direct",
+    "peak_bytes": 3040215440,
+    "rows": 50,
+    "trial": 1,
+    "wall_ns": 1737034625
+  },
+  {
+    "event": "trial",
+    "overlap": true,
+    "trial": 1
+  },
+  {
+    "delivered_ns": 138209,
+    "event": "producer",
+    "prepared_ns": 136334,
+    "send_ok": true,
+    "start_ns": 45417
+  },
+  {
+    "delivered_ns": 359792,
+    "event": "producer",
+    "prepared_ns": 359709,
+    "send_ok": true,
+    "start_ns": 295084
+  },
+  {
+    "active_bytes": 1355387412,
+    "bucket": 128,
+    "cache_bytes": 3932160,
+    "event": "forward",
+    "ids_dtype": "u32",
+    "output_dtype": "f32",
+    "peak_bytes": 2620101792,
+    "prepared_bytes": 960,
+    "rows": 10,
+    "wall_ns": 375778000
+  },
+  {
+    "end_ns": 376298834,
+    "event": "consumer",
+    "start_ns": 143584
+  },
+  {
+    "delivered_ns": 376415959,
+    "event": "producer",
+    "prepared_ns": 529584,
+    "send_ok": true,
+    "start_ns": 452459
+  },
+  {
+    "active_bytes": 1355387412,
+    "bucket": 128,
+    "cache_bytes": 3932164,
+    "event": "forward",
+    "ids_dtype": "u32",
+    "output_dtype": "f32",
+    "peak_bytes": 2620101792,
+    "prepared_bytes": 960,
+    "rows": 10,
+    "wall_ns": 335677875
+  },
+  {
+    "end_ns": 712344792,
+    "event": "consumer",
+    "start_ns": 376392667
+  },
+  {
+    "delivered_ns": 712417875,
+    "event": "producer",
+    "prepared_ns": 376898750,
+    "send_ok": true,
+    "start_ns": 376663625
+  },
+  {
+    "active_bytes": 1355387412,
+    "bucket": 128,
+    "cache_bytes": 3932160,
+    "event": "forward",
+    "ids_dtype": "u32",
+    "output_dtype": "f32",
+    "peak_bytes": 2620101792,
+    "prepared_bytes": 960,
+    "rows": 10,
+    "wall_ns": 361631750
+  },
+  {
+    "end_ns": 1074250334,
+    "event": "consumer",
+    "start_ns": 712409792
+  },
+  {
+    "delivered_ns": 1074316834,
+    "event": "producer",
+    "prepared_ns": 712637667,
+    "send_ok": true,
+    "start_ns": 712534250
+  },
+  {
+    "active_bytes": 1355387412,
+    "bucket": 128,
+    "cache_bytes": 3932164,
+    "event": "forward",
+    "ids_dtype": "u32",
+    "output_dtype": "f32",
+    "peak_bytes": 2620101792,
+    "prepared_bytes": 960,
+    "rows": 10,
+    "wall_ns": 345025000
+  },
+  {
+    "end_ns": 1419651750,
+    "event": "consumer",
+    "start_ns": 1074309834
+  },
+  {
+    "active_bytes": 1359319572,
+    "bucket": 128,
+    "cache_bytes": 0,
+    "event": "forward",
+    "ids_dtype": "u32",
+    "output_dtype": "f32",
+    "peak_bytes": 2620101792,
+    "prepared_bytes": 960,
+    "rows": 10,
+    "wall_ns": 340469916
+  },
+  {
+    "end_ns": 1760420375,
+    "event": "consumer",
+    "start_ns": 1419731917
+  },
+  {
+    "cancelled": false,
+    "completed": 50,
+    "event": "stream",
+    "overlap": true,
+    "requested": 50,
+    "wall_ns": 1760500667
+  },
+  {
+    "count": 50,
+    "event": "comparison",
+    "max_abs_score_difference": 0.0
+  },
+  {
+    "event": "trial",
+    "overlap": false,
+    "trial": 1
+  },
+  {
+    "active_bytes": 1355387412,
+    "bucket": 128,
+    "cache_bytes": 3932160,
+    "event": "forward",
+    "ids_dtype": "u32",
+    "output_dtype": "f32",
+    "peak_bytes": 2620101792,
+    "prepared_bytes": 960,
+    "rows": 10,
+    "wall_ns": 355615250
+  },
+  {
+    "active_bytes": 1359319572,
+    "bucket": 128,
+    "cache_bytes": 0,
+    "event": "forward",
+    "ids_dtype": "u32",
+    "output_dtype": "f32",
+    "peak_bytes": 2620101792,
+    "prepared_bytes": 960,
+    "rows": 10,
+    "wall_ns": 352671208
+  },
+  {
+    "active_bytes": 1359319572,
+    "bucket": 128,
+    "cache_bytes": 0,
+    "event": "forward",
+    "ids_dtype": "u32",
+    "output_dtype": "f32",
+    "peak_bytes": 2620101792,
+    "prepared_bytes": 960,
+    "rows": 10,
+    "wall_ns": 372078625
+  },
+  {
+    "active_bytes": 1355387412,
+    "bucket": 128,
+    "cache_bytes": 3932160,
+    "event": "forward",
+    "ids_dtype": "u32",
+    "output_dtype": "f32",
+    "peak_bytes": 2620101792,
+    "prepared_bytes": 960,
+    "rows": 10,
+    "wall_ns": 372440625
+  },
+  {
+    "active_bytes": 1355387412,
+    "bucket": 128,
+    "cache_bytes": 3932160,
+    "event": "forward",
+    "ids_dtype": "u32",
+    "output_dtype": "f32",
+    "peak_bytes": 2620101792,
+    "prepared_bytes": 960,
+    "rows": 10,
+    "wall_ns": 348359458
+  },
+  {
+    "cancelled": false,
+    "completed": 50,
+    "event": "stream",
+    "overlap": false,
+    "requested": 50,
+    "wall_ns": 1802742167
+  },
+  {
+    "count": 50,
+    "event": "comparison",
+    "max_abs_score_difference": 0.0
+  },
+  {
+    "active_bytes": 1281179272,
+    "cache_bytes": 19660804,
+    "event": "direct",
+    "peak_bytes": 3040215440,
+    "rows": 50,
+    "trial": 2,
+    "wall_ns": 1707262875
+  },
+  {
+    "event": "trial",
+    "overlap": false,
+    "trial": 2
+  },
+  {
+    "active_bytes": 1355387412,
+    "bucket": 128,
+    "cache_bytes": 3932160,
+    "event": "forward",
+    "ids_dtype": "u32",
+    "output_dtype": "f32",
+    "peak_bytes": 2620101792,
+    "prepared_bytes": 960,
+    "rows": 10,
+    "wall_ns": 337594959
+  },
+  {
+    "active_bytes": 1355387412,
+    "bucket": 128,
+    "cache_bytes": 3932160,
+    "event": "forward",
+    "ids_dtype": "u32",
+    "output_dtype": "f32",
+    "peak_bytes": 2620101792,
+    "prepared_bytes": 960,
+    "rows": 10,
+    "wall_ns": 357618916
+  },
+  {
+    "active_bytes": 1359319572,
+    "bucket": 128,
+    "cache_bytes": 0,
+    "event": "forward",
+    "ids_dtype": "u32",
+    "output_dtype": "f32",
+    "peak_bytes": 2620101792,
+    "prepared_bytes": 960,
+    "rows": 10,
+    "wall_ns": 354950125
+  },
+  {
+    "active_bytes": 1359319572,
+    "bucket": 128,
+    "cache_bytes": 0,
+    "event": "forward",
+    "ids_dtype": "u32",
+    "output_dtype": "f32",
+    "peak_bytes": 2620101792,
+    "prepared_bytes": 960,
+    "rows": 10,
+    "wall_ns": 370709750
+  },
+  {
+    "active_bytes": 1355387412,
+    "bucket": 128,
+    "cache_bytes": 0,
+    "event": "forward",
+    "ids_dtype": "u32",
+    "output_dtype": "f32",
+    "peak_bytes": 2620101792,
+    "prepared_bytes": 960,
+    "rows": 10,
+    "wall_ns": 381873750
+  },
+  {
+    "cancelled": false,
+    "completed": 50,
+    "event": "stream",
+    "overlap": false,
+    "requested": 50,
+    "wall_ns": 1804719917
+  },
+  {
+    "count": 50,
+    "event": "comparison",
+    "max_abs_score_difference": 0.0
+  },
+  {
+    "event": "trial",
+    "overlap": true,
+    "trial": 2
+  },
+  {
+    "delivered_ns": 135958,
+    "event": "producer",
+    "prepared_ns": 134000,
+    "send_ok": true,
+    "start_ns": 50250
+  },
+  {
+    "delivered_ns": 311625,
+    "event": "producer",
+    "prepared_ns": 311583,
+    "send_ok": true,
+    "start_ns": 243083
+  },
+  {
+    "active_bytes": 1359319572,
+    "bucket": 128,
+    "cache_bytes": 0,
+    "event": "forward",
+    "ids_dtype": "u32",
+    "output_dtype": "f32",
+    "peak_bytes": 2620101792,
+    "prepared_bytes": 960,
+    "rows": 10,
+    "wall_ns": 350920667
+  },
+  {
+    "end_ns": 351311833,
+    "event": "consumer",
+    "start_ns": 141792
+  },
+  {
+    "delivered_ns": 351387958,
+    "event": "producer",
+    "prepared_ns": 450667,
+    "send_ok": true,
+    "start_ns": 382583
+  },
+  {
+    "active_bytes": 1355387412,
+    "bucket": 128,
+    "cache_bytes": 0,
+    "event": "forward",
+    "ids_dtype": "u32",
+    "output_dtype": "f32",
+    "peak_bytes": 2620101792,
+    "prepared_bytes": 960,
+    "rows": 10,
+    "wall_ns": 355835041
+  },
+  {
+    "end_ns": 707431250,
+    "event": "consumer",
+    "start_ns": 351379417
+  },
+  {
+    "delivered_ns": 707498542,
+    "event": "producer",
+    "prepared_ns": 351623417,
+    "send_ok": true,
+    "start_ns": 351512375
+  },
+  {
+    "active_bytes": 1359319572,
+    "bucket": 128,
+    "cache_bytes": 0,
+    "event": "forward",
+    "ids_dtype": "u32",
+    "output_dtype": "f32",
+    "peak_bytes": 2620101792,
+    "prepared_bytes": 960,
+    "rows": 10,
+    "wall_ns": 357008292
+  },
+  {
+    "end_ns": 1064826000,
+    "event": "consumer",
+    "start_ns": 707491250
+  },
+  {
+    "delivered_ns": 1064948292,
+    "event": "producer",
+    "prepared_ns": 707738917,
+    "send_ok": true,
+    "start_ns": 707623375
+  },
+  {
+    "active_bytes": 1359319572,
+    "bucket": 128,
+    "cache_bytes": 0,
+    "event": "forward",
+    "ids_dtype": "u32",
+    "output_dtype": "f32",
+    "peak_bytes": 2620101792,
+    "prepared_bytes": 960,
+    "rows": 10,
+    "wall_ns": 334173208
+  },
+  {
+    "end_ns": 1399346792,
+    "event": "consumer",
+    "start_ns": 1064937750
+  },
+  {
+    "active_bytes": 1355387412,
+    "bucket": 128,
+    "cache_bytes": 3932160,
+    "event": "forward",
+    "ids_dtype": "u32",
+    "output_dtype": "f32",
+    "peak_bytes": 2620101792,
+    "prepared_bytes": 960,
+    "rows": 10,
+    "wall_ns": 357163917
+  },
+  {
+    "end_ns": 1756895833,
+    "event": "consumer",
+    "start_ns": 1399405083
+  },
+  {
+    "cancelled": false,
+    "completed": 50,
+    "event": "stream",
+    "overlap": true,
+    "requested": 50,
+    "wall_ns": 1757011708
+  },
+  {
+    "count": 50,
+    "event": "comparison",
+    "max_abs_score_difference": 0.0
+  }
+]

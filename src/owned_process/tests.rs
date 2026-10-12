@@ -166,8 +166,16 @@ fn reader_io_failure_uses_production_cleanup_and_preserves_other_group() {
         let reaped = child.try_wait().unwrap().is_some();
         let group_gone = !process_group_exists(child.id()).unwrap();
         let size = fs::metadata(&marker).map(|m| m.len()).unwrap_or(0);
-        thread::sleep(Duration::from_millis(50));
-        let grew = fs::metadata(&marker).unwrap().len() > size;
+        let observation_deadline = Instant::now() + Duration::from_secs(5);
+        let grew = loop {
+            if fs::metadata(&marker).map(|m| m.len()).unwrap_or(0) > size {
+                break true;
+            }
+            if other.try_wait().unwrap().is_some() || Instant::now() >= observation_deadline {
+                break false;
+            }
+            thread::sleep(Duration::from_millis(10));
+        };
         (error, reaped, group_gone, grew)
     };
     let _ = collect(&mut other, Duration::ZERO, Duration::from_millis(1), b"").unwrap();
@@ -185,7 +193,10 @@ fn reader_io_failure_uses_production_cleanup_and_preserves_other_group() {
         outcome.2,
         outcome.0
     );
-    assert!(outcome.3, "cleanup killed unrelated writer");
+    assert!(
+        outcome.3,
+        "unrelated writer exited or failed to make progress after cleanup"
+    );
 }
 
 #[test]
