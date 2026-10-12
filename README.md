@@ -575,6 +575,9 @@ smoke binary は `sandbox::exit_if_seatbelt` 経由で `SEATBELT_SKIP_EXIT` (78)
 rerankerのモデル不要検証・ignoredの実モデル検証・50ペアの基準版benchmark比較は
 [CONTRIBUTING](CONTRIBUTING.md#重複検証の整理とreranker遅延の計測issue-364)を参照。
 benchmarkは性能を測定し、標準checkの合否や検索品質評価とは分けて扱う。
+長さ別バッチの調査候補は公開APIへ採用していない。
+[Issue #309の手順](docs/research/issue-309/README.md)で既存の最大長方式と比較する。
+標準checkの成功は、その実モデル・速度・メモリ比較の完了を意味しない。
 
 検索品質の評価（Recall@k / MRR@k / nDCG@k）は [`amici`](https://github.com/thkt/amici) で行う。`CandidateSource` は `{ Fts, Vector }` の閉 enum に固定されている（prefix-ensemble は採用していない）。
 

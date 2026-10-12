@@ -1,0 +1,240 @@
+[
+  {
+    "dtype": "F32",
+    "event": "input",
+    "model": "cl-nagoya/ruri-v3-reranker-310m",
+    "pairs": [
+      [
+        "猫について",
+        "猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫"
+      ],
+      [
+        "猫について",
+        "猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 "
+      ],
+      [
+        "猫について",
+        "猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫"
+      ]
+    ],
+    "revision": "bb46934ee9ed09f850b9fcff17501b3ef7ddb2b3",
+    "workload": "boundary128",
+    "model_sha256": {
+      "model.safetensors": "9f747a085a0adba9490205357be306ba3234bc958a30a19baa6b0bb14e9e83fe",
+      "config.json": "62216cae7ea4b690db21aa8c4086a88f26af6173f2795d4c1a807755f3a899a8",
+      "tokenizer.json": "0a94ac9a0a02c067bdef25b72ae9f4ee33f48f552e55988d444f6d25eeb1d062"
+    }
+  },
+  {
+    "candidate": true,
+    "encode_ns": 268833,
+    "event": "call",
+    "forwards": [
+      {
+        "bucket": 128,
+        "host_forward_ns": 93000334,
+        "indices": [
+          0,
+          1
+        ],
+        "rows": 2
+      },
+      {
+        "bucket": 512,
+        "host_forward_ns": 128817000,
+        "indices": [
+          2
+        ],
+        "rows": 1
+      }
+    ],
+    "gpu_kernel_ns": null,
+    "lengths": [
+      127,
+      128,
+      129
+    ],
+    "logits": [
+      0.7800619602203369,
+      0.7224116325378418,
+      0.7693796157836914
+    ],
+    "metal_peak_bytes": 2183111096,
+    "mutex_wait_ns": null,
+    "order": [
+      0,
+      2,
+      1
+    ],
+    "padded_tokens": 768,
+    "padding_ratio": 2.0,
+    "real_tokens": 384,
+    "repeat": 0,
+    "scores": [
+      0.6856934428215027,
+      0.673137903213501,
+      0.6833866238594055
+    ],
+    "state": "cold",
+    "wall_ns": 222092958
+  },
+  {
+    "candidate": true,
+    "encode_ns": 135084,
+    "event": "call",
+    "forwards": [
+      {
+        "bucket": 128,
+        "host_forward_ns": 63473959,
+        "indices": [
+          0,
+          1
+        ],
+        "rows": 2
+      },
+      {
+        "bucket": 512,
+        "host_forward_ns": 129988916,
+        "indices": [
+          2
+        ],
+        "rows": 1
+      }
+    ],
+    "gpu_kernel_ns": null,
+    "lengths": [
+      127,
+      128,
+      129
+    ],
+    "logits": [
+      0.7800619602203369,
+      0.7224116325378418,
+      0.7693796157836914
+    ],
+    "metal_peak_bytes": 2183111096,
+    "mutex_wait_ns": null,
+    "order": [
+      0,
+      2,
+      1
+    ],
+    "padded_tokens": 768,
+    "padding_ratio": 2.0,
+    "real_tokens": 384,
+    "repeat": 1,
+    "scores": [
+      0.6856934428215027,
+      0.673137903213501,
+      0.6833866238594055
+    ],
+    "state": "warm",
+    "wall_ns": 193605084
+  },
+  {
+    "candidate": true,
+    "encode_ns": 164167,
+    "event": "call",
+    "forwards": [
+      {
+        "bucket": 128,
+        "host_forward_ns": 64602458,
+        "indices": [
+          0,
+          1
+        ],
+        "rows": 2
+      },
+      {
+        "bucket": 512,
+        "host_forward_ns": 135992125,
+        "indices": [
+          2
+        ],
+        "rows": 1
+      }
+    ],
+    "gpu_kernel_ns": null,
+    "lengths": [
+      127,
+      128,
+      129
+    ],
+    "logits": [
+      0.7800619602203369,
+      0.7224116325378418,
+      0.7693796157836914
+    ],
+    "metal_peak_bytes": 2183111096,
+    "mutex_wait_ns": null,
+    "order": [
+      0,
+      2,
+      1
+    ],
+    "padded_tokens": 768,
+    "padding_ratio": 2.0,
+    "real_tokens": 384,
+    "repeat": 2,
+    "scores": [
+      0.6856934428215027,
+      0.673137903213501,
+      0.6833866238594055
+    ],
+    "state": "warm",
+    "wall_ns": 200766375
+  },
+  {
+    "candidate": true,
+    "encode_ns": 145041,
+    "event": "call",
+    "forwards": [
+      {
+        "bucket": 128,
+        "host_forward_ns": 66473375,
+        "indices": [
+          0,
+          1
+        ],
+        "rows": 2
+      },
+      {
+        "bucket": 512,
+        "host_forward_ns": 132279500,
+        "indices": [
+          2
+        ],
+        "rows": 1
+      }
+    ],
+    "gpu_kernel_ns": null,
+    "lengths": [
+      127,
+      128,
+      129
+    ],
+    "logits": [
+      0.7800619602203369,
+      0.7224116325378418,
+      0.7693796157836914
+    ],
+    "metal_peak_bytes": 2183111096,
+    "mutex_wait_ns": null,
+    "order": [
+      0,
+      2,
+      1
+    ],
+    "padded_tokens": 768,
+    "padding_ratio": 2.0,
+    "real_tokens": 384,
+    "repeat": 3,
+    "scores": [
+      0.6856934428215027,
+      0.673137903213501,
+      0.6833866238594055
+    ],
+    "state": "warm",
+    "wall_ns": 198908083
+  }
+]

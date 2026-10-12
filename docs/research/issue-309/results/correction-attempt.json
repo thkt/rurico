@@ -1,0 +1,13 @@
+{
+  "test": "reranker::mlx::bucket_probe::observe_length_batches",
+  "complete": false,
+  "binary_sha256": "c57b423f753001db278c32915bf611d56870543974c72db331abb08c749349d8",
+  "group_absent": true,
+  "mode": "reference",
+  "workload": "same",
+  "stopped": "memory pressure 1→2",
+  "rss_sample_max_bytes": 1549221888,
+  "swap_increase_bytes": 0.0,
+  "completed_calls": 0,
+  "candidate_started": false
+}

@@ -25,12 +25,20 @@ pub(super) fn sigmoid(x: f32) -> f32 {
     1.0 / (1.0 + (-x).exp())
 }
 
-/// Validate the readback buffer before returning scores to callers.
 pub(super) fn scores_from_logits(
     flat: &[f32],
     batch_size: usize,
     bucket_len: usize,
 ) -> Result<Vec<f32>, RerankerError> {
+    validate_logits(flat, batch_size, bucket_len)?;
+    Ok(flat.iter().map(|&logit| sigmoid(logit)).collect())
+}
+
+pub(super) fn validate_logits(
+    flat: &[f32],
+    batch_size: usize,
+    bucket_len: usize,
+) -> Result<(), RerankerError> {
     let flat_len = flat.len();
     if flat_len != batch_size {
         tracing::warn!(
@@ -53,7 +61,7 @@ pub(super) fn scores_from_logits(
         );
         return Err(RerankerError::NonFiniteOutput);
     }
-    Ok(flat.iter().map(|&logit| sigmoid(logit)).collect())
+    Ok(())
 }
 
 // Keep the public empty-input and pair assembly paths testable without model

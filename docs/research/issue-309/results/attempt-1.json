@@ -1,0 +1,55 @@
+{
+  "collection_complete": false,
+  "reason": "host memory pressure 1 -> 2; guard stopped owned measurement",
+  "start_commit": "5288f4fb38b436084d63ec9cd56754f6e118459b",
+  "source_snapshot_before_report_update": "2f0ef9e8b0849538fb9c4e8aee6aef83be6b813778650c512696b6eed0f01828",
+  "tracked_diff_sha256": "d7202441b33a8bcddfe829e4b957887dee8d96430aff09f197c0057daee738f3",
+  "cargo_lock_sha256": "d71f73a0b810ece1c030c761bc72accdf24ab821c43c50a846c8561a892f5db7",
+  "binary_sha256": "8305cd72952ae9079db73d925019a7d6aad745fbbdbef9680d3a5e1cff297808",
+  "model": {
+    "repository": "cl-nagoya/ruri-v3-reranker-310m",
+    "revision": "bb46934ee9ed09f850b9fcff17501b3ef7ddb2b3",
+    "dtype": "F32",
+    "files": {
+      "model.safetensors": "9f747a085a0adba9490205357be306ba3234bc958a30a19baa6b0bb14e9e83fe",
+      "config.json": "62216cae7ea4b690db21aa8c4086a88f26af6173f2795d4c1a807755f3a899a8",
+      "tokenizer.json": "0a94ac9a0a02c067bdef25b72ae9f4ee33f48f552e55988d444f6d25eeb1d062"
+    }
+  },
+  "machine": "Mac15,3",
+  "ram_bytes": 25769803776,
+  "criteria": {
+    "logit_abs": 2.5e-05,
+    "score_abs": 2.5e-05,
+    "logit_order": "exact",
+    "score_order": "exact",
+    "tie_order": "original index"
+  },
+  "case": "same-0-reference",
+  "call_records": 0,
+  "sampling": {
+    "samples": 8,
+    "elapsed_between_first_and_last_seconds": 1.0860176669957582,
+    "rss_sample_max_bytes": 1328316416,
+    "pressure_first": 1,
+    "pressure_last": 2,
+    "swap_increase_bytes": 0.0
+  },
+  "group_absent": true,
+  "runner_exit_code": 1,
+  "raw_evidence_sha256": {
+    "same-0-reference.stdout": "fa753f2d23c78b2bdd1607a8f4bcab2eba7ae945130e8e79bf710c6f50e5968a",
+    "monitor.json": "681d014e1d270d76dec45fd21b729d357565228176ab86c8a26d38196211b1df",
+    "same-0-reference.stderr": "7e4f62bcb0c91b974fb3a7012ca5ad677261bfcd8234b86d782211b75a0fd82c",
+    "same-0-reference.status.json": "e29ab7fc02094e10a9e18a8151e1c55cb796ff550271a2022e61a0f7054ba3cd",
+    "context.json": "31d3514d19b5a4b671752241e1465d16b0eec709079cac317dedb0374aa88087"
+  },
+  "unverified": [
+    "logit/score/rank comparison",
+    "cold/warm latency",
+    "candidate padding/forward/memory difference",
+    "cleanup/API ignored model validation",
+    "independent assessment",
+    "PR and CI"
+  ]
+}
