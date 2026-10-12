@@ -389,6 +389,17 @@ amiciの固定版parserとround-trip確認は標準checkの対象外なので、
 pure plannerの境界試験は標準checkのlibtestに含む。実モデル比較は別のホスト検証であり、
 製品上限・deadline・新しいruntime方式の採用や5000ペアの完了を標準check成功から判断しない。
 
+### rerankerの長さ別バッチ比較（Issue #309）
+
+公開APIは全pair最大長方式を維持する。長さ別分配の試作はtestビルドに限定し、
+既存のpair encoding、固定bucket、token budget、readback/cleanupを共有する。
+標準checkは識別値を持つ長短混在・複数sub-batch・端数・同点の元順復元と、
+比較記録の欠損・入力不一致を確認する。実モデルの数値・性能・メモリは含めない。
+同じ変更版のrelease libtestで追加実行する手順と測定前の診断基準は
+[Issue #309のREADME](docs/research/issue-309/README.md)を参照する。
+5000ペア未完了の過去観測、全入力保持量・1 forward規模の限界は
+[報告](docs/research/issue-309/report.md)に残す。padding削減を速度改善や製品採用として扱わない。
+
 ### 構成識別の設計例（Issue #315）
 
 embedding・FTS構成の保存と照合の未採用案は、[設計報告と実行例](docs/research/issue-315/README.md)を参照する。

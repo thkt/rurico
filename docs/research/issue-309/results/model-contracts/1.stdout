@@ -1,0 +1,11 @@
+
+running 1 test
+test reranker::tests::mlx_runtime_tests::cached_model_scores_singleton_batch_and_reranks_in_input_order ... 2026-10-12T06:13:46.887244Z  INFO cached_model_scores_singleton_batch_and_reranks_in_input_order: rurico::model_lifecycle: model_lifecycle: loaded from cache repo_id="cl-nagoya/ruri-v3-reranker-310m"
+2026-10-12T06:13:47.013917Z  INFO cached_model_scores_singleton_batch_and_reranks_in_input_order: rurico::reranker::mlx: reranker: model loaded hidden_size=768 model_path="<huggingface-cache>/models--cl-nagoya--ruri-v3-reranker-310m/snapshots/bb46934ee9ed09f850b9fcff17501b3ef7ddb2b3/model.safetensors"
+2026-10-12T06:13:47.048089Z DEBUG cached_model_scores_singleton_batch_and_reranks_in_input_order: rurico::reranker::processing: reranker score_batch dispatch batch_size=1 sub_batch_count=1 sub_batch_size=2000 bucket_len=128
+2026-10-12T06:13:47.102513Z DEBUG cached_model_scores_singleton_batch_and_reranks_in_input_order: rurico::reranker::processing: reranker score_batch dispatch batch_size=3 sub_batch_count=1 sub_batch_size=2000 bucket_len=128
+2026-10-12T06:13:47.195659Z DEBUG cached_model_scores_singleton_batch_and_reranks_in_input_order: rurico::reranker::processing: reranker score_batch dispatch batch_size=2 sub_batch_count=1 sub_batch_size=2000 bucket_len=128
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 417 filtered out; finished in 0.45s
+

@@ -2,6 +2,9 @@ mod lazy;
 pub(crate) mod mlx;
 mod processing;
 
+#[cfg(test)]
+mod bucket_spike;
+
 #[cfg(any(test, feature = "test-support"))]
 mod test_support;
 
@@ -39,10 +42,6 @@ pub(crate) const PROBE_ENV_TOKENIZER: &str = "__RURICO_RERANKER_PROBE_TOKENIZER"
 pub type Artifacts = VerifiedArtifacts<RerankerKind>;
 
 /// Unverified reranker model artifact paths.
-///
-/// Type alias for [`crate::artifacts::CandidateArtifacts<RerankerKind>`] so the
-/// downstream-visible name `reranker::CandidateArtifacts` keeps working while
-/// the underlying definition lives in `artifacts.rs` (single source of truth).
 pub type CandidateArtifacts = artifacts::CandidateArtifacts<RerankerKind>;
 
 /// Identifies a ruri-v3 reranker model variant.
@@ -194,7 +193,7 @@ pub trait Rerank: Send + Sync {
     /// Backend-generated messages are opaque and not stable API.
     fn score(&self, query: &str, document: &str) -> Result<f32, RerankerError>;
 
-    /// Score multiple (query, document) pairs in a single batched forward pass.
+    /// Score multiple (query, document) pairs.
     ///
     /// Returns one score per pair in input order.
     ///
@@ -261,7 +260,7 @@ impl Reranker {
         Ok(scores[0])
     }
 
-    /// Score multiple (query, document) pairs in a single batched forward pass.
+    /// Score multiple (query, document) pairs.
     ///
     /// Returns one score per pair in input order.
     ///

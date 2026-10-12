@@ -1,0 +1,212 @@
+[
+  {
+    "dtype": "F32",
+    "event": "input",
+    "model": "cl-nagoya/ruri-v3-reranker-310m",
+    "pairs": [
+      [
+        "猫について",
+        "猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫"
+      ],
+      [
+        "猫について",
+        "猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 "
+      ],
+      [
+        "猫について",
+        "猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫 猫"
+      ]
+    ],
+    "revision": "bb46934ee9ed09f850b9fcff17501b3ef7ddb2b3",
+    "workload": "boundary128",
+    "model_sha256": {
+      "model.safetensors": "9f747a085a0adba9490205357be306ba3234bc958a30a19baa6b0bb14e9e83fe",
+      "config.json": "62216cae7ea4b690db21aa8c4086a88f26af6173f2795d4c1a807755f3a899a8",
+      "tokenizer.json": "0a94ac9a0a02c067bdef25b72ae9f4ee33f48f552e55988d444f6d25eeb1d062"
+    }
+  },
+  {
+    "candidate": false,
+    "encode_ns": 122542,
+    "event": "call",
+    "forwards": [
+      {
+        "bucket": 512,
+        "host_forward_ns": 403323917,
+        "indices": [
+          0,
+          1,
+          2
+        ],
+        "rows": 3
+      }
+    ],
+    "gpu_kernel_ns": null,
+    "lengths": [
+      127,
+      128,
+      129
+    ],
+    "logits": [
+      0.7800589799880981,
+      0.7224087119102478,
+      0.7693798542022705
+    ],
+    "metal_peak_bytes": 2506004820,
+    "mutex_wait_ns": null,
+    "order": [
+      0,
+      2,
+      1
+    ],
+    "padded_tokens": 1536,
+    "padding_ratio": 4.0,
+    "real_tokens": 384,
+    "repeat": 0,
+    "scores": [
+      0.6856927871704102,
+      0.6731372475624084,
+      0.6833867430686951
+    ],
+    "state": "cold",
+    "wall_ns": 403452292
+  },
+  {
+    "candidate": false,
+    "encode_ns": 261958,
+    "event": "call",
+    "forwards": [
+      {
+        "bucket": 512,
+        "host_forward_ns": 376485750,
+        "indices": [
+          0,
+          1,
+          2
+        ],
+        "rows": 3
+      }
+    ],
+    "gpu_kernel_ns": null,
+    "lengths": [
+      127,
+      128,
+      129
+    ],
+    "logits": [
+      0.7800589799880981,
+      0.7224087119102478,
+      0.7693798542022705
+    ],
+    "metal_peak_bytes": 2506007892,
+    "mutex_wait_ns": null,
+    "order": [
+      0,
+      2,
+      1
+    ],
+    "padded_tokens": 1536,
+    "padding_ratio": 4.0,
+    "real_tokens": 384,
+    "repeat": 1,
+    "scores": [
+      0.6856927871704102,
+      0.6731372475624084,
+      0.6833867430686951
+    ],
+    "state": "warm",
+    "wall_ns": 376753666
+  },
+  {
+    "candidate": false,
+    "encode_ns": 220250,
+    "event": "call",
+    "forwards": [
+      {
+        "bucket": 512,
+        "host_forward_ns": 375792333,
+        "indices": [
+          0,
+          1,
+          2
+        ],
+        "rows": 3
+      }
+    ],
+    "gpu_kernel_ns": null,
+    "lengths": [
+      127,
+      128,
+      129
+    ],
+    "logits": [
+      0.7800589799880981,
+      0.7224087119102478,
+      0.7693798542022705
+    ],
+    "metal_peak_bytes": 2506007892,
+    "mutex_wait_ns": null,
+    "order": [
+      0,
+      2,
+      1
+    ],
+    "padded_tokens": 1536,
+    "padding_ratio": 4.0,
+    "real_tokens": 384,
+    "repeat": 2,
+    "scores": [
+      0.6856927871704102,
+      0.6731372475624084,
+      0.6833867430686951
+    ],
+    "state": "warm",
+    "wall_ns": 376018125
+  },
+  {
+    "candidate": false,
+    "encode_ns": 192750,
+    "event": "call",
+    "forwards": [
+      {
+        "bucket": 512,
+        "host_forward_ns": 379023750,
+        "indices": [
+          0,
+          1,
+          2
+        ],
+        "rows": 3
+      }
+    ],
+    "gpu_kernel_ns": null,
+    "lengths": [
+      127,
+      128,
+      129
+    ],
+    "logits": [
+      0.7800589799880981,
+      0.7224087119102478,
+      0.7693798542022705
+    ],
+    "metal_peak_bytes": 2506007892,
+    "mutex_wait_ns": null,
+    "order": [
+      0,
+      2,
+      1
+    ],
+    "padded_tokens": 1536,
+    "padding_ratio": 4.0,
+    "real_tokens": 384,
+    "repeat": 3,
+    "scores": [
+      0.6856927871704102,
+      0.6731372475624084,
+      0.6833867430686951
+    ],
+    "state": "warm",
+    "wall_ns": 379221834
+  }
+]

@@ -1,0 +1,7 @@
+{
+  "test": "mlx_cache::testing::runtime::real_model_cleanup_memory",
+  "complete": true,
+  "binary_sha256": "06b6597bb089ee805c06714d0f7ba3a00d42bdef3ef4425e0ece7409d374db43",
+  "exit_code": 0,
+  "group_absent": true
+}
