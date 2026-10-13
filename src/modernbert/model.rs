@@ -211,10 +211,9 @@ pub struct ModernBert {
     final_norm: nn::LayerNorm,
     local_attention_half: usize,
     max_seq_len: usize,
-    /// Per-seq-len cache keyed on the four [`BUCKET_BOUNDS`] ceilings. Every
-    /// `forward()` caller (chunk encoder, query encoder, reranker pair scorer)
-    /// rounds its actual `seq_len` up to a bucket bound before calling, so this
-    /// map holds at most four entries for the lifetime of the model.
+    /// Local masks by sequence length, with no eviction. Internal embedding
+    /// and reranker callers use the four [`BUCKET_BOUNDS`] ceilings; public
+    /// `forward()` calls may populate other lengths.
     ///
     /// [`BUCKET_BOUNDS`]: crate::model_io::BUCKET_BOUNDS
     local_mask_cache: HashMap<i32, Array>,
@@ -502,3 +501,6 @@ pub(crate) fn biasless_layer_norm(h: i32, eps: f32) -> Result<nn::LayerNorm, Exc
     *norm.bias = None;
     Ok(norm)
 }
+
+#[cfg(all(test, feature = "smoke"))]
+mod spike310;

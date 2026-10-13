@@ -1,6 +1,7 @@
 """Model-free failures specific to the #308 three-table comparison."""
 import copy
 import importlib.util
+import hashlib
 import json
 from pathlib import Path
 import tempfile
@@ -41,7 +42,7 @@ class BucketTables(unittest.TestCase):
         with mock.patch.dict("sys.modules", {"compare": probe}):
             runner = probe.load("prepare308", ROOT / "docs/research/issue-308/run.py")
         # Real files/hashes and completion writes; only git/build/table patching are simulated.
-        for mutation in (None, "add", "delete", "edit", "head", "variant"):
+        for mutation in (None, "add", "delete", "edit", "head", "variant", "plan"):
             with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as directory:
                 base = Path(directory).resolve()
                 checkout = base / "checkout"
@@ -50,6 +51,22 @@ class BucketTables(unittest.TestCase):
                 source.write_text("original")
                 output = base / "prepared"
                 head = ["start"]
+                original_verify_sources = runner.verify_sources
+                original_read = Path.read_bytes
+                plan_reads = []
+
+                def read(path):
+                    data = original_read(path)
+                    if path == output / "plan.json":
+                        plan_reads.append(data)
+                    return data
+
+                def verify_sources(prepared, plan):
+                    original_verify_sources(prepared, plan)
+                    if mutation == "plan":
+                        # Change only the saved plan after content validation.
+                        changed = dict(plan, start_commit="unverified")
+                        runner.save(prepared / "plan.json", changed)
 
                 def git(args, **kwargs):
                     if args[1] == "rev-parse":
@@ -78,7 +95,21 @@ class BucketTables(unittest.TestCase):
                      mock.patch.object(runner.subprocess, "check_output", side_effect=git), \
                      mock.patch.object(runner.processes, "owned_run", side_effect=build), \
                      mock.patch.object(runner, "patch"), \
+                     mock.patch.object(runner, "verify_sources", side_effect=verify_sources), \
+                     mock.patch.object(Path, "read_bytes", read), \
+                     mock.patch.object(runner.host, "digest", wraps=runner.host.digest) as digests, \
                      mock.patch.object(runner, "manifest", wraps=runner.manifest) as manifests:
+                    if mutation == "plan":
+                        with self.assertRaisesRegex(ValueError, "preparation incomplete or plan changed"):
+                            runner.prepare(output)
+                        record = json.loads((output / "prepared.json").read_text())
+                        self.assertEqual(len(plan_reads), 1)
+                        self.assertEqual(sum(c.args[0] == output / "plan.json" for c in digests.call_args_list), 1)
+                        self.assertEqual(record["plan_sha256"], hashlib.sha256(plan_reads[0]).hexdigest())
+                        self.assertNotEqual(record["plan_sha256"], runner.host.digest(output / "plan.json"))
+                        with self.assertRaisesRegex(ValueError, "preparation incomplete or plan changed"):
+                            runner.verify_prepared(output)
+                        continue
                     if mutation:
                         message = "HEAD changed" if mutation == "head" else "variant source/binary" if mutation == "variant" else "checkout changed"
                         with self.assertRaisesRegex(ValueError, message):
@@ -86,9 +117,39 @@ class BucketTables(unittest.TestCase):
                         self.assertFalse((output / "prepared.json").exists())
                         continue
                     runner.prepare(output)
+                    # One observation for content/hash, then a fresh check after saving.
+                    self.assertEqual(len(plan_reads), 1)
+                    self.assertEqual(sum(c.args[0] == output / "plan.json" for c in digests.call_args_list), 1)
                     self.assertEqual(sum(call.args[0] == checkout for call in manifests.call_args_list), 2)
                     plan = json.loads((output / "plan.json").read_text())
-                    runner.verify_plan(output, plan)
+                    plan_path = output / "plan.json"
+                    plan_bytes = plan_path.read_bytes()
+                    reads = []
+                    original_text = Path.read_text
+
+                    def changing_plan(path):
+                        if path == plan_path:
+                            reads.append(path)
+                            return plan_bytes if len(reads) == 1 else b"{}"
+                        return original_read(path)
+
+                    def reopened_plan(path, *args, **kwargs):
+                        if path == plan_path:
+                            self.fail("plan was reopened for JSON parsing")
+                        return original_text(path, *args, **kwargs)
+
+                    with mock.patch.object(Path, "read_bytes", changing_plan), \
+                         mock.patch.object(Path, "read_text", reopened_plan), \
+                         mock.patch.object(runner.json, "loads", wraps=json.loads) as parses, \
+                         mock.patch.object(runner.hashlib, "sha256", wraps=hashlib.sha256) as hashes:
+                        observed, observed_hash = runner.verify_plan(output)
+                        self.assertEqual(sum(c.args[0] == plan_bytes for c in parses.call_args_list), 1)
+                        self.assertEqual(sum(c.args[0] == plan_bytes for c in hashes.call_args_list), 1)
+                        self.assertEqual(observed, plan)
+                        self.assertEqual(observed_hash, hashlib.sha256(plan_bytes).hexdigest())
+                        self.assertEqual(len(reads), 1)
+                        with self.assertRaisesRegex(ValueError, "plan changed"):
+                            runner.verify_plan(output, observed)
                     source.write_text("changed after preparation")
                     with self.assertRaisesRegex(ValueError, "checkout changed"):
                         runner.verify_plan(output, plan)
@@ -117,11 +178,16 @@ class BucketTables(unittest.TestCase):
         for bounds in probe.TABLES.values():
             data = embedding(bounds)
             probe.validate(data, "embedding", "mixed", bounds, 4)
-        data = embedding(probe.TABLES["1024-4096"])
-        # Hist and padded count can remain plausible while one shape is wrong.
-        data[1]["metrics"]["forwards"][1]["sequence_length"] = 2048
-        with self.assertRaisesRegex(ValueError, "forward/pause"):
-            probe.validate(data, "embedding", "mixed", probe.TABLES["1024-4096"], 4)
+            data[0]["chunks"][0] = [7] * (bounds[-1] + 1)
+            with self.assertRaises(StopIteration):
+                probe.validate(data, "embedding", "mixed", bounds, 4)
+        # Fixed expectations must still reject a wrong shape in every call,
+        # including later warm repetitions.
+        for index in (1, 4):
+            data = embedding(probe.TABLES["1024-4096"])
+            data[index]["metrics"]["forwards"][1]["sequence_length"] = 2048
+            with self.assertRaisesRegex(ValueError, "forward/pause"):
+                probe.validate(data, "embedding", "mixed", probe.TABLES["1024-4096"], 4)
         data = embedding(probe.TABLES["current"])
         data[2]["documents"][1]["id"] = 0
         with self.assertRaisesRegex(ValueError, "identity"):

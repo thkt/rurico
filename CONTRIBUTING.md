@@ -29,6 +29,10 @@ checkはGPUを利用できるsandbox外のホストで実行する。推論の�
 実行結果には使用したツールチェーン、実行した検証、モデル未配置などで実行しなかった検証を記す。
 通常のcheck成功だけでignoredテストや全モデルの数値一致・性能改善を確認したとは扱わない。
 
+mask・cache policyの調査では[Issue #310の手順](docs/research/issue-310/README.md)を使う。
+固定lock・同一入力/shape/F32の隔離コピーで既存metrics・readback・モデル出力を比較し、
+全mask要素と既存cleanup反復を追加ホスト検証として実行する。製品policyと標準checkは維持する。
+
 CI で実行されるテスト一式は以下で再現できる。
 
 ```sh

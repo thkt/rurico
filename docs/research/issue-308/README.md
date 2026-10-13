@@ -25,7 +25,9 @@ python3 docs/research/issue-308/run.py measure /tmp/rurico-308-prepared-new \
 既存libtestのログfixtureには未使用要素の0を追加し、固定4要素のassertionは
 期待値を保ってslice比較へ変える。元checkoutのテストは変更しない。
 準備完了時はHEAD・plan・新しく列挙したcheckoutのファイル集合とhash・候補source・binaryを検査する。
-その成功後にだけprepared記録を確定し、記録とplanの整合を確認する。測定前後には別途再観測する。
+保存planは一度取得したbytesで内容を照合し、同じbytesのSHA-256をprepared記録へ保存する。
+検査の成功後にだけprepared記録を書き込み、新しく取得したplanと記録の整合を確認する。
+この再照合が失敗すればprepareは失敗し、残った記録を準備完了として受け入れない。測定前後には別途再観測する。
 3つのrelease libtestを同じ`--locked --features test-mlx,smoke`でビルドする。
 対象はlibtestだけであり、候補版の既存4区分テストやsmoke binaryを成功したとは扱わない。
 Cargo targetはコピーごとに分け、同名binaryの上書きを防ぐ。

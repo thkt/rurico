@@ -37,11 +37,28 @@ def validate(records, kind, case, bounds, repeats):
     oracle.require(len(headers) == 1 and len(calls) == repeats, "incomplete records")
     header = headers[0]
     oracle.require(header.get("case", header.get("workload")) == case, "wrong workload")
+    if kind == "embedding":
+        oracle.require(header["bounds"] == bounds, "wrong table")
+        lengths = [len(c) for c in header["chunks"]]
+        hist = [0] * len(bounds)
+        for length in lengths:
+            index = next(i for i, bound in enumerate(bounds) if bound >= length)
+            hist[index] += 1
+        num_chunks, real_tokens = len(lengths), sum(lengths)
+        oracle.require(sum(header["chunk_counts"]) == num_chunks, "planner accounting")
+        padded = sum(n * b for n, b in zip(hist, bounds))
+        shapes = []
+        budget = header["options"]["token_budget"]
+        for count, bound in zip(hist, bounds):
+            size = max(1, budget // bound)
+            while count:
+                rows = min(size, count)
+                shapes.append((rows, bound))
+                count -= rows
     for i, row in enumerate(calls):
         oracle.require(row["repeat"] == i, "missing/duplicate repeat")
         oracle.require(row["metal_peak_bytes"] >= 0, "invalid peak")
         if kind == "embedding":
-            oracle.require(header["bounds"] == bounds, "wrong table")
             oracle.require(len(row["documents"]) == len(header["chunk_counts"]), "lost document")
             for index, (doc, count) in enumerate(zip(row["documents"], header["chunk_counts"])):
                 oracle.require(doc["id"] == index and doc["chunk_ids"] == [f"c{j}" for j in range(count)]
@@ -50,19 +67,8 @@ def validate(records, kind, case, bounds, repeats):
                     oracle.require(len(vector) == 768, "dimension")
                     oracle.finite(vector)
             m = row["metrics"]
-            lengths = [len(c) for c in header["chunks"]]
-            hist = [sum(next(b for b in bounds if b >= n) == bound for n in lengths) for bound in bounds]
-            oracle.require(sum(header["chunk_counts"]) == len(lengths) == m["num_chunks"]
-                           and m["bucket_hist"] == hist and m["real_tokens"] == sum(lengths), "planner accounting")
-            padded = sum(n * b for n, b in zip(hist, bounds))
-            shapes = []
-            budget = header["options"]["token_budget"]
-            for count, bound in zip(hist, bounds):
-                size = max(1, budget // bound)
-                while count:
-                    rows = min(size, count)
-                    shapes.append((rows, bound))
-                    count -= rows
+            oracle.require(m["num_chunks"] == num_chunks and m["bucket_hist"] == hist
+                           and m["real_tokens"] == real_tokens, "planner accounting")
             oracle.require([(f["batch_size"], f["sequence_length"]) for f in m["forwards"]] == shapes
                            and m["padded_tokens"] == padded and m["pause_count"] == len(shapes), "forward/pause accounting")
             oracle.require(ns(m["wall"]) >= ns(m["pause"]) >= 0, "invalid wall/pause")

@@ -66,7 +66,7 @@ def patch(root, table):
     path.write_text(source.replace(old, "assert_eq!(metrics.bucket_hist.as_slice(), &[5, 3, 1, 1]);"))
 
 
-def prepare(output, cache_base=None):
+def prepare(output, cache_base=None, *, patch_current=False):
     compare.oracle.require(not output.is_relative_to(ROOT), "output must be outside checkout")
     output.mkdir(parents=True, exist_ok=False)
     paths = source_files()
@@ -84,7 +84,7 @@ def prepare(output, cache_base=None):
         if cache_base is not None:
             compare.oracle.require(cache_base != output and not cache_base.is_relative_to(output), "cache source overlaps output")
             shutil.copytree(cache_base / table / "target", clone / "target")
-        if table != "current":
+        if table != "current" or patch_current:
             patch(clone, table)
         plan["variant_sources"][table] = manifest(clone, paths)
         save(output / "plan.json", plan)
@@ -99,32 +99,43 @@ def prepare(output, cache_base=None):
         binary = Path(binaries[0])
         plan["binaries"][table] = {"path": str(binary), "sha256": host.digest(binary)}
         save(output / "plan.json", plan)
+    # Bind content validation and completion evidence to the same observation.
+    plan_bytes = (output / "plan.json").read_bytes()
+    compare.oracle.require(json.loads(plan_bytes) == plan, "plan changed")
+    plan_sha256 = hashlib.sha256(plan_bytes).hexdigest()
     verify_sources(output, plan)
-    save(output / "prepared.json", {"complete": True, "plan_sha256": host.digest(output / "plan.json")})
+    save(output / "prepared.json", {"complete": True, "plan_sha256": plan_sha256})
     verify_prepared(output)
 
 
 def verify_sources(prepared, plan):
-    """Fresh post-build observation, also repeated before/after measurement."""
+    """Check HEAD, source and binaries against the boundary-verified plan."""
     compare.oracle.require(subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip() == plan["start_commit"], "HEAD changed")
-    compare.oracle.require(json.loads((prepared / "plan.json").read_text()) == plan, "plan changed")
     compare.oracle.require(plan["tables"] == compare.TABLES and plan["source"] == manifest(ROOT, source_files()), "checkout changed; prepare new copies")
     for table, binary in plan["binaries"].items():
         compare.oracle.require(host.digest(Path(binary["path"])) == binary["sha256"] and
                                manifest(prepared / table, plan["source"]) == plan["variant_sources"][table], "variant source/binary changed")
 
 
-def verify_prepared(prepared):
+def verify_prepared(prepared, *, plan_sha256=None):
     record = json.loads((prepared / "prepared.json").read_text())
-    compare.oracle.require(record["complete"] is True and host.digest(prepared / "plan.json") == record["plan_sha256"], "preparation incomplete or plan changed")
+    if plan_sha256 is None:
+        plan_sha256 = host.digest(prepared / "plan.json")
+    compare.oracle.require(record["complete"] is True and plan_sha256 == record["plan_sha256"], "preparation incomplete or plan changed")
 
 
-def verify_plan(prepared, plan):
-    verify_prepared(prepared)
-    verify_sources(prepared, plan)
+def verify_plan(prepared, plan=None):
+    """One fresh plan observation per boundary, shared by checks and caller."""
+    plan_bytes = (prepared / "plan.json").read_bytes()
+    plan_sha256 = hashlib.sha256(plan_bytes).hexdigest()
+    verify_prepared(prepared, plan_sha256=plan_sha256)
+    observed = json.loads(plan_bytes)
+    compare.oracle.require(plan is None or observed == plan, "plan changed")
+    verify_sources(prepared, observed)
+    return observed, plan_sha256
 
 
-def observe(binary, kind, case, repeats, budget, directory, name, model_dirs, baseline, deadline):
+def observe(binary, kind, case, repeats, budget, directory, name, model_dirs, baseline, deadline, *, event_prefix=None):
     prefix = "bucket308 " if kind == "embedding" else "bucket309 "
     env = dict(os.environ, RURICO_308_CASE=case, RURICO_308_BUDGET=str(budget), RURICO_308_REPEATS=str(repeats),
                RURICO_309_MODE="reference", RURICO_309_WORKLOAD=case)
@@ -147,20 +158,33 @@ def observe(binary, kind, case, repeats, budget, directory, name, model_dirs, ba
             status["exit_code"] = process.returncode
             compare.oracle.require(process.returncode == 0, "libtest failed; retain partial evidence")
         finally:
+            # Repeated interrupts must not abandon the owned group or evidence.
+            handlers = {sig: signal.signal(sig, signal.SIG_IGN) for sig in (signal.SIGINT, signal.SIGTERM)}
             try:
-                host.reclaim(process)
-                status["group_absent"] = True
+                try:
+                    host.reclaim(process)
+                    status["group_absent"] = True
+                finally:
+                    status["exit_code"] = process.poll()
+                    save(directory / f"{name}.monitor.json", samples)
+                    save(directory / f"{name}.status.json", status)
             finally:
-                save(directory / f"{name}.monitor.json", samples)
-                save(directory / f"{name}.status.json", status)
-    records = [json.loads(line.removeprefix(prefix)) for line in (directory / f"{name}.stderr").read_text().splitlines() if line.startswith(prefix)]
+                for sig, handler in handlers.items():
+                    signal.signal(sig, handler)
+    records, events = [], []
+    # The owned group is reclaimed and stderr is closed before this observation.
+    for line in (directory / f"{name}.stderr").read_text().splitlines():
+        if line.startswith(prefix):
+            records.append(json.loads(line.removeprefix(prefix)))
+        elif event_prefix is not None and line.startswith(event_prefix):
+            events.append(json.loads(line.removeprefix(event_prefix)))
     save(directory / f"{name}.json", records)
     header = records[0]
     compare.oracle.require(sorted(Path(p).resolve() for p in header["model_files"]) ==
                            sorted((model_dirs[kind] / p).resolve() for p in ("model.safetensors", "config.json", "tokenizer.json")), "observed model differs")
     status.update(complete=True, sampled_process_rss_max_bytes=max(r["rss_bytes"] for r in samples))
     save(directory / f"{name}.status.json", status)
-    return records
+    return records if event_prefix is None else (records, events)
 
 
 def select_cases(kinds, cases):
@@ -178,8 +202,7 @@ def select_cases(kinds, cases):
 
 def measure(prepared, context_path, output, repeats, sustained_repeats, budget, kinds, cases, trials):
     selected = select_cases(kinds, cases)
-    plan = json.loads((prepared / "plan.json").read_text())
-    verify_plan(prepared, plan)
+    plan, plan_sha256 = verify_plan(prepared)
     context = json.loads(context_path.read_text())
     for key in ("machine", "ram_bytes", "os", "rust", "cargo", "xcode", "metal", "build", "load_conditions"):
         compare.oracle.require(bool(context.get(key)), f"missing host condition: {key}")
@@ -195,7 +218,7 @@ def measure(prepared, context_path, output, repeats, sustained_repeats, budget, 
             compare.oracle.require(models[str(p)] == known[kind]["files"][name]["sha256"], "model differs from #307")
     compare.oracle.require(not output.is_relative_to(ROOT) and not output.is_relative_to(prepared), "use new external evidence directory")
     output.mkdir(parents=True, exist_ok=False)
-    context.update(plan_sha256=host.digest(prepared / "plan.json"), source_sha256=plan["source_sha256"], source=plan["source"], models=models,
+    context.update(plan_sha256=plan_sha256, source_sha256=plan["source_sha256"], source=plan["source"], models=models,
                    trials=trials, repeats=repeats, sustained_repeats=sustained_repeats, embedding_budget=budget, pause_ms=1,
                    reranker_budget=256000, reranker_mode="reference", resource_limits="no new limit; host execution contract remains applicable")
     context.update(kinds=kinds, cases=cases, guards={"seconds":1800,"rss_bytes":8*1024**3,
