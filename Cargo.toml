@@ -72,6 +72,10 @@ smoke = ["dep:tracing-subscriber"]
 name = "mlx_smoke"
 required-features = ["smoke"]
 
+[[bin]]
+name = "context_spike"
+required-features = ["smoke"]
+
 [[test]]
 name = "mlx_smoke"
 required-features = ["smoke"]

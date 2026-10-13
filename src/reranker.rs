@@ -358,6 +358,11 @@ fn probe_via_subprocess(artifacts: &Artifacts) -> Result<ProbeStatus, ModelInitE
 #[cfg(all(test, feature = "smoke"))]
 pub(crate) use mlx::research::capture as capture_research;
 
+/// Issue #316 research executable entry; does not change reranking defaults.
+#[cfg(feature = "smoke")]
+#[doc(hidden)]
+pub use mlx::context316::run as run_context_spike;
+
 #[cfg(all(test, feature = "smoke"))]
 #[path = "../docs/research/issue-317/pairs.rs"]
 pub(crate) mod pairs317;

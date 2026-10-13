@@ -191,6 +191,10 @@ impl RerankerModel {
 #[cfg(test)]
 mod tests;
 
+#[cfg(feature = "smoke")]
+#[path = "../../docs/research/issue-316/context.rs"]
+pub(crate) mod context316;
+
 #[cfg(all(test, feature = "smoke"))]
 pub(super) mod research;
 
@@ -221,7 +225,6 @@ mod bucket_probe {
             let lengths: Vec<_> = ids.iter().map(Vec::len).collect();
             let mut forwards = Vec::new();
             let raw = |flat: &[f32], rows, bucket| {
-                // Reuse production shape/finite validation before returning CPU data.
                 validate_logits(flat, rows, bucket)?;
                 Ok(flat.to_vec())
             };
@@ -478,7 +481,6 @@ impl RerankerInner {
         let (ids, masks) = if reuse {
             query_spike::prepare_reused(&self.tokenizer, pairs)?
         } else {
-            // Exact production preparation, including per-pair Encoding drops.
             self.encode_pairs(pairs)?
         };
         query_spike::execute_pairs(&ids, &masks, start, |rows, masks, bucket| {
