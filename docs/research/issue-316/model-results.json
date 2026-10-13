@@ -1,0 +1,3406 @@
+{
+  "collection_complete": true,
+  "acceptance": "requires current-source checks and independent evaluation; no adoption",
+  "original_collection_complete": false,
+  "original_stop": "1800 second deadline",
+  "completed_strategies_reused": [
+    "baseline",
+    "query-prefix",
+    "chunk-neighbors"
+  ],
+  "windows_scope": "separate full four-query / four-trial phase; partial original windows excluded",
+  "inputs_sha256": "a5c7e0806da5882988968df1d5af9d3f17546955d13706ff59d0b4c7af433837",
+  "binary_sha256": "f47b7f34d74ef80cbad9f5e79979c57539444a59a2e2b9def5e6f5b34512e27d",
+  "raw_jsonl_sha256": {
+    "baseline": "a73e99cde1adb2fc4f3005eaf15ac14adced9ec35ec60cd8bc67d1c26a640133",
+    "query-prefix": "3c8dc0ca6761df5a9024f3bb2bdbe859c69a24e5b62fee436dc10599ba9d33e9",
+    "chunk-neighbors": "e883566bd9fc6760e634fcac7f793320be29350babee089f594c4a0d88f8f2e3",
+    "windows": "78117995a00a7e3bc27fd7367200ba8dece2779efed825a6f706395255f6bb26"
+  },
+  "short_pair_controls": 48,
+  "raw_tokens_match": true,
+  "quality_independently_recomputed": true,
+  "source_identity_unchanged": true,
+  "results": [
+    {
+      "strategy": "baseline",
+      "query": "japanese-short-query",
+      "model_measured": true,
+      "retained": [
+        {
+          "document": "japanese-head",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "japanese-middle",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "japanese-tail",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "japanese-short",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 13,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "japanese-wrong-answer",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 13,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "japanese-unrelated",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 7,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-head",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "code-middle",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "code-tail",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-short",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 16,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "code-wrong-answer",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 16,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-unrelated",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 20,
+          "evidence_any_window": false,
+          "windows": 1
+        }
+      ],
+      "observations": [
+        {
+          "trial": 0,
+          "cold": true,
+          "wall_ns": 29678829041,
+          "forward_count": 12,
+          "metal_peak_bytes": 3450339716,
+          "aggregations": {
+            "single": {
+              "scores": {
+                "japanese-head": 0.9758032560348511,
+                "japanese-middle": 0.9633885025978088,
+                "japanese-tail": 0.0004508679558057338,
+                "japanese-short": 0.9997345805168152,
+                "japanese-wrong-answer": 0.9995064735412598,
+                "japanese-unrelated": 7.932102744234726e-05,
+                "code-head": 0.0006576464511454105,
+                "code-middle": 0.0010738365817815065,
+                "code-tail": 0.0007051367429085076,
+                "code-short": 6.709819717798382e-05,
+                "code-wrong-answer": 6.726745777996257e-05,
+                "code-unrelated": 5.9515929024200886e-05
+              },
+              "order": [
+                "japanese-short",
+                "japanese-wrong-answer",
+                "japanese-head",
+                "japanese-middle",
+                "code-middle",
+                "code-tail",
+                "code-head",
+                "japanese-tail",
+                "japanese-unrelated",
+                "code-wrong-answer",
+                "code-short",
+                "code-unrelated"
+              ],
+              "ranks": {
+                "japanese-head": 3,
+                "japanese-middle": 4,
+                "japanese-tail": 8,
+                "japanese-short": 1,
+                "japanese-wrong-answer": 2,
+                "japanese-unrelated": 9,
+                "code-head": 7,
+                "code-middle": 5,
+                "code-tail": 6,
+                "code-short": 11,
+                "code-wrong-answer": 10,
+                "code-unrelated": 12
+              },
+              "quality": {
+                "Recall@1": 0.25,
+                "nDCG@1": 1.0,
+                "Recall@5": 0.75,
+                "nDCG@5": 0.75369761125927,
+                "Recall@10": 1.0,
+                "nDCG@10": 0.876848805629635
+              }
+            }
+          }
+        },
+        {
+          "trial": 1,
+          "cold": false,
+          "wall_ns": 29577288125,
+          "forward_count": 12,
+          "metal_peak_bytes": 3450339716,
+          "aggregations_equal_to_trial": 0
+        },
+        {
+          "trial": 2,
+          "cold": false,
+          "wall_ns": 29611297208,
+          "forward_count": 12,
+          "metal_peak_bytes": 3450339716,
+          "aggregations_equal_to_trial": 0
+        },
+        {
+          "trial": 3,
+          "cold": false,
+          "wall_ns": 29650025583,
+          "forward_count": 12,
+          "metal_peak_bytes": 3450339716,
+          "aggregations_equal_to_trial": 0
+        }
+      ],
+      "warm": {
+        "wall_ns": {
+          "min": 29577288125,
+          "median": 29611297208,
+          "max": 29650025583
+        },
+        "forward_count": {
+          "min": 12,
+          "median": 12,
+          "max": 12
+        },
+        "metal_peak_bytes": {
+          "min": 3450339716,
+          "median": 3450339716,
+          "max": 3450339716
+        }
+      },
+      "process_rss_max_bytes": 2200944640,
+      "warm_order_stable": true
+    },
+    {
+      "strategy": "baseline",
+      "query": "japanese-long-query",
+      "model_measured": true,
+      "retained": [
+        {
+          "document": "japanese-head",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "japanese-middle",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "japanese-tail",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "japanese-short",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 13,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "japanese-wrong-answer",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 13,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "japanese-unrelated",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 7,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-head",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-middle",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-tail",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-short",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 16,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-wrong-answer",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 16,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-unrelated",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 20,
+          "evidence_any_window": false,
+          "windows": 1
+        }
+      ],
+      "observations": [
+        {
+          "trial": 0,
+          "cold": true,
+          "wall_ns": 58915322250,
+          "forward_count": 12,
+          "metal_peak_bytes": 3450339716,
+          "aggregations": {
+            "single": {
+              "scores": {
+                "japanese-head": 0.9793111681938171,
+                "japanese-middle": 0.9793111681938171,
+                "japanese-tail": 0.9793111681938171,
+                "japanese-short": 0.9793111681938171,
+                "japanese-wrong-answer": 0.9793111681938171,
+                "japanese-unrelated": 0.9793111681938171,
+                "code-head": 0.9793111681938171,
+                "code-middle": 0.9793111681938171,
+                "code-tail": 0.9793111681938171,
+                "code-short": 0.9793111681938171,
+                "code-wrong-answer": 0.9793111681938171,
+                "code-unrelated": 0.9793111681938171
+              },
+              "order": [
+                "japanese-head",
+                "japanese-middle",
+                "japanese-tail",
+                "japanese-short",
+                "japanese-wrong-answer",
+                "japanese-unrelated",
+                "code-head",
+                "code-middle",
+                "code-tail",
+                "code-short",
+                "code-wrong-answer",
+                "code-unrelated"
+              ],
+              "ranks": {
+                "japanese-head": 1,
+                "japanese-middle": 2,
+                "japanese-tail": 3,
+                "japanese-short": 4,
+                "japanese-wrong-answer": 5,
+                "japanese-unrelated": 6,
+                "code-head": 7,
+                "code-middle": 8,
+                "code-tail": 9,
+                "code-short": 10,
+                "code-wrong-answer": 11,
+                "code-unrelated": 12
+              },
+              "quality": {
+                "Recall@1": 0.25,
+                "nDCG@1": 1.0,
+                "Recall@5": 1.0,
+                "nDCG@5": 1.0,
+                "Recall@10": 1.0,
+                "nDCG@10": 1.0
+              }
+            }
+          }
+        },
+        {
+          "trial": 1,
+          "cold": false,
+          "wall_ns": 58873117041,
+          "forward_count": 12,
+          "metal_peak_bytes": 3450339716,
+          "aggregations_equal_to_trial": 0
+        },
+        {
+          "trial": 2,
+          "cold": false,
+          "wall_ns": 58813798542,
+          "forward_count": 12,
+          "metal_peak_bytes": 3450339716,
+          "aggregations_equal_to_trial": 0
+        },
+        {
+          "trial": 3,
+          "cold": false,
+          "wall_ns": 58717587916,
+          "forward_count": 12,
+          "metal_peak_bytes": 3450339716,
+          "aggregations_equal_to_trial": 0
+        }
+      ],
+      "warm": {
+        "wall_ns": {
+          "min": 58717587916,
+          "median": 58813798542,
+          "max": 58873117041
+        },
+        "forward_count": {
+          "min": 12,
+          "median": 12,
+          "max": 12
+        },
+        "metal_peak_bytes": {
+          "min": 3450339716,
+          "median": 3450339716,
+          "max": 3450339716
+        }
+      },
+      "process_rss_max_bytes": 2200944640,
+      "warm_order_stable": true
+    },
+    {
+      "strategy": "baseline",
+      "query": "code-short-query",
+      "model_measured": true,
+      "retained": [
+        {
+          "document": "japanese-head",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "japanese-middle",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "japanese-tail",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "japanese-short",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 13,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "japanese-wrong-answer",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 13,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "japanese-unrelated",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 7,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-head",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "code-middle",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "code-tail",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-short",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 16,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "code-wrong-answer",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 16,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-unrelated",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 20,
+          "evidence_any_window": false,
+          "windows": 1
+        }
+      ],
+      "observations": [
+        {
+          "trial": 0,
+          "cold": true,
+          "wall_ns": 29619838584,
+          "forward_count": 12,
+          "metal_peak_bytes": 3450339716,
+          "aggregations": {
+            "single": {
+              "scores": {
+                "japanese-head": 0.00024380168179050088,
+                "japanese-middle": 0.0007794585544615984,
+                "japanese-tail": 0.0006700056255795062,
+                "japanese-short": 9.356727969134226e-05,
+                "japanese-wrong-answer": 9.234281606040895e-05,
+                "japanese-unrelated": 0.00010942726657958701,
+                "code-head": 0.4167531728744507,
+                "code-middle": 0.4975089728832245,
+                "code-tail": 0.0005382587551139295,
+                "code-short": 0.5749551057815552,
+                "code-wrong-answer": 0.03772328794002533,
+                "code-unrelated": 0.00015696843911428005
+              },
+              "order": [
+                "code-short",
+                "code-middle",
+                "code-head",
+                "code-wrong-answer",
+                "japanese-middle",
+                "japanese-tail",
+                "code-tail",
+                "japanese-head",
+                "code-unrelated",
+                "japanese-unrelated",
+                "japanese-short",
+                "japanese-wrong-answer"
+              ],
+              "ranks": {
+                "japanese-head": 8,
+                "japanese-middle": 5,
+                "japanese-tail": 6,
+                "japanese-short": 11,
+                "japanese-wrong-answer": 12,
+                "japanese-unrelated": 10,
+                "code-head": 3,
+                "code-middle": 2,
+                "code-tail": 7,
+                "code-short": 1,
+                "code-wrong-answer": 4,
+                "code-unrelated": 9
+              },
+              "quality": {
+                "Recall@1": 0.25,
+                "nDCG@1": 1.0,
+                "Recall@5": 0.75,
+                "nDCG@5": 0.8318724637288826,
+                "Recall@10": 1.0,
+                "nDCG@10": 0.961999147059583
+              }
+            }
+          }
+        },
+        {
+          "trial": 1,
+          "cold": false,
+          "wall_ns": 29559587541,
+          "forward_count": 12,
+          "metal_peak_bytes": 3450339716,
+          "aggregations_equal_to_trial": 0
+        },
+        {
+          "trial": 2,
+          "cold": false,
+          "wall_ns": 29602057708,
+          "forward_count": 12,
+          "metal_peak_bytes": 3450339716,
+          "aggregations_equal_to_trial": 0
+        },
+        {
+          "trial": 3,
+          "cold": false,
+          "wall_ns": 29599072416,
+          "forward_count": 12,
+          "metal_peak_bytes": 3450339716,
+          "aggregations_equal_to_trial": 0
+        }
+      ],
+      "warm": {
+        "wall_ns": {
+          "min": 29559587541,
+          "median": 29599072416,
+          "max": 29602057708
+        },
+        "forward_count": {
+          "min": 12,
+          "median": 12,
+          "max": 12
+        },
+        "metal_peak_bytes": {
+          "min": 3450339716,
+          "median": 3450339716,
+          "max": 3450339716
+        }
+      },
+      "process_rss_max_bytes": 2200944640,
+      "warm_order_stable": true
+    },
+    {
+      "strategy": "baseline",
+      "query": "code-long-query",
+      "model_measured": true,
+      "retained": [
+        {
+          "document": "japanese-head",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "japanese-middle",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "japanese-tail",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "japanese-short",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 13,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "japanese-wrong-answer",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 13,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "japanese-unrelated",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 7,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-head",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-middle",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-tail",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-short",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 16,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-wrong-answer",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 16,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-unrelated",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 20,
+          "evidence_any_window": false,
+          "windows": 1
+        }
+      ],
+      "observations": [
+        {
+          "trial": 0,
+          "cold": true,
+          "wall_ns": 58641935042,
+          "forward_count": 12,
+          "metal_peak_bytes": 3450339716,
+          "aggregations": {
+            "single": {
+              "scores": {
+                "japanese-head": 0.8881075382232666,
+                "japanese-middle": 0.8881075382232666,
+                "japanese-tail": 0.8881075382232666,
+                "japanese-short": 0.8881075382232666,
+                "japanese-wrong-answer": 0.8881075382232666,
+                "japanese-unrelated": 0.8881075382232666,
+                "code-head": 0.8881075382232666,
+                "code-middle": 0.8881075382232666,
+                "code-tail": 0.8881075382232666,
+                "code-short": 0.8881075382232666,
+                "code-wrong-answer": 0.8881075382232666,
+                "code-unrelated": 0.8881075382232666
+              },
+              "order": [
+                "japanese-head",
+                "japanese-middle",
+                "japanese-tail",
+                "japanese-short",
+                "japanese-wrong-answer",
+                "japanese-unrelated",
+                "code-head",
+                "code-middle",
+                "code-tail",
+                "code-short",
+                "code-wrong-answer",
+                "code-unrelated"
+              ],
+              "ranks": {
+                "japanese-head": 1,
+                "japanese-middle": 2,
+                "japanese-tail": 3,
+                "japanese-short": 4,
+                "japanese-wrong-answer": 5,
+                "japanese-unrelated": 6,
+                "code-head": 7,
+                "code-middle": 8,
+                "code-tail": 9,
+                "code-short": 10,
+                "code-wrong-answer": 11,
+                "code-unrelated": 12
+              },
+              "quality": {
+                "Recall@1": 0.0,
+                "nDCG@1": 0.0,
+                "Recall@5": 0.0,
+                "nDCG@5": 0.0,
+                "Recall@10": 1.0,
+                "nDCG@10": 0.483639123806428
+              }
+            }
+          }
+        },
+        {
+          "trial": 1,
+          "cold": false,
+          "wall_ns": 58812002584,
+          "forward_count": 12,
+          "metal_peak_bytes": 3450339716,
+          "aggregations_equal_to_trial": 0
+        },
+        {
+          "trial": 2,
+          "cold": false,
+          "wall_ns": 58710825167,
+          "forward_count": 12,
+          "metal_peak_bytes": 3450339716,
+          "aggregations_equal_to_trial": 0
+        },
+        {
+          "trial": 3,
+          "cold": false,
+          "wall_ns": 58836581458,
+          "forward_count": 12,
+          "metal_peak_bytes": 3450339716,
+          "aggregations_equal_to_trial": 0
+        }
+      ],
+      "warm": {
+        "wall_ns": {
+          "min": 58710825167,
+          "median": 58812002584,
+          "max": 58836581458
+        },
+        "forward_count": {
+          "min": 12,
+          "median": 12,
+          "max": 12
+        },
+        "metal_peak_bytes": {
+          "min": 3450339716,
+          "median": 3450339716,
+          "max": 3450339716
+        }
+      },
+      "process_rss_max_bytes": 2200944640,
+      "warm_order_stable": true
+    },
+    {
+      "strategy": "query-prefix",
+      "query": "japanese-short-query",
+      "model_measured": true,
+      "retained": [
+        {
+          "document": "japanese-head",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "japanese-middle",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "japanese-tail",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "japanese-short",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 13,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "japanese-wrong-answer",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 13,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "japanese-unrelated",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 7,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-head",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "code-middle",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "code-tail",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-short",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 16,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "code-wrong-answer",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 16,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-unrelated",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 20,
+          "evidence_any_window": false,
+          "windows": 1
+        }
+      ],
+      "observations": [
+        {
+          "trial": 0,
+          "cold": true,
+          "wall_ns": 29649633584,
+          "forward_count": 12,
+          "metal_peak_bytes": 3450339716,
+          "aggregations": {
+            "single": {
+              "scores": {
+                "japanese-head": 0.9758032560348511,
+                "japanese-middle": 0.9633885025978088,
+                "japanese-tail": 0.0004508679558057338,
+                "japanese-short": 0.9997345805168152,
+                "japanese-wrong-answer": 0.9995064735412598,
+                "japanese-unrelated": 7.932102744234726e-05,
+                "code-head": 0.0006576464511454105,
+                "code-middle": 0.0010738365817815065,
+                "code-tail": 0.0007051367429085076,
+                "code-short": 6.709819717798382e-05,
+                "code-wrong-answer": 6.726745777996257e-05,
+                "code-unrelated": 5.9515929024200886e-05
+              },
+              "order": [
+                "japanese-short",
+                "japanese-wrong-answer",
+                "japanese-head",
+                "japanese-middle",
+                "code-middle",
+                "code-tail",
+                "code-head",
+                "japanese-tail",
+                "japanese-unrelated",
+                "code-wrong-answer",
+                "code-short",
+                "code-unrelated"
+              ],
+              "ranks": {
+                "japanese-head": 3,
+                "japanese-middle": 4,
+                "japanese-tail": 8,
+                "japanese-short": 1,
+                "japanese-wrong-answer": 2,
+                "japanese-unrelated": 9,
+                "code-head": 7,
+                "code-middle": 5,
+                "code-tail": 6,
+                "code-short": 11,
+                "code-wrong-answer": 10,
+                "code-unrelated": 12
+              },
+              "quality": {
+                "Recall@1": 0.25,
+                "nDCG@1": 1.0,
+                "Recall@5": 0.75,
+                "nDCG@5": 0.75369761125927,
+                "Recall@10": 1.0,
+                "nDCG@10": 0.876848805629635
+              }
+            }
+          }
+        },
+        {
+          "trial": 1,
+          "cold": false,
+          "wall_ns": 29530036292,
+          "forward_count": 12,
+          "metal_peak_bytes": 3450339716,
+          "aggregations_equal_to_trial": 0
+        },
+        {
+          "trial": 2,
+          "cold": false,
+          "wall_ns": 29537370334,
+          "forward_count": 12,
+          "metal_peak_bytes": 3450339716,
+          "aggregations_equal_to_trial": 0
+        },
+        {
+          "trial": 3,
+          "cold": false,
+          "wall_ns": 29598556084,
+          "forward_count": 12,
+          "metal_peak_bytes": 3450339716,
+          "aggregations_equal_to_trial": 0
+        }
+      ],
+      "warm": {
+        "wall_ns": {
+          "min": 29530036292,
+          "median": 29537370334,
+          "max": 29598556084
+        },
+        "forward_count": {
+          "min": 12,
+          "median": 12,
+          "max": 12
+        },
+        "metal_peak_bytes": {
+          "min": 3450339716,
+          "median": 3450339716,
+          "max": 3450339716
+        }
+      },
+      "process_rss_max_bytes": 2201485312,
+      "warm_order_stable": true
+    },
+    {
+      "strategy": "query-prefix",
+      "query": "japanese-long-query",
+      "model_measured": true,
+      "retained": [
+        {
+          "document": "japanese-head",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "japanese-middle",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "japanese-tail",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "japanese-short",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 13,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "japanese-wrong-answer",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 13,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "japanese-unrelated",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 7,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-head",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "code-middle",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "code-tail",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-short",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 16,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "code-wrong-answer",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 16,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-unrelated",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 20,
+          "evidence_any_window": false,
+          "windows": 1
+        }
+      ],
+      "observations": [
+        {
+          "trial": 0,
+          "cold": true,
+          "wall_ns": 33776956125,
+          "forward_count": 12,
+          "metal_peak_bytes": 3467116932,
+          "aggregations": {
+            "single": {
+              "scores": {
+                "japanese-head": 0.9434844255447388,
+                "japanese-middle": 0.9614169597625732,
+                "japanese-tail": 0.9226524829864502,
+                "japanese-short": 0.8587248921394348,
+                "japanese-wrong-answer": 0.8503942489624023,
+                "japanese-unrelated": 0.5513260364532471,
+                "code-head": 0.6922784447669983,
+                "code-middle": 0.7967032194137573,
+                "code-tail": 0.7775940299034119,
+                "code-short": 0.5728949904441833,
+                "code-wrong-answer": 0.5612806081771851,
+                "code-unrelated": 0.5813356041908264
+              },
+              "order": [
+                "japanese-middle",
+                "japanese-head",
+                "japanese-tail",
+                "japanese-short",
+                "japanese-wrong-answer",
+                "code-middle",
+                "code-tail",
+                "code-head",
+                "code-unrelated",
+                "code-short",
+                "code-wrong-answer",
+                "japanese-unrelated"
+              ],
+              "ranks": {
+                "japanese-head": 2,
+                "japanese-middle": 1,
+                "japanese-tail": 3,
+                "japanese-short": 4,
+                "japanese-wrong-answer": 5,
+                "japanese-unrelated": 12,
+                "code-head": 8,
+                "code-middle": 6,
+                "code-tail": 7,
+                "code-short": 10,
+                "code-wrong-answer": 11,
+                "code-unrelated": 9
+              },
+              "quality": {
+                "Recall@1": 0.25,
+                "nDCG@1": 1.0,
+                "Recall@5": 1.0,
+                "nDCG@5": 1.0,
+                "Recall@10": 1.0,
+                "nDCG@10": 1.0
+              }
+            }
+          }
+        },
+        {
+          "trial": 1,
+          "cold": false,
+          "wall_ns": 33470637333,
+          "forward_count": 12,
+          "metal_peak_bytes": 3467116932,
+          "aggregations_equal_to_trial": 0
+        },
+        {
+          "trial": 2,
+          "cold": false,
+          "wall_ns": 33445101792,
+          "forward_count": 12,
+          "metal_peak_bytes": 3467116932,
+          "aggregations_equal_to_trial": 0
+        },
+        {
+          "trial": 3,
+          "cold": false,
+          "wall_ns": 33408317458,
+          "forward_count": 12,
+          "metal_peak_bytes": 3467116932,
+          "aggregations_equal_to_trial": 0
+        }
+      ],
+      "warm": {
+        "wall_ns": {
+          "min": 33408317458,
+          "median": 33445101792,
+          "max": 33470637333
+        },
+        "forward_count": {
+          "min": 12,
+          "median": 12,
+          "max": 12
+        },
+        "metal_peak_bytes": {
+          "min": 3467116932,
+          "median": 3467116932,
+          "max": 3467116932
+        }
+      },
+      "process_rss_max_bytes": 2201485312,
+      "warm_order_stable": true
+    },
+    {
+      "strategy": "query-prefix",
+      "query": "code-short-query",
+      "model_measured": true,
+      "retained": [
+        {
+          "document": "japanese-head",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "japanese-middle",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "japanese-tail",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "japanese-short",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 13,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "japanese-wrong-answer",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 13,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "japanese-unrelated",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 7,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-head",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "code-middle",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "code-tail",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-short",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 16,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "code-wrong-answer",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 16,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-unrelated",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 20,
+          "evidence_any_window": false,
+          "windows": 1
+        }
+      ],
+      "observations": [
+        {
+          "trial": 0,
+          "cold": true,
+          "wall_ns": 29626536666,
+          "forward_count": 12,
+          "metal_peak_bytes": 3467116932,
+          "aggregations": {
+            "single": {
+              "scores": {
+                "japanese-head": 0.00024380168179050088,
+                "japanese-middle": 0.0007794585544615984,
+                "japanese-tail": 0.0006700056255795062,
+                "japanese-short": 9.356727969134226e-05,
+                "japanese-wrong-answer": 9.234281606040895e-05,
+                "japanese-unrelated": 0.00010942726657958701,
+                "code-head": 0.4167531728744507,
+                "code-middle": 0.4975089728832245,
+                "code-tail": 0.0005382587551139295,
+                "code-short": 0.5749551057815552,
+                "code-wrong-answer": 0.03772328794002533,
+                "code-unrelated": 0.00015696843911428005
+              },
+              "order": [
+                "code-short",
+                "code-middle",
+                "code-head",
+                "code-wrong-answer",
+                "japanese-middle",
+                "japanese-tail",
+                "code-tail",
+                "japanese-head",
+                "code-unrelated",
+                "japanese-unrelated",
+                "japanese-short",
+                "japanese-wrong-answer"
+              ],
+              "ranks": {
+                "japanese-head": 8,
+                "japanese-middle": 5,
+                "japanese-tail": 6,
+                "japanese-short": 11,
+                "japanese-wrong-answer": 12,
+                "japanese-unrelated": 10,
+                "code-head": 3,
+                "code-middle": 2,
+                "code-tail": 7,
+                "code-short": 1,
+                "code-wrong-answer": 4,
+                "code-unrelated": 9
+              },
+              "quality": {
+                "Recall@1": 0.25,
+                "nDCG@1": 1.0,
+                "Recall@5": 0.75,
+                "nDCG@5": 0.8318724637288826,
+                "Recall@10": 1.0,
+                "nDCG@10": 0.961999147059583
+              }
+            }
+          }
+        },
+        {
+          "trial": 1,
+          "cold": false,
+          "wall_ns": 29616866167,
+          "forward_count": 12,
+          "metal_peak_bytes": 3467116932,
+          "aggregations_equal_to_trial": 0
+        },
+        {
+          "trial": 2,
+          "cold": false,
+          "wall_ns": 29504079125,
+          "forward_count": 12,
+          "metal_peak_bytes": 3467116932,
+          "aggregations_equal_to_trial": 0
+        },
+        {
+          "trial": 3,
+          "cold": false,
+          "wall_ns": 29603116875,
+          "forward_count": 12,
+          "metal_peak_bytes": 3467116932,
+          "aggregations_equal_to_trial": 0
+        }
+      ],
+      "warm": {
+        "wall_ns": {
+          "min": 29504079125,
+          "median": 29603116875,
+          "max": 29616866167
+        },
+        "forward_count": {
+          "min": 12,
+          "median": 12,
+          "max": 12
+        },
+        "metal_peak_bytes": {
+          "min": 3467116932,
+          "median": 3467116932,
+          "max": 3467116932
+        }
+      },
+      "process_rss_max_bytes": 2201485312,
+      "warm_order_stable": true
+    },
+    {
+      "strategy": "query-prefix",
+      "query": "code-long-query",
+      "model_measured": true,
+      "retained": [
+        {
+          "document": "japanese-head",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "japanese-middle",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "japanese-tail",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "japanese-short",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 13,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "japanese-wrong-answer",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 13,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "japanese-unrelated",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 7,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-head",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "code-middle",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "code-tail",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-short",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 16,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "code-wrong-answer",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 16,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-unrelated",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 20,
+          "evidence_any_window": false,
+          "windows": 1
+        }
+      ],
+      "observations": [
+        {
+          "trial": 0,
+          "cold": true,
+          "wall_ns": 33371799291,
+          "forward_count": 12,
+          "metal_peak_bytes": 3467116932,
+          "aggregations": {
+            "single": {
+              "scores": {
+                "japanese-head": 0.09901431202888489,
+                "japanese-middle": 0.15179534256458282,
+                "japanese-tail": 0.13055655360221863,
+                "japanese-short": 0.20708067715168,
+                "japanese-wrong-answer": 0.20289048552513123,
+                "japanese-unrelated": 0.32105588912963867,
+                "code-head": 0.8279482126235962,
+                "code-middle": 0.8661769032478333,
+                "code-tail": 0.7484654188156128,
+                "code-short": 0.31564390659332275,
+                "code-wrong-answer": 0.29008811712265015,
+                "code-unrelated": 0.2308170050382614
+              },
+              "order": [
+                "code-middle",
+                "code-head",
+                "code-tail",
+                "japanese-unrelated",
+                "code-short",
+                "code-wrong-answer",
+                "code-unrelated",
+                "japanese-short",
+                "japanese-wrong-answer",
+                "japanese-middle",
+                "japanese-tail",
+                "japanese-head"
+              ],
+              "ranks": {
+                "japanese-head": 12,
+                "japanese-middle": 10,
+                "japanese-tail": 11,
+                "japanese-short": 8,
+                "japanese-wrong-answer": 9,
+                "japanese-unrelated": 4,
+                "code-head": 2,
+                "code-middle": 1,
+                "code-tail": 3,
+                "code-short": 5,
+                "code-wrong-answer": 6,
+                "code-unrelated": 7
+              },
+              "quality": {
+                "Recall@1": 0.25,
+                "nDCG@1": 1.0,
+                "Recall@5": 1.0,
+                "nDCG@5": 0.9828920819566879,
+                "Recall@10": 1.0,
+                "nDCG@10": 0.9828920819566879
+              }
+            }
+          }
+        },
+        {
+          "trial": 1,
+          "cold": false,
+          "wall_ns": 33474087875,
+          "forward_count": 12,
+          "metal_peak_bytes": 3467116932,
+          "aggregations_equal_to_trial": 0
+        },
+        {
+          "trial": 2,
+          "cold": false,
+          "wall_ns": 33449577542,
+          "forward_count": 12,
+          "metal_peak_bytes": 3467116932,
+          "aggregations_equal_to_trial": 0
+        },
+        {
+          "trial": 3,
+          "cold": false,
+          "wall_ns": 33402546709,
+          "forward_count": 12,
+          "metal_peak_bytes": 3467116932,
+          "aggregations_equal_to_trial": 0
+        }
+      ],
+      "warm": {
+        "wall_ns": {
+          "min": 33402546709,
+          "median": 33449577542,
+          "max": 33474087875
+        },
+        "forward_count": {
+          "min": 12,
+          "median": 12,
+          "max": 12
+        },
+        "metal_peak_bytes": {
+          "min": 3467116932,
+          "median": 3467116932,
+          "max": 3467116932
+        }
+      },
+      "process_rss_max_bytes": 2201485312,
+      "warm_order_stable": true
+    },
+    {
+      "strategy": "chunk-neighbors",
+      "query": "japanese-short-query",
+      "model_measured": true,
+      "retained": [
+        {
+          "document": "japanese-head",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "japanese-middle",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "japanese-tail",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "japanese-short",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 13,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "japanese-wrong-answer",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 13,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "japanese-unrelated",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 7,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-head",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "code-middle",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-tail",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-short",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 16,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "code-wrong-answer",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 16,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-unrelated",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 20,
+          "evidence_any_window": false,
+          "windows": 1
+        }
+      ],
+      "observations": [
+        {
+          "trial": 0,
+          "cold": true,
+          "wall_ns": 4396276584,
+          "forward_count": 12,
+          "metal_peak_bytes": 2607260008,
+          "aggregations": {
+            "single": {
+              "scores": {
+                "japanese-head": 0.9985085129737854,
+                "japanese-middle": 0.9958037734031677,
+                "japanese-tail": 0.993956446647644,
+                "japanese-short": 0.9997345805168152,
+                "japanese-wrong-answer": 0.9995064735412598,
+                "japanese-unrelated": 7.932102744234726e-05,
+                "code-head": 9.351616608910263e-05,
+                "code-middle": 0.00011472577170934528,
+                "code-tail": 0.00011472577170934528,
+                "code-short": 6.709819717798382e-05,
+                "code-wrong-answer": 6.726745777996257e-05,
+                "code-unrelated": 5.9515929024200886e-05
+              },
+              "order": [
+                "japanese-short",
+                "japanese-wrong-answer",
+                "japanese-head",
+                "japanese-middle",
+                "japanese-tail",
+                "code-middle",
+                "code-tail",
+                "code-head",
+                "japanese-unrelated",
+                "code-wrong-answer",
+                "code-short",
+                "code-unrelated"
+              ],
+              "ranks": {
+                "japanese-head": 3,
+                "japanese-middle": 4,
+                "japanese-tail": 5,
+                "japanese-short": 1,
+                "japanese-wrong-answer": 2,
+                "japanese-unrelated": 9,
+                "code-head": 8,
+                "code-middle": 6,
+                "code-tail": 7,
+                "code-short": 11,
+                "code-wrong-answer": 10,
+                "code-unrelated": 12
+              },
+              "quality": {
+                "Recall@1": 0.25,
+                "nDCG@1": 1.0,
+                "Recall@5": 1.0,
+                "nDCG@5": 0.9047172294870751,
+                "Recall@10": 1.0,
+                "nDCG@10": 0.9047172294870751
+              }
+            }
+          }
+        },
+        {
+          "trial": 1,
+          "cold": false,
+          "wall_ns": 4313755750,
+          "forward_count": 12,
+          "metal_peak_bytes": 2607260008,
+          "aggregations_equal_to_trial": 0
+        },
+        {
+          "trial": 2,
+          "cold": false,
+          "wall_ns": 4341158625,
+          "forward_count": 12,
+          "metal_peak_bytes": 2607260008,
+          "aggregations_equal_to_trial": 0
+        },
+        {
+          "trial": 3,
+          "cold": false,
+          "wall_ns": 4353487584,
+          "forward_count": 12,
+          "metal_peak_bytes": 2607260008,
+          "aggregations_equal_to_trial": 0
+        }
+      ],
+      "warm": {
+        "wall_ns": {
+          "min": 4313755750,
+          "median": 4341158625,
+          "max": 4353487584
+        },
+        "forward_count": {
+          "min": 12,
+          "median": 12,
+          "max": 12
+        },
+        "metal_peak_bytes": {
+          "min": 2607260008,
+          "median": 2607260008,
+          "max": 2607260008
+        }
+      },
+      "process_rss_max_bytes": 2136571904,
+      "warm_order_stable": true
+    },
+    {
+      "strategy": "chunk-neighbors",
+      "query": "japanese-long-query",
+      "model_measured": true,
+      "retained": [
+        {
+          "document": "japanese-head",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "japanese-middle",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "japanese-tail",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "japanese-short",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 13,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "japanese-wrong-answer",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 13,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "japanese-unrelated",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 7,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-head",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "code-middle",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "code-tail",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "code-short",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 16,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "code-wrong-answer",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 16,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-unrelated",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 20,
+          "evidence_any_window": false,
+          "windows": 1
+        }
+      ],
+      "observations": [
+        {
+          "trial": 0,
+          "cold": true,
+          "wall_ns": 29245739542,
+          "forward_count": 12,
+          "metal_peak_bytes": 3467116932,
+          "aggregations": {
+            "single": {
+              "scores": {
+                "japanese-head": 0.9606121182441711,
+                "japanese-middle": 0.8392018675804138,
+                "japanese-tail": 0.8392018675804138,
+                "japanese-short": 0.8587248921394348,
+                "japanese-wrong-answer": 0.8503942489624023,
+                "japanese-unrelated": 0.5513260364532471,
+                "code-head": 0.3341699540615082,
+                "code-middle": 0.30742254853248596,
+                "code-tail": 0.4247175455093384,
+                "code-short": 0.5728949904441833,
+                "code-wrong-answer": 0.5612806081771851,
+                "code-unrelated": 0.5813356041908264
+              },
+              "order": [
+                "japanese-head",
+                "japanese-short",
+                "japanese-wrong-answer",
+                "japanese-middle",
+                "japanese-tail",
+                "code-unrelated",
+                "code-short",
+                "code-wrong-answer",
+                "japanese-unrelated",
+                "code-tail",
+                "code-head",
+                "code-middle"
+              ],
+              "ranks": {
+                "japanese-head": 1,
+                "japanese-middle": 4,
+                "japanese-tail": 5,
+                "japanese-short": 2,
+                "japanese-wrong-answer": 3,
+                "japanese-unrelated": 9,
+                "code-head": 11,
+                "code-middle": 12,
+                "code-tail": 10,
+                "code-short": 7,
+                "code-wrong-answer": 8,
+                "code-unrelated": 6
+              },
+              "quality": {
+                "Recall@1": 0.25,
+                "nDCG@1": 1.0,
+                "Recall@5": 1.0,
+                "nDCG@5": 0.9558295932317544,
+                "Recall@10": 1.0,
+                "nDCG@10": 0.9558295932317544
+              }
+            }
+          }
+        },
+        {
+          "trial": 1,
+          "cold": false,
+          "wall_ns": 29279194458,
+          "forward_count": 12,
+          "metal_peak_bytes": 3467116932,
+          "aggregations_equal_to_trial": 0
+        },
+        {
+          "trial": 2,
+          "cold": false,
+          "wall_ns": 29379869125,
+          "forward_count": 12,
+          "metal_peak_bytes": 3467116932,
+          "aggregations_equal_to_trial": 0
+        },
+        {
+          "trial": 3,
+          "cold": false,
+          "wall_ns": 29131991584,
+          "forward_count": 12,
+          "metal_peak_bytes": 3467116932,
+          "aggregations_equal_to_trial": 0
+        }
+      ],
+      "warm": {
+        "wall_ns": {
+          "min": 29131991584,
+          "median": 29279194458,
+          "max": 29379869125
+        },
+        "forward_count": {
+          "min": 12,
+          "median": 12,
+          "max": 12
+        },
+        "metal_peak_bytes": {
+          "min": 3467116932,
+          "median": 3467116932,
+          "max": 3467116932
+        }
+      },
+      "process_rss_max_bytes": 2136571904,
+      "warm_order_stable": true
+    },
+    {
+      "strategy": "chunk-neighbors",
+      "query": "code-short-query",
+      "model_measured": true,
+      "retained": [
+        {
+          "document": "japanese-head",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "japanese-middle",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "japanese-tail",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "japanese-short",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 13,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "japanese-wrong-answer",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 13,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "japanese-unrelated",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 7,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-head",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "code-middle",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "code-tail",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "code-short",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 16,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "code-wrong-answer",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 16,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-unrelated",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 20,
+          "evidence_any_window": false,
+          "windows": 1
+        }
+      ],
+      "observations": [
+        {
+          "trial": 0,
+          "cold": true,
+          "wall_ns": 4353365208,
+          "forward_count": 12,
+          "metal_peak_bytes": 2875695464,
+          "aggregations": {
+            "single": {
+              "scores": {
+                "japanese-head": 0.00012322513794060796,
+                "japanese-middle": 0.0002485834702383727,
+                "japanese-tail": 0.0002485834702383727,
+                "japanese-short": 9.356727969134226e-05,
+                "japanese-wrong-answer": 9.234281606040895e-05,
+                "japanese-unrelated": 0.00010942726657958701,
+                "code-head": 0.8094978928565979,
+                "code-middle": 0.9141951203346252,
+                "code-tail": 0.9383421540260315,
+                "code-short": 0.5749551057815552,
+                "code-wrong-answer": 0.03772328794002533,
+                "code-unrelated": 0.00015696843911428005
+              },
+              "order": [
+                "code-tail",
+                "code-middle",
+                "code-head",
+                "code-short",
+                "code-wrong-answer",
+                "japanese-middle",
+                "japanese-tail",
+                "code-unrelated",
+                "japanese-head",
+                "japanese-unrelated",
+                "japanese-short",
+                "japanese-wrong-answer"
+              ],
+              "ranks": {
+                "japanese-head": 9,
+                "japanese-middle": 6,
+                "japanese-tail": 7,
+                "japanese-short": 11,
+                "japanese-wrong-answer": 12,
+                "japanese-unrelated": 10,
+                "code-head": 3,
+                "code-middle": 2,
+                "code-tail": 1,
+                "code-short": 4,
+                "code-wrong-answer": 5,
+                "code-unrelated": 8
+              },
+              "quality": {
+                "Recall@1": 0.25,
+                "nDCG@1": 1.0,
+                "Recall@5": 1.0,
+                "nDCG@5": 1.0,
+                "Recall@10": 1.0,
+                "nDCG@10": 1.0
+              }
+            }
+          }
+        },
+        {
+          "trial": 1,
+          "cold": false,
+          "wall_ns": 4348809208,
+          "forward_count": 12,
+          "metal_peak_bytes": 2875695464,
+          "aggregations_equal_to_trial": 0
+        },
+        {
+          "trial": 2,
+          "cold": false,
+          "wall_ns": 4320563500,
+          "forward_count": 12,
+          "metal_peak_bytes": 2875695464,
+          "aggregations_equal_to_trial": 0
+        },
+        {
+          "trial": 3,
+          "cold": false,
+          "wall_ns": 4333832084,
+          "forward_count": 12,
+          "metal_peak_bytes": 2875695464,
+          "aggregations_equal_to_trial": 0
+        }
+      ],
+      "warm": {
+        "wall_ns": {
+          "min": 4320563500,
+          "median": 4333832084,
+          "max": 4348809208
+        },
+        "forward_count": {
+          "min": 12,
+          "median": 12,
+          "max": 12
+        },
+        "metal_peak_bytes": {
+          "min": 2875695464,
+          "median": 2875695464,
+          "max": 2875695464
+        }
+      },
+      "process_rss_max_bytes": 2136571904,
+      "warm_order_stable": true
+    },
+    {
+      "strategy": "chunk-neighbors",
+      "query": "code-long-query",
+      "model_measured": true,
+      "retained": [
+        {
+          "document": "japanese-head",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "japanese-middle",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "japanese-tail",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "japanese-short",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 13,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "japanese-wrong-answer",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 13,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "japanese-unrelated",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 7,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-head",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "code-middle",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-tail",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-short",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 16,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "code-wrong-answer",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 16,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-unrelated",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 20,
+          "evidence_any_window": false,
+          "windows": 1
+        }
+      ],
+      "observations": [
+        {
+          "trial": 0,
+          "cold": true,
+          "wall_ns": 33540124583,
+          "forward_count": 12,
+          "metal_peak_bytes": 3467116932,
+          "aggregations": {
+            "single": {
+              "scores": {
+                "japanese-head": 0.10570936650037766,
+                "japanese-middle": 0.15064382553100586,
+                "japanese-tail": 0.15064382553100586,
+                "japanese-short": 0.20708067715168,
+                "japanese-wrong-answer": 0.20289048552513123,
+                "japanese-unrelated": 0.32105588912963867,
+                "code-head": 0.5255767107009888,
+                "code-middle": 0.5765222907066345,
+                "code-tail": 0.5765222907066345,
+                "code-short": 0.31564390659332275,
+                "code-wrong-answer": 0.29008811712265015,
+                "code-unrelated": 0.2308170050382614
+              },
+              "order": [
+                "code-middle",
+                "code-tail",
+                "code-head",
+                "japanese-unrelated",
+                "code-short",
+                "code-wrong-answer",
+                "code-unrelated",
+                "japanese-short",
+                "japanese-wrong-answer",
+                "japanese-middle",
+                "japanese-tail",
+                "japanese-head"
+              ],
+              "ranks": {
+                "japanese-head": 12,
+                "japanese-middle": 10,
+                "japanese-tail": 11,
+                "japanese-short": 8,
+                "japanese-wrong-answer": 9,
+                "japanese-unrelated": 4,
+                "code-head": 3,
+                "code-middle": 1,
+                "code-tail": 2,
+                "code-short": 5,
+                "code-wrong-answer": 6,
+                "code-unrelated": 7
+              },
+              "quality": {
+                "Recall@1": 0.25,
+                "nDCG@1": 1.0,
+                "Recall@5": 1.0,
+                "nDCG@5": 0.9828920819566879,
+                "Recall@10": 1.0,
+                "nDCG@10": 0.9828920819566879
+              }
+            }
+          }
+        },
+        {
+          "trial": 1,
+          "cold": false,
+          "wall_ns": 33498616625,
+          "forward_count": 12,
+          "metal_peak_bytes": 3467116932,
+          "aggregations_equal_to_trial": 0
+        },
+        {
+          "trial": 2,
+          "cold": false,
+          "wall_ns": 33651569209,
+          "forward_count": 12,
+          "metal_peak_bytes": 3467116932,
+          "aggregations_equal_to_trial": 0
+        },
+        {
+          "trial": 3,
+          "cold": false,
+          "wall_ns": 33509477083,
+          "forward_count": 12,
+          "metal_peak_bytes": 3467116932,
+          "aggregations_equal_to_trial": 0
+        }
+      ],
+      "warm": {
+        "wall_ns": {
+          "min": 33498616625,
+          "median": 33509477083,
+          "max": 33651569209
+        },
+        "forward_count": {
+          "min": 12,
+          "median": 12,
+          "max": 12
+        },
+        "metal_peak_bytes": {
+          "min": 3467116932,
+          "median": 3467116932,
+          "max": 3467116932
+        }
+      },
+      "process_rss_max_bytes": 2136571904,
+      "warm_order_stable": true
+    },
+    {
+      "strategy": "windows",
+      "query": "japanese-short-query",
+      "model_measured": true,
+      "retained": [
+        {
+          "document": "japanese-head",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": true,
+          "windows": 2
+        },
+        {
+          "document": "japanese-middle",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": true,
+          "windows": 2
+        },
+        {
+          "document": "japanese-tail",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": true,
+          "windows": 2
+        },
+        {
+          "document": "japanese-short",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 13,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "japanese-wrong-answer",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 13,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "japanese-unrelated",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 7,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-head",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": true,
+          "windows": 2
+        },
+        {
+          "document": "code-middle",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": true,
+          "windows": 2
+        },
+        {
+          "document": "code-tail",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": true,
+          "windows": 2
+        },
+        {
+          "document": "code-short",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 16,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "code-wrong-answer",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 16,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-unrelated",
+          "raw_query_tokens": 12,
+          "raw_document_tokens": 20,
+          "evidence_any_window": false,
+          "windows": 1
+        }
+      ],
+      "observations": [
+        {
+          "trial": 0,
+          "cold": true,
+          "wall_ns": 44639788708,
+          "forward_count": 18,
+          "metal_peak_bytes": 3451388292,
+          "aggregations": {
+            "max": {
+              "scores": {
+                "japanese-head": 0.9758032560348511,
+                "japanese-middle": 0.9633885025978088,
+                "japanese-tail": 0.9995723366737366,
+                "japanese-short": 0.9997345805168152,
+                "japanese-wrong-answer": 0.9995064735412598,
+                "japanese-unrelated": 7.932102744234726e-05,
+                "code-head": 0.0006576464511454105,
+                "code-middle": 0.0010738365817815065,
+                "code-tail": 0.0007051367429085076,
+                "code-short": 6.709819717798382e-05,
+                "code-wrong-answer": 6.726745777996257e-05,
+                "code-unrelated": 5.9515929024200886e-05
+              },
+              "order": [
+                "japanese-short",
+                "japanese-tail",
+                "japanese-wrong-answer",
+                "japanese-head",
+                "japanese-middle",
+                "code-middle",
+                "code-tail",
+                "code-head",
+                "japanese-unrelated",
+                "code-wrong-answer",
+                "code-short",
+                "code-unrelated"
+              ],
+              "ranks": {
+                "japanese-head": 4,
+                "japanese-middle": 5,
+                "japanese-tail": 2,
+                "japanese-short": 1,
+                "japanese-wrong-answer": 3,
+                "japanese-unrelated": 9,
+                "code-head": 8,
+                "code-middle": 6,
+                "code-tail": 7,
+                "code-short": 11,
+                "code-wrong-answer": 10,
+                "code-unrelated": 12
+              },
+              "quality": {
+                "Recall@1": 0.25,
+                "nDCG@1": 1.0,
+                "Recall@5": 1.0,
+                "nDCG@5": 0.9558295932317544,
+                "Recall@10": 1.0,
+                "nDCG@10": 0.9558295932317544
+              }
+            },
+            "mean": {
+              "scores": {
+                "japanese-head": 0.4879451502383745,
+                "japanese-middle": 0.48173777351985336,
+                "japanese-tail": 0.5000116023147712,
+                "japanese-short": 0.9997345805168152,
+                "japanese-wrong-answer": 0.9995064735412598,
+                "japanese-unrelated": 7.932102744234726e-05,
+                "code-head": 0.0004954564064973965,
+                "code-middle": 0.0007035514718154445,
+                "code-tail": 0.0005330618587322533,
+                "code-short": 6.709819717798382e-05,
+                "code-wrong-answer": 6.726745777996257e-05,
+                "code-unrelated": 5.9515929024200886e-05
+              },
+              "order": [
+                "japanese-short",
+                "japanese-wrong-answer",
+                "japanese-tail",
+                "japanese-head",
+                "japanese-middle",
+                "code-middle",
+                "code-tail",
+                "code-head",
+                "japanese-unrelated",
+                "code-wrong-answer",
+                "code-short",
+                "code-unrelated"
+              ],
+              "ranks": {
+                "japanese-head": 4,
+                "japanese-middle": 5,
+                "japanese-tail": 3,
+                "japanese-short": 1,
+                "japanese-wrong-answer": 2,
+                "japanese-unrelated": 9,
+                "code-head": 8,
+                "code-middle": 6,
+                "code-tail": 7,
+                "code-short": 11,
+                "code-wrong-answer": 10,
+                "code-unrelated": 12
+              },
+              "quality": {
+                "Recall@1": 0.25,
+                "nDCG@1": 1.0,
+                "Recall@5": 1.0,
+                "nDCG@5": 0.9047172294870751,
+                "Recall@10": 1.0,
+                "nDCG@10": 0.9047172294870751
+              }
+            }
+          }
+        },
+        {
+          "trial": 1,
+          "cold": false,
+          "wall_ns": 43992060583,
+          "forward_count": 18,
+          "metal_peak_bytes": 3451388292,
+          "aggregations_equal_to_trial": 0
+        },
+        {
+          "trial": 2,
+          "cold": false,
+          "wall_ns": 45467339208,
+          "forward_count": 18,
+          "metal_peak_bytes": 3451388292,
+          "aggregations_equal_to_trial": 0
+        },
+        {
+          "trial": 3,
+          "cold": false,
+          "wall_ns": 44157238000,
+          "forward_count": 18,
+          "metal_peak_bytes": 3451388292,
+          "aggregations_equal_to_trial": 0
+        }
+      ],
+      "warm": {
+        "wall_ns": {
+          "min": 43992060583,
+          "median": 44157238000,
+          "max": 45467339208
+        },
+        "forward_count": {
+          "min": 18,
+          "median": 18,
+          "max": 18
+        },
+        "metal_peak_bytes": {
+          "min": 3451388292,
+          "median": 3451388292,
+          "max": 3451388292
+        }
+      },
+      "process_rss_max_bytes": 2201698304,
+      "warm_order_stable": true
+    },
+    {
+      "strategy": "windows",
+      "query": "japanese-long-query",
+      "model_measured": true,
+      "retained": [
+        {
+          "document": "japanese-head",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": true,
+          "windows": 2
+        },
+        {
+          "document": "japanese-middle",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": true,
+          "windows": 2
+        },
+        {
+          "document": "japanese-tail",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": true,
+          "windows": 2
+        },
+        {
+          "document": "japanese-short",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 13,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "japanese-wrong-answer",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 13,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "japanese-unrelated",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 7,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-head",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": true,
+          "windows": 2
+        },
+        {
+          "document": "code-middle",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": true,
+          "windows": 2
+        },
+        {
+          "document": "code-tail",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": true,
+          "windows": 2
+        },
+        {
+          "document": "code-short",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 16,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "code-wrong-answer",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 16,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-unrelated",
+          "raw_query_tokens": 8204,
+          "raw_document_tokens": 20,
+          "evidence_any_window": false,
+          "windows": 1
+        }
+      ],
+      "observations": [
+        {
+          "trial": 0,
+          "cold": true,
+          "wall_ns": 61922729416,
+          "forward_count": 18,
+          "metal_peak_bytes": 3468165508,
+          "aggregations": {
+            "max": {
+              "scores": {
+                "japanese-head": 0.9434844255447388,
+                "japanese-middle": 0.9614169597625732,
+                "japanese-tail": 0.9226524829864502,
+                "japanese-short": 0.8587248921394348,
+                "japanese-wrong-answer": 0.8503942489624023,
+                "japanese-unrelated": 0.5513260364532471,
+                "code-head": 0.7378080487251282,
+                "code-middle": 0.7967032194137573,
+                "code-tail": 0.7775940299034119,
+                "code-short": 0.5728949904441833,
+                "code-wrong-answer": 0.5612806081771851,
+                "code-unrelated": 0.5813356041908264
+              },
+              "order": [
+                "japanese-middle",
+                "japanese-head",
+                "japanese-tail",
+                "japanese-short",
+                "japanese-wrong-answer",
+                "code-middle",
+                "code-tail",
+                "code-head",
+                "code-unrelated",
+                "code-short",
+                "code-wrong-answer",
+                "japanese-unrelated"
+              ],
+              "ranks": {
+                "japanese-head": 2,
+                "japanese-middle": 1,
+                "japanese-tail": 3,
+                "japanese-short": 4,
+                "japanese-wrong-answer": 5,
+                "japanese-unrelated": 12,
+                "code-head": 8,
+                "code-middle": 6,
+                "code-tail": 7,
+                "code-short": 10,
+                "code-wrong-answer": 11,
+                "code-unrelated": 9
+              },
+              "quality": {
+                "Recall@1": 0.25,
+                "nDCG@1": 1.0,
+                "Recall@5": 1.0,
+                "nDCG@5": 1.0,
+                "Recall@10": 1.0,
+                "nDCG@10": 1.0
+              }
+            },
+            "mean": {
+              "scores": {
+                "japanese-head": 0.9019684195518494,
+                "japanese-middle": 0.9109346866607666,
+                "japanese-tail": 0.9123290479183197,
+                "japanese-short": 0.8587248921394348,
+                "japanese-wrong-answer": 0.8503942489624023,
+                "japanese-unrelated": 0.5513260364532471,
+                "code-head": 0.7150432467460632,
+                "code-middle": 0.7672556340694427,
+                "code-tail": 0.6952452659606934,
+                "code-short": 0.5728949904441833,
+                "code-wrong-answer": 0.5612806081771851,
+                "code-unrelated": 0.5813356041908264
+              },
+              "order": [
+                "japanese-tail",
+                "japanese-middle",
+                "japanese-head",
+                "japanese-short",
+                "japanese-wrong-answer",
+                "code-middle",
+                "code-head",
+                "code-tail",
+                "code-unrelated",
+                "code-short",
+                "code-wrong-answer",
+                "japanese-unrelated"
+              ],
+              "ranks": {
+                "japanese-head": 3,
+                "japanese-middle": 2,
+                "japanese-tail": 1,
+                "japanese-short": 4,
+                "japanese-wrong-answer": 5,
+                "japanese-unrelated": 12,
+                "code-head": 7,
+                "code-middle": 6,
+                "code-tail": 8,
+                "code-short": 10,
+                "code-wrong-answer": 11,
+                "code-unrelated": 9
+              },
+              "quality": {
+                "Recall@1": 0.25,
+                "nDCG@1": 1.0,
+                "Recall@5": 1.0,
+                "nDCG@5": 1.0,
+                "Recall@10": 1.0,
+                "nDCG@10": 1.0
+              }
+            }
+          }
+        },
+        {
+          "trial": 1,
+          "cold": false,
+          "wall_ns": 61942938500,
+          "forward_count": 18,
+          "metal_peak_bytes": 3468165508,
+          "aggregations_equal_to_trial": 0
+        },
+        {
+          "trial": 2,
+          "cold": false,
+          "wall_ns": 61942412042,
+          "forward_count": 18,
+          "metal_peak_bytes": 3468165508,
+          "aggregations_equal_to_trial": 0
+        },
+        {
+          "trial": 3,
+          "cold": false,
+          "wall_ns": 61881765875,
+          "forward_count": 18,
+          "metal_peak_bytes": 3468165508,
+          "aggregations_equal_to_trial": 0
+        }
+      ],
+      "warm": {
+        "wall_ns": {
+          "min": 61881765875,
+          "median": 61942412042,
+          "max": 61942938500
+        },
+        "forward_count": {
+          "min": 18,
+          "median": 18,
+          "max": 18
+        },
+        "metal_peak_bytes": {
+          "min": 3468165508,
+          "median": 3468165508,
+          "max": 3468165508
+        }
+      },
+      "process_rss_max_bytes": 2201698304,
+      "warm_order_stable": true
+    },
+    {
+      "strategy": "windows",
+      "query": "code-short-query",
+      "model_measured": true,
+      "retained": [
+        {
+          "document": "japanese-head",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": true,
+          "windows": 2
+        },
+        {
+          "document": "japanese-middle",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": true,
+          "windows": 2
+        },
+        {
+          "document": "japanese-tail",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": true,
+          "windows": 2
+        },
+        {
+          "document": "japanese-short",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 13,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "japanese-wrong-answer",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 13,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "japanese-unrelated",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 7,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-head",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": true,
+          "windows": 2
+        },
+        {
+          "document": "code-middle",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": true,
+          "windows": 2
+        },
+        {
+          "document": "code-tail",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": true,
+          "windows": 2
+        },
+        {
+          "document": "code-short",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 16,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "code-wrong-answer",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 16,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-unrelated",
+          "raw_query_tokens": 14,
+          "raw_document_tokens": 20,
+          "evidence_any_window": false,
+          "windows": 1
+        }
+      ],
+      "observations": [
+        {
+          "trial": 0,
+          "cold": true,
+          "wall_ns": 44058741958,
+          "forward_count": 18,
+          "metal_peak_bytes": 3468165508,
+          "aggregations": {
+            "max": {
+              "scores": {
+                "japanese-head": 0.0002877536171581596,
+                "japanese-middle": 0.0007794585544615984,
+                "japanese-tail": 0.0006700056255795062,
+                "japanese-short": 9.356727969134226e-05,
+                "japanese-wrong-answer": 9.234281606040895e-05,
+                "japanese-unrelated": 0.00010942726657958701,
+                "code-head": 0.4167531728744507,
+                "code-middle": 0.4975089728832245,
+                "code-tail": 0.7985433340072632,
+                "code-short": 0.5749551057815552,
+                "code-wrong-answer": 0.03772328794002533,
+                "code-unrelated": 0.00015696843911428005
+              },
+              "order": [
+                "code-tail",
+                "code-short",
+                "code-middle",
+                "code-head",
+                "code-wrong-answer",
+                "japanese-middle",
+                "japanese-tail",
+                "japanese-head",
+                "code-unrelated",
+                "japanese-unrelated",
+                "japanese-short",
+                "japanese-wrong-answer"
+              ],
+              "ranks": {
+                "japanese-head": 8,
+                "japanese-middle": 6,
+                "japanese-tail": 7,
+                "japanese-short": 11,
+                "japanese-wrong-answer": 12,
+                "japanese-unrelated": 10,
+                "code-head": 4,
+                "code-middle": 3,
+                "code-tail": 1,
+                "code-short": 2,
+                "code-wrong-answer": 5,
+                "code-unrelated": 9
+              },
+              "quality": {
+                "Recall@1": 0.25,
+                "nDCG@1": 1.0,
+                "Recall@5": 1.0,
+                "nDCG@5": 1.0,
+                "Recall@10": 1.0,
+                "nDCG@10": 1.0
+              }
+            },
+            "mean": {
+              "scores": {
+                "japanese-head": 0.00026577764947433025,
+                "japanese-middle": 0.000533606085809879,
+                "japanese-tail": 0.00042762910743476823,
+                "japanese-short": 9.356727969134226e-05,
+                "japanese-wrong-answer": 9.234281606040895e-05,
+                "japanese-unrelated": 0.00010942726657958701,
+                "code-head": 0.20854605911881663,
+                "code-middle": 0.24892395912320353,
+                "code-tail": 0.39954079638118856,
+                "code-short": 0.5749551057815552,
+                "code-wrong-answer": 0.03772328794002533,
+                "code-unrelated": 0.00015696843911428005
+              },
+              "order": [
+                "code-short",
+                "code-tail",
+                "code-middle",
+                "code-head",
+                "code-wrong-answer",
+                "japanese-middle",
+                "japanese-tail",
+                "japanese-head",
+                "code-unrelated",
+                "japanese-unrelated",
+                "japanese-short",
+                "japanese-wrong-answer"
+              ],
+              "ranks": {
+                "japanese-head": 8,
+                "japanese-middle": 6,
+                "japanese-tail": 7,
+                "japanese-short": 11,
+                "japanese-wrong-answer": 12,
+                "japanese-unrelated": 10,
+                "code-head": 4,
+                "code-middle": 3,
+                "code-tail": 2,
+                "code-short": 1,
+                "code-wrong-answer": 5,
+                "code-unrelated": 9
+              },
+              "quality": {
+                "Recall@1": 0.25,
+                "nDCG@1": 1.0,
+                "Recall@5": 1.0,
+                "nDCG@5": 1.0,
+                "Recall@10": 1.0,
+                "nDCG@10": 1.0
+              }
+            }
+          }
+        },
+        {
+          "trial": 1,
+          "cold": false,
+          "wall_ns": 44438542625,
+          "forward_count": 18,
+          "metal_peak_bytes": 3468165508,
+          "aggregations_equal_to_trial": 0
+        },
+        {
+          "trial": 2,
+          "cold": false,
+          "wall_ns": 44544075917,
+          "forward_count": 18,
+          "metal_peak_bytes": 3468165508,
+          "aggregations_equal_to_trial": 0
+        },
+        {
+          "trial": 3,
+          "cold": false,
+          "wall_ns": 44451656166,
+          "forward_count": 18,
+          "metal_peak_bytes": 3468165508,
+          "aggregations_equal_to_trial": 0
+        }
+      ],
+      "warm": {
+        "wall_ns": {
+          "min": 44438542625,
+          "median": 44451656166,
+          "max": 44544075917
+        },
+        "forward_count": {
+          "min": 18,
+          "median": 18,
+          "max": 18
+        },
+        "metal_peak_bytes": {
+          "min": 3468165508,
+          "median": 3468165508,
+          "max": 3468165508
+        }
+      },
+      "process_rss_max_bytes": 2201698304,
+      "warm_order_stable": true
+    },
+    {
+      "strategy": "windows",
+      "query": "code-long-query",
+      "model_measured": true,
+      "retained": [
+        {
+          "document": "japanese-head",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": true,
+          "windows": 2
+        },
+        {
+          "document": "japanese-middle",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": true,
+          "windows": 2
+        },
+        {
+          "document": "japanese-tail",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 8205,
+          "evidence_any_window": true,
+          "windows": 2
+        },
+        {
+          "document": "japanese-short",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 13,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "japanese-wrong-answer",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 13,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "japanese-unrelated",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 7,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-head",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": true,
+          "windows": 2
+        },
+        {
+          "document": "code-middle",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": true,
+          "windows": 2
+        },
+        {
+          "document": "code-tail",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 12304,
+          "evidence_any_window": true,
+          "windows": 2
+        },
+        {
+          "document": "code-short",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 16,
+          "evidence_any_window": true,
+          "windows": 1
+        },
+        {
+          "document": "code-wrong-answer",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 16,
+          "evidence_any_window": false,
+          "windows": 1
+        },
+        {
+          "document": "code-unrelated",
+          "raw_query_tokens": 12302,
+          "raw_document_tokens": 20,
+          "evidence_any_window": false,
+          "windows": 1
+        }
+      ],
+      "observations": [
+        {
+          "trial": 0,
+          "cold": true,
+          "wall_ns": 62125614292,
+          "forward_count": 18,
+          "metal_peak_bytes": 3468165508,
+          "aggregations": {
+            "max": {
+              "scores": {
+                "japanese-head": 0.14779330790042877,
+                "japanese-middle": 0.15179534256458282,
+                "japanese-tail": 0.13055655360221863,
+                "japanese-short": 0.20708067715168,
+                "japanese-wrong-answer": 0.20289048552513123,
+                "japanese-unrelated": 0.32105588912963867,
+                "code-head": 0.9173136949539185,
+                "code-middle": 0.9173136949539185,
+                "code-tail": 0.9763522744178772,
+                "code-short": 0.31564390659332275,
+                "code-wrong-answer": 0.29008811712265015,
+                "code-unrelated": 0.2308170050382614
+              },
+              "order": [
+                "code-tail",
+                "code-head",
+                "code-middle",
+                "japanese-unrelated",
+                "code-short",
+                "code-wrong-answer",
+                "code-unrelated",
+                "japanese-short",
+                "japanese-wrong-answer",
+                "japanese-middle",
+                "japanese-head",
+                "japanese-tail"
+              ],
+              "ranks": {
+                "japanese-head": 11,
+                "japanese-middle": 10,
+                "japanese-tail": 12,
+                "japanese-short": 8,
+                "japanese-wrong-answer": 9,
+                "japanese-unrelated": 4,
+                "code-head": 2,
+                "code-middle": 3,
+                "code-tail": 1,
+                "code-short": 5,
+                "code-wrong-answer": 6,
+                "code-unrelated": 7
+              },
+              "quality": {
+                "Recall@1": 0.25,
+                "nDCG@1": 1.0,
+                "Recall@5": 1.0,
+                "nDCG@5": 0.9828920819566879,
+                "Recall@10": 1.0,
+                "nDCG@10": 0.9828920819566879
+              }
+            },
+            "mean": {
+              "scores": {
+                "japanese-head": 0.12340380996465683,
+                "japanese-middle": 0.1497943252325058,
+                "japanese-tail": 0.12660357356071472,
+                "japanese-short": 0.20708067715168,
+                "japanese-wrong-answer": 0.20289048552513123,
+                "japanese-unrelated": 0.32105588912963867,
+                "code-head": 0.8726309537887573,
+                "code-middle": 0.8917452991008759,
+                "code-tail": 0.862408846616745,
+                "code-short": 0.31564390659332275,
+                "code-wrong-answer": 0.29008811712265015,
+                "code-unrelated": 0.2308170050382614
+              },
+              "order": [
+                "code-middle",
+                "code-head",
+                "code-tail",
+                "japanese-unrelated",
+                "code-short",
+                "code-wrong-answer",
+                "code-unrelated",
+                "japanese-short",
+                "japanese-wrong-answer",
+                "japanese-middle",
+                "japanese-tail",
+                "japanese-head"
+              ],
+              "ranks": {
+                "japanese-head": 12,
+                "japanese-middle": 10,
+                "japanese-tail": 11,
+                "japanese-short": 8,
+                "japanese-wrong-answer": 9,
+                "japanese-unrelated": 4,
+                "code-head": 2,
+                "code-middle": 1,
+                "code-tail": 3,
+                "code-short": 5,
+                "code-wrong-answer": 6,
+                "code-unrelated": 7
+              },
+              "quality": {
+                "Recall@1": 0.25,
+                "nDCG@1": 1.0,
+                "Recall@5": 1.0,
+                "nDCG@5": 0.9828920819566879,
+                "Recall@10": 1.0,
+                "nDCG@10": 0.9828920819566879
+              }
+            }
+          }
+        },
+        {
+          "trial": 1,
+          "cold": false,
+          "wall_ns": 62089090583,
+          "forward_count": 18,
+          "metal_peak_bytes": 3468165508,
+          "aggregations_equal_to_trial": 0
+        },
+        {
+          "trial": 2,
+          "cold": false,
+          "wall_ns": 62091619334,
+          "forward_count": 18,
+          "metal_peak_bytes": 3468165508,
+          "aggregations_equal_to_trial": 0
+        },
+        {
+          "trial": 3,
+          "cold": false,
+          "wall_ns": 62006602459,
+          "forward_count": 18,
+          "metal_peak_bytes": 3468165508,
+          "aggregations_equal_to_trial": 0
+        }
+      ],
+      "warm": {
+        "wall_ns": {
+          "min": 62006602459,
+          "median": 62089090583,
+          "max": 62091619334
+        },
+        "forward_count": {
+          "min": 18,
+          "median": 18,
+          "max": 18
+        },
+        "metal_peak_bytes": {
+          "min": 3468165508,
+          "median": 3468165508,
+          "max": 3468165508
+        }
+      },
+      "process_rss_max_bytes": 2201698304,
+      "warm_order_stable": true
+    }
+  ],
+  "source_identity_unchanged_applies_to": "measurement before/after hashes, before documentation and comment cleanup; not a claim of final PR acceptance",
+  "measurement": {
+    "start_commit": "1d81211bf7571598f0a5c98663703c21f13d056b",
+    "research_source_sha256": "dae690cc0653bb03d0a2ca558bbd2423d1846dae14bb59d592c4dfef51761a97",
+    "runner_sha256": "49d74740af590e37e0b910b58ae08164f0623c9925037c09b1ff1c1382a82a84",
+    "cargo_lock_sha256": "d71f73a0b810ece1c030c761bc72accdf24ab821c43c50a846c8561a892f5db7",
+    "reranker_revision": "bb46934ee9ed09f850b9fcff17501b3ef7ddb2b3",
+    "python": "3.15.0",
+    "machine": "Mac15,3 Apple M3",
+    "ram_bytes": 25769803776,
+    "os": "macOS 27.0.1 (26A434)",
+    "rust": "rustc 1.99.0 (b940084d7 2026-09-28)",
+    "cargo": "cargo 1.99.0 (5f94df478 2026-08-27)",
+    "xcode": "27.0 (27A266a)",
+    "metal": "32023.921 (metalfe-32023.921.6)",
+    "profile": "release, opt-level 3, jobs 2",
+    "window_driver_sha256": "1f9ab7fb2083643b215863006e1c4e56c8c808eea3b1c5a3cdd7ef16ba52ae77",
+    "scope": "synthetic rerank only; no current amici retrieval quality or product adoption claim"
+  },
+  "public_summary_encoding": "Each warm aggregation references trial 0 only when all scores, ranks and quality exactly match. Per-trial timing/forward/peak remains explicit; immutable raw JSONL hashes are retained."
+}

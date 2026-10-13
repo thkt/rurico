@@ -380,6 +380,13 @@ Python参照環境の通常インストール・依存整合・厳密な導入�
 通常の軽量検証と、固定入力の実モデル数値＋amici検索評価を明示的に分ける。
 標準checkは候補照合・失敗時の未完了制御を検証するが、実モデルlaneを実行しない。
 
+### 長文の文脈選択とscore集約の比較（Issue #316）
+
+[調査の入口](docs/research/issue-316/README.md)を使う。
+既存のsmoke featureで研究用binaryをビルドし、固定tokenizer/modelと独立fixtureを使って
+query枠・chunk周辺・window集約を同じ候補集合で比較する。
+通常checkはモデル測定を行わない。製品の既定API・padding・演算は変更しない。
+
 ### 検索意味とquery planの設計比較（Issue #314）
 
 検索時のphrase・短語展開と構成識別の分担は[Issue #314の設計比較](docs/research/issue-314/README.md)を参照する。
