@@ -37,6 +37,9 @@ python3 docs/research/issue-310/run.py measure /tmp/rurico-310-prepared-new /tmp
 各`verify_plan`境界でplanを新しく一度読み、そのbytesからhashとJSONをそれぞれ一度算出し、準備完了検査・内容照合・返却へ共用する。
 呼出元が使うplanとcontextへ記録するhashも、この観測から返す。実行後は新しく再照合する。
 #308のprepareを共用し、その既存CLIのbucket比較と既定動作を保つ。
+prepareの内容照合と準備完了hashも、一度取得したplan bytesへ対応させる。
+prepared記録の書込み後にはplanを新しく取得して再照合し、検査後の差替えを拒否する。
+既存prepareテストは実ファイルとhashを使い、この差替えを確認する。git・ビルド・候補patchは模擬する。
 measureとcollectは所有groupの回収とstderr閉鎖後、一度の読取り・行分割で数値記録とmaskイベントを抽出する。
 両入口は解析結果を受け取り、raw文字列はファイルごとの抽出後に保持しない。保存完了時のhash検査は別に行う。
 
@@ -155,5 +158,10 @@ causalへの置換や独自kernel開発、許容差変更は行わない。
 モデル不要検証は標準Python discoveryに含まれ、個別には次を使う。
 
 ```sh
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -b -s scripts -p 'test_bucket_tables.py'
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -b -s scripts -p 'test_mask_cache_spike.py'
 ```
+
+入口検証ではclockとguardをmockにし、固定した開始値と30分後の期限が全検証へ渡ることを確認する。
+実時刻の浮動小数点差分の厳密比較は使わない。資源停止・部分ログ保持・再割込み時の回収は、
+既存のprocess検証で実child groupと模擬sensorを使って確認する。固定clockは実時間の停止精度を保証しない。

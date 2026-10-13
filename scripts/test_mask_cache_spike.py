@@ -242,7 +242,10 @@ class MaskCacheSpike(unittest.TestCase):
             prepared.mkdir()
             (prepared / "plan.json").write_text(json.dumps({"binaries": {"current": {"path": "libtest"}}}))
             baseline = {"rss_bytes": 0, "pressure": 1, "swap_bytes": 123}
-            with mock.patch.object(spike, "model_conditions", return_value=({}, {}, {})), \
+            # Fix the clock at the mocked guard boundary; real elapsed-time
+            # subtraction can round even when the 30-minute deadline is correct.
+            with mock.patch.object(spike.time, "monotonic", return_value=123.25), \
+                 mock.patch.object(spike, "model_conditions", return_value=({}, {}, {})), \
                  mock.patch.object(spike.runner, "verify_plan", return_value=({"binaries": {"current": {"path": "libtest"}}}, "verified-plan")), \
                  mock.patch.object(spike.runner.host, "snapshot", return_value=baseline), \
                  mock.patch.object(spike, "guarded_verification", side_effect=ValueError("verification guard reached")) as guard:
@@ -250,7 +253,7 @@ class MaskCacheSpike(unittest.TestCase):
                     spike.verify(prepared, root / "context", output)
             args = guard.call_args.args
             self.assertEqual(args[3:5], ("current-cleanup", baseline))
-            self.assertEqual(args[6] - args[5], 1800)
+            self.assertEqual(args[5:7], (123.25, 1923.25))
             self.assertEqual(json.loads((output / "context.json").read_text())["guards"],
                              {"seconds": 1800, "rss_bytes": 8*1024**3,
                               "swap_increase_bytes": 256*1024**2, "pressure": 1})
@@ -293,7 +296,8 @@ class MaskCacheSpike(unittest.TestCase):
                             raise ValueError("plan changed")
                         return plan, "verified-plan"
 
-                    with mock.patch.object(spike, "model_conditions", return_value=({}, model_dirs, models)), \
+                    with mock.patch.object(spike.time, "monotonic", return_value=123.25), \
+                         mock.patch.object(spike, "model_conditions", return_value=({}, model_dirs, models)), \
                          mock.patch.object(spike.runner, "verify_plan", side_effect=checked_plan) as plans, \
                          mock.patch.object(spike.runner.host, "snapshot", return_value=baseline), \
                          mock.patch.object(spike.runner.host, "digest", return_value=(
@@ -304,6 +308,8 @@ class MaskCacheSpike(unittest.TestCase):
                             self.assertEqual([call.args[3] for call in guard.call_args_list],
                                              ["current-cleanup", "current-mask", "shared-cleanup",
                                               "gpu-cleanup", "buffer-cleanup", "compile-cleanup"])
+                            self.assertTrue(all(call.args[5:7] == (123.25, 1923.25)
+                                                for call in guard.call_args_list))
                             self.assertEqual(plans.call_args_list,
                                              [mock.call(prepared), mock.call(prepared, plan)])
                             for name in ("current-cleanup", "shared-cleanup", "gpu-cleanup",

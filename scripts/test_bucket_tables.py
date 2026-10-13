@@ -42,7 +42,7 @@ class BucketTables(unittest.TestCase):
         with mock.patch.dict("sys.modules", {"compare": probe}):
             runner = probe.load("prepare308", ROOT / "docs/research/issue-308/run.py")
         # Real files/hashes and completion writes; only git/build/table patching are simulated.
-        for mutation in (None, "add", "delete", "edit", "head", "variant"):
+        for mutation in (None, "add", "delete", "edit", "head", "variant", "plan"):
             with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as directory:
                 base = Path(directory).resolve()
                 checkout = base / "checkout"
@@ -51,6 +51,22 @@ class BucketTables(unittest.TestCase):
                 source.write_text("original")
                 output = base / "prepared"
                 head = ["start"]
+                original_verify_sources = runner.verify_sources
+                original_read = Path.read_bytes
+                plan_reads = []
+
+                def read(path):
+                    data = original_read(path)
+                    if path == output / "plan.json":
+                        plan_reads.append(data)
+                    return data
+
+                def verify_sources(prepared, plan):
+                    original_verify_sources(prepared, plan)
+                    if mutation == "plan":
+                        # Change only the saved plan after content validation.
+                        changed = dict(plan, start_commit="unverified")
+                        runner.save(prepared / "plan.json", changed)
 
                 def git(args, **kwargs):
                     if args[1] == "rev-parse":
@@ -79,7 +95,21 @@ class BucketTables(unittest.TestCase):
                      mock.patch.object(runner.subprocess, "check_output", side_effect=git), \
                      mock.patch.object(runner.processes, "owned_run", side_effect=build), \
                      mock.patch.object(runner, "patch"), \
+                     mock.patch.object(runner, "verify_sources", side_effect=verify_sources), \
+                     mock.patch.object(Path, "read_bytes", read), \
+                     mock.patch.object(runner.host, "digest", wraps=runner.host.digest) as digests, \
                      mock.patch.object(runner, "manifest", wraps=runner.manifest) as manifests:
+                    if mutation == "plan":
+                        with self.assertRaisesRegex(ValueError, "preparation incomplete or plan changed"):
+                            runner.prepare(output)
+                        record = json.loads((output / "prepared.json").read_text())
+                        self.assertEqual(len(plan_reads), 1)
+                        self.assertEqual(sum(c.args[0] == output / "plan.json" for c in digests.call_args_list), 1)
+                        self.assertEqual(record["plan_sha256"], hashlib.sha256(plan_reads[0]).hexdigest())
+                        self.assertNotEqual(record["plan_sha256"], runner.host.digest(output / "plan.json"))
+                        with self.assertRaisesRegex(ValueError, "preparation incomplete or plan changed"):
+                            runner.verify_prepared(output)
+                        continue
                     if mutation:
                         message = "HEAD changed" if mutation == "head" else "variant source/binary" if mutation == "variant" else "checkout changed"
                         with self.assertRaisesRegex(ValueError, message):
@@ -87,12 +117,14 @@ class BucketTables(unittest.TestCase):
                         self.assertFalse((output / "prepared.json").exists())
                         continue
                     runner.prepare(output)
+                    # One observation for content/hash, then a fresh check after saving.
+                    self.assertEqual(len(plan_reads), 1)
+                    self.assertEqual(sum(c.args[0] == output / "plan.json" for c in digests.call_args_list), 1)
                     self.assertEqual(sum(call.args[0] == checkout for call in manifests.call_args_list), 2)
                     plan = json.loads((output / "plan.json").read_text())
                     plan_path = output / "plan.json"
                     plan_bytes = plan_path.read_bytes()
                     reads = []
-                    original_read = Path.read_bytes
                     original_text = Path.read_text
 
                     def changing_plan(path):

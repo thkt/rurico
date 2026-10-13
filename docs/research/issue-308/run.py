@@ -99,9 +99,12 @@ def prepare(output, cache_base=None, *, patch_current=False):
         binary = Path(binaries[0])
         plan["binaries"][table] = {"path": str(binary), "sha256": host.digest(binary)}
         save(output / "plan.json", plan)
-    compare.oracle.require(json.loads((output / "plan.json").read_bytes()) == plan, "plan changed")
+    # Bind content validation and completion evidence to the same observation.
+    plan_bytes = (output / "plan.json").read_bytes()
+    compare.oracle.require(json.loads(plan_bytes) == plan, "plan changed")
+    plan_sha256 = hashlib.sha256(plan_bytes).hexdigest()
     verify_sources(output, plan)
-    save(output / "prepared.json", {"complete": True, "plan_sha256": host.digest(output / "plan.json")})
+    save(output / "prepared.json", {"complete": True, "plan_sha256": plan_sha256})
     verify_prepared(output)
 
 
