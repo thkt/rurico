@@ -1,4 +1,4 @@
-mod embedder;
+pub(crate) mod embedder;
 /// Ordinary least squares linear regression. Internal support for the Phase 2
 /// smoke harness (`mlx_smoke measure-baseline`'s R² assertion). Compiled only
 /// when its sole caller (`mlx_smoke`, gated on the `smoke` feature) or the
@@ -590,3 +590,7 @@ pub fn tokenize_with_prefix(
 
 #[cfg(all(test, feature = "smoke"))]
 pub(crate) mod research;
+
+#[cfg(all(test, feature = "smoke"))]
+#[path = "../docs/research/issue-317/query.rs"]
+pub(crate) mod query317;

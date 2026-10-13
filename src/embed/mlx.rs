@@ -1,3 +1,5 @@
+#[cfg(all(test, feature = "smoke"))]
+use super::query317;
 #[cfg(test)]
 use crate::mlx_cache::testing::{Stage, checkpoint};
 
@@ -111,6 +113,10 @@ impl EmbedderInner {
         metrics.max_seq_len = bucket_len;
         metrics.bucket_hist[bucket_idx] = 1;
         metrics.log();
+        #[cfg(all(test, feature = "smoke"))]
+        if result.is_ok() {
+            query317::observe_single(metrics.tokenize, bucket_len);
+        }
 
         result
     }
@@ -416,5 +422,24 @@ mod bucket_probe {
             .map(|q| embedder.embed_query(q).unwrap())
             .collect();
         eprintln!("bucket308 {}", json!({"event":"queries","values":values}));
+    }
+}
+
+#[cfg(all(test, feature = "smoke"))]
+#[path = "../../docs/research/issue-317/embed.rs"]
+mod query_spike;
+
+#[cfg(all(test, feature = "smoke"))]
+impl EmbedderInner {
+    pub(in crate::embed) fn queries317(
+        &mut self,
+        texts: &[&str],
+    ) -> Result<super::query317::Queries, EmbedError> {
+        let start = Instant::now();
+        let tokens = query317::prepare(&self.tokenizer, texts)?;
+        let tokenize = start.elapsed();
+        query_spike::execute_queries(tokens, tokenize, |batch, bucket, metrics| {
+            self.forward_sub_batch(batch, bucket, metrics, true)
+        })
     }
 }

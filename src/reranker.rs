@@ -357,3 +357,7 @@ fn probe_via_subprocess(artifacts: &Artifacts) -> Result<ProbeStatus, ModelInitE
 
 #[cfg(all(test, feature = "smoke"))]
 pub(crate) use mlx::research::capture as capture_research;
+
+#[cfg(all(test, feature = "smoke"))]
+#[path = "../docs/research/issue-317/pairs.rs"]
+pub(crate) mod pairs317;

@@ -1,0 +1,749 @@
+{
+  "start_commit": "a5471c83fd4f48255a71ee77b223968c2cf1015b",
+  "source_diff_sha256": "598e3308d6ba6304ce10ed320974916107e3c206047bcad06eae63e97cfb5f85",
+  "cargo_lock_sha256": "d71f73a0b810ece1c030c761bc72accdf24ab821c43c50a846c8561a892f5db7",
+  "binary_sha256": "6b1d6269cbafec53861a917c86a81868eb7fb80ed6d3c2bcb7c39066201771f2",
+  "machine": "Mac15,3",
+  "ram_bytes": 25769803776,
+  "os": "ProductName:\t\tmacOS\nProductVersion:\t\t27.0.1\nBuildVersion:\t\t26A434",
+  "rust": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "cargo": "cargo 1.99.0 (5f94df478 2026-08-27)",
+  "xcode": "Xcode 27.0\nBuild version 27A266a",
+  "metal": "Apple metal version 32023.921 (metalfe-32023.921.6)\nTarget: air64-apple-darwin27.0.0\nThread model: posix\nInstalledDir: /private/var/run/com.apple.security.cryptexd/mnt/com.apple.MobileAsset.MetalToolchain-v27.1.266.1.X44b9v/Metal.xctoolchain/usr/metal/current/bin",
+  "observations": [
+    {
+      "domain": "query",
+      "case": "single",
+      "diagnostic": {
+        "max_abs": 0.0,
+        "min_cosine": 1.0
+      },
+      "baseline": {
+        "cold": {
+          "wall_ns": 64595167,
+          "tokenize_ns": 44500,
+          "forward_count": 1,
+          "metal_peak_bytes": 1514368404
+        },
+        "warm": {
+          "wall_ns": {
+            "min": 34860334,
+            "median": 35251958,
+            "max": 36658792
+          },
+          "tokenize_ns": {
+            "min": 23292,
+            "median": 24917,
+            "max": 42417
+          },
+          "forward_count": {
+            "min": 1,
+            "median": 1,
+            "max": 1
+          },
+          "metal_peak_bytes": {
+            "min": 1514368404,
+            "median": 1514368404,
+            "max": 1514368404
+          }
+        },
+        "rss_peak_bytes": 1548042240,
+        "forward_shapes": [
+          {
+            "batch_size": 1,
+            "sequence_length": 128
+          }
+        ],
+        "load_ns": 128410625
+      },
+      "candidate": {
+        "cold": {
+          "wall_ns": 42902750,
+          "tokenize_ns": 44750,
+          "forward_count": 1,
+          "metal_peak_bytes": 1514368404
+        },
+        "warm": {
+          "wall_ns": {
+            "min": 34419583,
+            "median": 34689709,
+            "max": 35361250
+          },
+          "tokenize_ns": {
+            "min": 21125,
+            "median": 22583,
+            "max": 26292
+          },
+          "forward_count": {
+            "min": 1,
+            "median": 1,
+            "max": 1
+          },
+          "metal_peak_bytes": {
+            "min": 1514368404,
+            "median": 1514368404,
+            "max": 1514368404
+          }
+        },
+        "rss_peak_bytes": 1549336576,
+        "forward_shapes": [
+          {
+            "batch_size": 1,
+            "sequence_length": 128
+          }
+        ],
+        "load_ns": 116322791
+      }
+    },
+    {
+      "domain": "query",
+      "case": "multiple",
+      "diagnostic": {
+        "max_abs": 4.172325134277344e-07,
+        "min_cosine": 0.9999999999975016
+      },
+      "baseline": {
+        "cold": {
+          "wall_ns": 1184015375,
+          "tokenize_ns": 1001083,
+          "forward_count": 32,
+          "metal_peak_bytes": 1514368404
+        },
+        "warm": {
+          "wall_ns": {
+            "min": 1161175375,
+            "median": 1161698417,
+            "max": 1172552083
+          },
+          "tokenize_ns": {
+            "min": 843996,
+            "median": 876791,
+            "max": 1011833
+          },
+          "forward_count": {
+            "min": 32,
+            "median": 32,
+            "max": 32
+          },
+          "metal_peak_bytes": {
+            "min": 1514368404,
+            "median": 1514368404,
+            "max": 1514368404
+          }
+        },
+        "rss_peak_bytes": 1551777792,
+        "forward_shapes": [
+          {
+            "batch_size": 1,
+            "sequence_length": 128
+          },
+          {
+            "batch_size": 1,
+            "sequence_length": 128
+          },
+          {
+            "batch_size": 1,
+            "sequence_length": 128
+          },
+          {
+            "batch_size": 1,
+            "sequence_length": 128
+          },
+          {
+            "batch_size": 1,
+            "sequence_length": 128
+          },
+          {
+            "batch_size": 1,
+            "sequence_length": 128
+          },
+          {
+            "batch_size": 1,
+            "sequence_length": 128
+          },
+          {
+            "batch_size": 1,
+            "sequence_length": 128
+          },
+          {
+            "batch_size": 1,
+            "sequence_length": 128
+          },
+          {
+            "batch_size": 1,
+            "sequence_length": 128
+          },
+          {
+            "batch_size": 1,
+            "sequence_length": 128
+          },
+          {
+            "batch_size": 1,
+            "sequence_length": 128
+          },
+          {
+            "batch_size": 1,
+            "sequence_length": 128
+          },
+          {
+            "batch_size": 1,
+            "sequence_length": 128
+          },
+          {
+            "batch_size": 1,
+            "sequence_length": 128
+          },
+          {
+            "batch_size": 1,
+            "sequence_length": 128
+          },
+          {
+            "batch_size": 1,
+            "sequence_length": 128
+          },
+          {
+            "batch_size": 1,
+            "sequence_length": 128
+          },
+          {
+            "batch_size": 1,
+            "sequence_length": 128
+          },
+          {
+            "batch_size": 1,
+            "sequence_length": 128
+          },
+          {
+            "batch_size": 1,
+            "sequence_length": 128
+          },
+          {
+            "batch_size": 1,
+            "sequence_length": 128
+          },
+          {
+            "batch_size": 1,
+            "sequence_length": 128
+          },
+          {
+            "batch_size": 1,
+            "sequence_length": 128
+          },
+          {
+            "batch_size": 1,
+            "sequence_length": 128
+          },
+          {
+            "batch_size": 1,
+            "sequence_length": 128
+          },
+          {
+            "batch_size": 1,
+            "sequence_length": 128
+          },
+          {
+            "batch_size": 1,
+            "sequence_length": 128
+          },
+          {
+            "batch_size": 1,
+            "sequence_length": 128
+          },
+          {
+            "batch_size": 1,
+            "sequence_length": 128
+          },
+          {
+            "batch_size": 1,
+            "sequence_length": 128
+          },
+          {
+            "batch_size": 1,
+            "sequence_length": 128
+          }
+        ],
+        "load_ns": 126239792
+      },
+      "candidate": {
+        "cold": {
+          "wall_ns": 1013779959,
+          "tokenize_ns": 168291,
+          "forward_count": 1,
+          "metal_peak_bytes": 2940463508
+        },
+        "warm": {
+          "wall_ns": {
+            "min": 977999250,
+            "median": 981668709,
+            "max": 982936750
+          },
+          "tokenize_ns": {
+            "min": 160250,
+            "median": 163084,
+            "max": 172583
+          },
+          "forward_count": {
+            "min": 1,
+            "median": 1,
+            "max": 1
+          },
+          "metal_peak_bytes": {
+            "min": 2940463508,
+            "median": 2940463508,
+            "max": 2940463508
+          }
+        },
+        "rss_peak_bytes": 1550532608,
+        "forward_shapes": [
+          {
+            "batch_size": 32,
+            "sequence_length": 128
+          }
+        ],
+        "load_ns": 117113875
+      }
+    },
+    {
+      "domain": "query",
+      "case": "boundary",
+      "diagnostic": {
+        "max_abs": 0.0,
+        "min_cosine": 1.0
+      },
+      "baseline": {
+        "cold": {
+          "wall_ns": 5034813291,
+          "tokenize_ns": 1727290,
+          "forward_count": 4,
+          "metal_peak_bytes": 3447941476
+        },
+        "warm": {
+          "wall_ns": {
+            "min": 4967197125,
+            "median": 4979220334,
+            "max": 4990877917
+          },
+          "tokenize_ns": {
+            "min": 1621957,
+            "median": 1688583,
+            "max": 1845292
+          },
+          "forward_count": {
+            "min": 4,
+            "median": 4,
+            "max": 4
+          },
+          "metal_peak_bytes": {
+            "min": 3449055588,
+            "median": 3449055588,
+            "max": 3449055588
+          }
+        },
+        "rss_peak_bytes": 2091991040,
+        "forward_shapes": [
+          {
+            "batch_size": 1,
+            "sequence_length": 8192
+          },
+          {
+            "batch_size": 1,
+            "sequence_length": 128
+          },
+          {
+            "batch_size": 1,
+            "sequence_length": 512
+          },
+          {
+            "batch_size": 1,
+            "sequence_length": 128
+          }
+        ],
+        "load_ns": 140472250
+      },
+      "candidate": {
+        "cold": {
+          "wall_ns": 5002735333,
+          "tokenize_ns": 1513750,
+          "forward_count": 3,
+          "metal_peak_bytes": 3449055588
+        },
+        "warm": {
+          "wall_ns": {
+            "min": 4972814250,
+            "median": 4990952000,
+            "max": 5139160583
+          },
+          "tokenize_ns": {
+            "min": 1719833,
+            "median": 2094834,
+            "max": 2295500
+          },
+          "forward_count": {
+            "min": 3,
+            "median": 3,
+            "max": 3
+          },
+          "metal_peak_bytes": {
+            "min": 3449055588,
+            "median": 3449055588,
+            "max": 3449055588
+          }
+        },
+        "rss_peak_bytes": 2091941888,
+        "forward_shapes": [
+          {
+            "batch_size": 2,
+            "sequence_length": 128
+          },
+          {
+            "batch_size": 1,
+            "sequence_length": 512
+          },
+          {
+            "batch_size": 1,
+            "sequence_length": 8192
+          }
+        ],
+        "load_ns": 132106791
+      }
+    },
+    {
+      "domain": "pair",
+      "case": "single",
+      "diagnostic": {
+        "exact_scores": true
+      },
+      "baseline": {
+        "cold": {
+          "wall_ns": 46611500,
+          "tokenize_ns": 54833,
+          "forward_count": 1,
+          "metal_peak_bytes": 1506450268
+        },
+        "warm": {
+          "wall_ns": {
+            "min": 36890208,
+            "median": 37276209,
+            "max": 37483750
+          },
+          "tokenize_ns": {
+            "min": 26250,
+            "median": 26625,
+            "max": 29000
+          },
+          "forward_count": {
+            "min": 1,
+            "median": 1,
+            "max": 1
+          },
+          "metal_peak_bytes": {
+            "min": 1506450268,
+            "median": 1516733364,
+            "max": 1516733364
+          }
+        },
+        "rss_peak_bytes": 1549647872,
+        "forward_shapes": [
+          {
+            "batch_size": 1,
+            "sequence_length": 128
+          }
+        ],
+        "load_ns": 118890375
+      },
+      "candidate": {
+        "cold": {
+          "wall_ns": 81053833,
+          "tokenize_ns": 24403958,
+          "forward_count": 1,
+          "metal_peak_bytes": 1516733364
+        },
+        "warm": {
+          "wall_ns": {
+            "min": 54029625,
+            "median": 54563542,
+            "max": 59837541
+          },
+          "tokenize_ns": {
+            "min": 18862666,
+            "median": 19042167,
+            "max": 19166667
+          },
+          "forward_count": {
+            "min": 1,
+            "median": 1,
+            "max": 1
+          },
+          "metal_peak_bytes": {
+            "min": 1516733364,
+            "median": 1516733364,
+            "max": 1516733364
+          }
+        },
+        "rss_peak_bytes": 1659371520,
+        "forward_shapes": [
+          {
+            "batch_size": 1,
+            "sequence_length": 128
+          }
+        ],
+        "load_ns": 296909667
+      }
+    },
+    {
+      "domain": "pair",
+      "case": "multiple",
+      "diagnostic": {
+        "exact_scores": true
+      },
+      "baseline": {
+        "cold": {
+          "wall_ns": 1014427458,
+          "tokenize_ns": 286708,
+          "forward_count": 1,
+          "metal_peak_bytes": 2942812596
+        },
+        "warm": {
+          "wall_ns": {
+            "min": 991629833,
+            "median": 1021242459,
+            "max": 1033953417
+          },
+          "tokenize_ns": {
+            "min": 213667,
+            "median": 220750,
+            "max": 223750
+          },
+          "forward_count": {
+            "min": 1,
+            "median": 1,
+            "max": 1
+          },
+          "metal_peak_bytes": {
+            "min": 2942812596,
+            "median": 2942812596,
+            "max": 2942812596
+          }
+        },
+        "rss_peak_bytes": 1548877824,
+        "forward_shapes": [
+          {
+            "batch_size": 32,
+            "sequence_length": 128
+          }
+        ],
+        "load_ns": 117874292
+      },
+      "candidate": {
+        "cold": {
+          "wall_ns": 1054053333,
+          "tokenize_ns": 31086875,
+          "forward_count": 1,
+          "metal_peak_bytes": 2942812596
+        },
+        "warm": {
+          "wall_ns": {
+            "min": 1008239250,
+            "median": 1016763041,
+            "max": 1032696875
+          },
+          "tokenize_ns": {
+            "min": 21222459,
+            "median": 23088291,
+            "max": 28908333
+          },
+          "forward_count": {
+            "min": 1,
+            "median": 1,
+            "max": 1
+          },
+          "metal_peak_bytes": {
+            "min": 2942812596,
+            "median": 2942812596,
+            "max": 2942812596
+          }
+        },
+        "rss_peak_bytes": 1660862464,
+        "forward_shapes": [
+          {
+            "batch_size": 32,
+            "sequence_length": 128
+          }
+        ],
+        "load_ns": 138203125
+      }
+    },
+    {
+      "domain": "pair",
+      "case": "common",
+      "diagnostic": {
+        "exact_scores": true
+      },
+      "baseline": {
+        "cold": {
+          "wall_ns": 7863460834,
+          "tokenize_ns": 1581334,
+          "forward_count": 1,
+          "metal_peak_bytes": 3693707628
+        },
+        "warm": {
+          "wall_ns": {
+            "min": 7774036542,
+            "median": 7851527583,
+            "max": 7876196292
+          },
+          "tokenize_ns": {
+            "min": 2023458,
+            "median": 2108083,
+            "max": 2895542
+          },
+          "forward_count": {
+            "min": 1,
+            "median": 1,
+            "max": 1
+          },
+          "metal_peak_bytes": {
+            "min": 3693707628,
+            "median": 3693707628,
+            "max": 3693707628
+          }
+        },
+        "rss_peak_bytes": 1548288000,
+        "forward_shapes": [
+          {
+            "batch_size": 256,
+            "sequence_length": 128
+          }
+        ],
+        "load_ns": 130697000
+      },
+      "candidate": {
+        "cold": {
+          "wall_ns": 7784867667,
+          "tokenize_ns": 33716917,
+          "forward_count": 1,
+          "metal_peak_bytes": 3693707628
+        },
+        "warm": {
+          "wall_ns": {
+            "min": 7797875709,
+            "median": 7806091875,
+            "max": 7831270000
+          },
+          "tokenize_ns": {
+            "min": 23677959,
+            "median": 27582416,
+            "max": 31254791
+          },
+          "forward_count": {
+            "min": 1,
+            "median": 1,
+            "max": 1
+          },
+          "metal_peak_bytes": {
+            "min": 3693707628,
+            "median": 3693707628,
+            "max": 3693707628
+          }
+        },
+        "rss_peak_bytes": 1658847232,
+        "forward_shapes": [
+          {
+            "batch_size": 256,
+            "sequence_length": 128
+          }
+        ],
+        "load_ns": 133735167
+      }
+    },
+    {
+      "domain": "pair",
+      "case": "boundary",
+      "diagnostic": {
+        "exact_scores": true
+      },
+      "baseline": {
+        "cold": {
+          "wall_ns": 19137975375,
+          "tokenize_ns": 1641666,
+          "forward_count": 1,
+          "metal_peak_bytes": 5019042156
+        },
+        "warm": {
+          "wall_ns": {
+            "min": 18839315083,
+            "median": 18896455583,
+            "max": 19199853500
+          },
+          "tokenize_ns": {
+            "min": 1732792,
+            "median": 1856375,
+            "max": 2016917
+          },
+          "forward_count": {
+            "min": 1,
+            "median": 1,
+            "max": 1
+          },
+          "metal_peak_bytes": {
+            "min": 5019042156,
+            "median": 5019042156,
+            "max": 5019042156
+          }
+        },
+        "rss_peak_bytes": 2087026688,
+        "forward_shapes": [
+          {
+            "batch_size": 4,
+            "sequence_length": 8192
+          }
+        ],
+        "load_ns": 129464750
+      },
+      "candidate": {
+        "cold": {
+          "wall_ns": 19619241333,
+          "tokenize_ns": 31630250,
+          "forward_count": 1,
+          "metal_peak_bytes": 5019042156
+        },
+        "warm": {
+          "wall_ns": {
+            "min": 19249896583,
+            "median": 19295913750,
+            "max": 19339456000
+          },
+          "tokenize_ns": {
+            "min": 21617417,
+            "median": 22932041,
+            "max": 32332625
+          },
+          "forward_count": {
+            "min": 1,
+            "median": 1,
+            "max": 1
+          },
+          "metal_peak_bytes": {
+            "min": 5019042156,
+            "median": 5019042156,
+            "max": 5019042156
+          }
+        },
+        "rss_peak_bytes": 2195931136,
+        "forward_shapes": [
+          {
+            "batch_size": 4,
+            "sequence_length": 8192
+          }
+        ],
+        "load_ns": 126955000
+      }
+    }
+  ],
+  "repetitions": {
+    "cold_after_load": 1,
+    "warm": 3,
+    "processes_per_mode_case": 1
+  },
+  "scope": "F32 fixed310m; research prototypes only, no product adoption"
+}

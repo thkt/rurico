@@ -28,8 +28,8 @@ impl Embedder {
     /// # Single-instance expectation
     ///
     /// `mlx_clear_cache()` operates on process-global Metal allocator state.
-    /// Concurrent calls are serialized by an internal lock, but holding
-    /// multiple `Embedder` instances doubles GPU memory usage (~600 MB).
+    /// Each instance serializes its calls with an internal lock. Multiple
+    /// instances retain a separate set of model weights for each instance.
     /// Prefer one `Embedder` per process.
     ///
     /// # Errors
@@ -154,5 +154,54 @@ impl Embed for Embedder {
 
     fn embed_text(&self, text: &str, prefix: &str) -> Result<Vec<f32>, EmbedError> {
         self.lock_inner()?.embed_query_truncated(text, prefix)
+    }
+}
+
+#[cfg(all(test, feature = "smoke"))]
+#[path = "../../docs/research/issue-317/entry.rs"]
+mod query_spike;
+
+// Fixed-model adapter: the measurement protocol itself is model-free and tested in host317.
+#[cfg(all(test, feature = "smoke"))]
+pub(crate) fn observe317(case: &str, candidate: bool, record: &mut dyn FnMut(&serde_json::Value)) {
+    use crate::{
+        embed::{ModelId, cached_artifacts, query317::QueryBatch},
+        host317,
+        research::verify_paths,
+    };
+    use mlx_rs::memory;
+    use serde_json::json;
+    let artifacts = cached_artifacts(ModelId::DEFAULT)
+        .unwrap()
+        .expect("fixed embed cache required");
+    verify_paths(&artifacts.paths);
+    let texts = host317::query_workload(case);
+    let refs: Vec<_> = texts.iter().map(String::as_str).collect();
+    let load = Instant::now();
+    let model = Embedder::new(&artifacts).unwrap();
+    record(
+        &json!({"event":"load","ns":load.elapsed().as_nanos(),"repository":ModelId::DEFAULT.repo_id(),"revision":ModelId::DEFAULT.revision()}),
+    );
+    let legacy = host317::Legacy(&model);
+    host317::observe_queries(
+        &artifacts.tokenizer,
+        &refs,
+        candidate,
+        model.embedding_dims(),
+        |batch, inputs| {
+            let provider: &dyn QueryBatch = if batch { &model } else { &legacy };
+            provider.queries(inputs)
+        },
+        (&mut || memory::reset_peak_memory().unwrap(), &mut || {
+            memory::peak_memory().unwrap()
+        }),
+        record,
+    );
+}
+
+#[cfg(all(test, feature = "smoke"))]
+impl super::query317::QueryBatch for Embedder {
+    fn queries(&self, texts: &[&str]) -> Result<super::query317::Queries, EmbedError> {
+        query_spike::measured_entry(|| self.lock_inner(), |inner| inner.queries317(texts))
     }
 }
