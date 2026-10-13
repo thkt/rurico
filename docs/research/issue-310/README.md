@@ -117,7 +117,7 @@ stderrのイベント解析、`phase-complete.json`の解析と記録hashも、�
 これは確認したbytesと集計内容の対応であり、保存先全体の原子的snapshotや改変者の認証ではない。
 `phase-complete.json`は1候補の終了で、比較全体の終了ではない。停止した保存先は再利用しない。
 初回追加時の入口は実測中の外部collectorと同じbytesだった。現在はplanの解析・hash共有、回収後stderrの共用、結合時の読取りを修正した。
-推論sourceは変更せず、保存済み実測と現在runnerへの適用範囲は[最新の評価記録](report.md#assessments-r5指摘に対する修正2026-10-13)へ記す。
+推論sourceは変更せず、保存済み実測と現在runnerへの適用範囲は[測定版と現在版の適用範囲](report.md#coverage接続修正の確認2026-10-13)へ記す。
 
 1回の分割でも既存上限に達する場合は部分ログを保ち、上限を無断で延長しない。
 長時間推移が不足する場合は`--sustained-repeats N`（9以上）を増やして新規実行する。
@@ -165,3 +165,97 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -b -s scripts -p 'test_ma
 入口検証ではclockとguardをmockにし、固定した開始値と30分後の期限が全検証へ渡ることを確認する。
 実時刻の浮動小数点差分の厳密比較は使わない。資源停止・部分ログ保持・再割込み時の回収は、
 既存のprocess検証で実child groupと模擬sensorを使って確認する。固定clockは実時間の停止精度を保証しない。
+
+## coverage接続修正をホストで確認する
+
+全体採用の見送り、512境界のMetal peak +320 MiB、mixed rerankerの利益不足と
+長文共有の限定候補は[報告](report.md)のままである。保存実測は固定310m/F32と有限系列に限られる。
+今回の変更は検証の接続であり、旧測定を新sourceの実行結果として扱わない。
+
+通常CI・checkの`test-support,test-mlx,smoke`で`small_mask_elements`を実行する。
+長さ1/3/5/8/9/17、half window 0/1/3/64のCPU/GPUについて、local全要素と
+2行のpadding合成を独立した距離・key maskの期待値へ照合する。
+window内のmasked keyは[ADR-0010](../../decisions/0010-adopt-maskfill-constant-to-avoid-metal-kernel-nan.md)の
+固定値`-1e9_f32`を期待し、製品の`MASK_FILL`から期待値を取得しない。
+既存の長さ5/window 1と長さ3/window 0のignoredテストをこの入口へ統合した。
+単独で`test-mlx`だけを指定した従来の実行では統合先を選択できないため、`smoke`も有効にする。
+negative引数はGPU生成の拒否を通常CIで確認し、既存CPUの拒否テストは維持する。
+モデルは不要だが、MLXのCPU生成案もMetalを使う。CPU backendへの切替ではない。
+
+担当AIはGPUを利用できるsandbox外のホストで、checkout・旧runの外の新しい保存先を使う。
+公開head `6a69fee9bafea825ba341fe8f4a3d80694f1f816`＋今回の未commit差分、
+開始commit `4cd349961e5d656dac0e272ec8d9b6573a854da3`からのPR全差分、Cargo.lockのhash、
+Rust/Cargo/Xcode/Metalの版、生成sourceのhash、実行時間・終了コード・stdout/stderrを保存する。
+CIと同じfeature・除外regexで次を実行する。実行対象だけを今回のoracleへ絞る。
+通常の全テストは標準checkと公開CIで別に確認する。95%閾値・ignore・期限は変更しない。
+
+```sh
+cargo llvm-cov --workspace --features test-support,test-mlx,smoke \
+  --ignore-filename-regex '(test_support\.rs|/bin/|embed/(mlx|embedder)\.rs|reranker/mlx\.rs|model_io/hf_backend\.rs|/mlx_cache/testing/runtime\.rs$)' \
+  --lcov --output-path "$MASK310_EVIDENCE/lcov.info" \
+  -- modernbert::model::spike310 --test-threads=1
+diff-cover "$MASK310_EVIDENCE/lcov.info" \
+  --compare-branch=4cd349961e5d656dac0e272ec8d9b6573a854da3 --fail-under=95
+```
+
+`MASK310_EVIDENCE`は新規外部保存先である。環境の既存diff-cover（必要ならCIと同じvenv）を使う。
+未測定行とそこで守る失敗条件を記録し、95%以上の実測を確認するまで成功としない。
+設定済みcheckはlcov/diff-coverを実行しない。公開CIは同じheadをorigin/mainと比較するため、
+上の開始commitからの局所計測も別に必要である。
+
+padding期待値の修正後は、ホストの一時コピーで製品側の`MASK_FILL`だけを
+`0.0`と`1.0`へそれぞれ変更し、同じfeatureの`small_mask_elements`を限定実行する。
+各試行で正常sourceから復元し、両変異がpadding合成の数値assertionで失敗することを確認する。
+ビルド失敗・GPU初期化失敗は検出の証拠にしない。変異を混ぜない正常版の成功も保存する。
+変異用の一時コピー・target・coverage出力は通常検証から分離し、旧run・保存比較・checkoutを変更しない。
+生ログ・終了コード・正常版と変異版のsource/hash・失敗したassertionを外部保存する。
+標準checkは変異を適用しないため、その成功だけではこの検出力を確認できない。
+
+共用oracleを変えたため、同じsourceの大容量入口もcurrentの1回だけ限定再検証する。
+モデル再ダウンロード・255processの性能再測定・全5候補の実モデル反復は追加しない。
+`cargo test --locked --lib --features test-support,test-mlx,smoke --no-run`で新しいlibtestをビルドし、
+表示されたbinaryを`MASK310_BINARY`へ指定する。次は既存の監視・回収関数を使い、
+30分・RSS 8 GiB・pressure=1・swap増分256 MiBを維持して実行する。
+ビルド・coverage・他のGPU処理とは重ねず、上位ホストの実行上限も維持する。
+
+```sh
+python3 - "$MASK310_BINARY" "$MASK310_EVIDENCE/full-mask" <<'PY'
+import importlib.util
+from pathlib import Path
+import signal
+import sys
+import time
+def interrupt(signum, frame):
+    raise KeyboardInterrupt(f"signal {signum}; retain partial evidence")
+signal.signal(signal.SIGINT, interrupt)
+signal.signal(signal.SIGTERM, interrupt)
+spec = importlib.util.spec_from_file_location("mask310_host", "docs/research/issue-310/run.py")
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+output = Path(sys.argv[2]).resolve()
+m.compare.oracle.require(not output.is_relative_to(m.ROOT), "use external evidence directory")
+output.mkdir(parents=True, exist_ok=False)
+baseline = m.runner.host.snapshot(-1)
+m.runner.save(output / "baseline.json", baseline)
+m.compare.oracle.require(baseline["pressure"] == 1, "pressure abnormal before verification")
+started = time.monotonic()
+m.guarded_verification(["/usr/bin/time", "-l", str(Path(sys.argv[1]).resolve()),
+    "modernbert::model::spike310::all_mask_elements_and_costs", "--exact", "--ignored",
+    "--nocapture", "--test-threads=1"], m.ROOT, output, "mask", baseline, started, started + 1800)
+m.compare.oracle.require("1 passed; 0 failed; 0 ignored" in (output / "mask.stdout").read_text(),
+    "missing selected test execution")
+events = m.parse_observations((output / "mask.stderr").read_text())
+expected = {(n, h, g) for n in [1, 8, 9, 17, 128, 512, 2048, 8192]
+            for h in [0, 3, 64] for g in [False, True]}
+m.compare.oracle.require(len(events) == 48 and
+    {(e["seq_len"], e["half_window"], e["gpu"]) for e in events} == expected and
+    all(e["event"] == "mask_elements" and e["elements"] == 2 * e["seq_len"]**2 for e in events),
+    "incomplete full-mask verification")
+m.runner.save(output / "mask.json", events)
+PY
+```
+
+生ログ、48設定とイベント形式、Array解放後cleanupのsource照合を新しい検証要約へ残す。
+失敗時は部分ログとstatus/monitorを保ち、旧runへ上書きしない。
+必要な要約・文書更新後、同じcheckout・元の差分基準で通常入口のcheckと独立評価へ戻る。
+この限定検証はモデル出力・失敗時cleanupの再測定ではなく、その既存検証は維持している。

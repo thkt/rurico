@@ -82,9 +82,6 @@ fn validate_mask_accepts_valid_input() {
     assert!(validate_attention_mask(&[1, 1, 0, 1, 0, 1], 3).is_ok());
 }
 
-// Defense-in-depth: a negative `seq_len` previously produced a giant
-// `usize` via `as` cast, allocating gigabytes before `Array::from_slice`
-// ever ran. `usize::try_from` now rejects it as a structured Exception.
 #[test]
 fn get_local_attention_mask_rejects_negative_seq_len() {
     let err = get_local_attention_mask(-1, 1).expect_err("negative seq_len must error");
@@ -105,10 +102,7 @@ fn get_local_attention_mask_rejects_negative_half_window() {
     );
 }
 
-// Defense-in-depth: `config_dim_to_i32` Err path is unreachable after a
-// valid `Config::validate()` since `validate` already enforces the i32
-// bound. The test exercises the helper directly so a regression that
-// skips `validate` cannot panic in a hot forward.
+// Exercise conversion bounds independently of Config::validate().
 #[test]
 fn config_dim_to_i32_rejects_value_above_i32_max() {
     let err = config_dim_to_i32("hidden_size", (i32::MAX as usize) + 1)
@@ -255,54 +249,6 @@ mod mlx_runtime_tests {
         let data: &[f32] = result.as_slice();
         for (i, &v) in data.iter().enumerate() {
             assert_eq!(v, 0.0, "all-ones mask should produce 0.0 at index {i}");
-        }
-    }
-
-    #[test]
-    #[ignore = "requires unsandboxed MLX runtime"]
-    #[serial]
-    fn local_mask_window() {
-        require_unsandboxed_mlx_runtime();
-        let result = get_local_attention_mask(5, 1).expect("local mask");
-        result.eval().unwrap();
-
-        assert_eq!(result.shape(), &[5, 5]);
-        let data: &[f32] = result.as_slice();
-
-        for i in 0..5usize {
-            for j in 0..5usize {
-                let val = data[i * 5 + j];
-                let dist = (i as isize - j as isize).unsigned_abs();
-                if dist <= 1 {
-                    assert_eq!(val, 0.0, "({i},{j}) within window should be 0.0");
-                } else {
-                    assert!(
-                        val.is_infinite() && val.is_sign_negative(),
-                        "({i},{j}) outside window should be -inf, got {val}"
-                    );
-                }
-            }
-        }
-    }
-
-    #[test]
-    #[ignore = "requires unsandboxed MLX runtime"]
-    #[serial]
-    fn local_mask_zero_window() {
-        require_unsandboxed_mlx_runtime();
-        let result = get_local_attention_mask(3, 0).expect("local mask");
-        result.eval().unwrap();
-
-        let data: &[f32] = result.as_slice();
-        for i in 0..3usize {
-            for j in 0..3usize {
-                let val = data[i * 3 + j];
-                if i == j {
-                    assert_eq!(val, 0.0, "diagonal ({i},{j}) should be 0.0");
-                } else {
-                    assert!(val.is_infinite() && val.is_sign_negative());
-                }
-            }
         }
     }
 

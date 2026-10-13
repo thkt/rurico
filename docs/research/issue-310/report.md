@@ -572,3 +572,126 @@ TERMを無視する所有processの残存や、部分証拠保存の中断、回
 runnerのSIGKILL後回収、他所有者のGPU無負荷、無期限リークは未確認のままである。
 新しい許容差・製品hard limit・consumer移行は採用せず、旧runの記録・check/capture契約を変更しない。
 commit・push・公開は行わない。後続の方式採用に必要な人の判断は[従来の引き継ぎ](#handoff-r4修正後の検証と残る限界過去の記録)を維持する。
+
+## coverage接続修正の確認（2026-10-13）
+
+以下のホスト実行結果は修正前oracle（SHA-256 `c9c42d30ad2200d0739da4d44e81c3fdf1d0a63a9de22548905a449d662ecb51`）の記録である。
+独立評価ではpadding期待値の実装定数への依存が見つかり、needs_changesとなった。
+現在のoracleへの適用条件と未完了の検証は[padding期待値の独立性](#padding期待値の独立性)を参照する。
+
+全体採用を見送る判断と[保存比較](results/comparison.json)は維持する。
+512境界のMetal peak +320 MiB、mixed rerankerの利益不足、長文共有の限定候補という
+固定310m/F32・有限系列の結論を変更していない。再現入口は[README](README.md)である。
+これは修正担当の確認とホストへの引き継ぎであり、新しいaccepted評価ではない。
+
+修正開始版は公開head `6a69fee9bafea825ba341fe8f4a3d80694f1f816`。
+PR全体の差分基準は`4cd349961e5d656dac0e272ec8d9b6573a854da3`を維持する。
+指定5資料の現行blobは[出典・版・適用条件](#出典版適用条件)の引き継ぎ版と再照合して一致し、
+根拠の変化はない。#307の過去品質、#308限定の比較承認、ADR-0009の内部bucket、
+ADR-0010の有限global fillと直接選択local fill、ADR-0014のMLX-onlyという適用範囲も維持する。
+Cargo.lockのSHA-256は引き継ぎ版の`d71f73a0b810ece1c030c761bc72accdf24ab821c43c50a846c8561a892f5db7`と一致した。
+
+公開headのcoverage job `115164227957`は全Rustテストとlcov生成後、spike310.rsの63変更行が
+未測定（0%）として失敗した。担当AIが保存した当該jobの生ログで確認した。
+全要素oracleがignored入口にだけ接続されていたためであり、通常CIへ8192²を追加する修正はしない。
+共用関数へ演算・期待値照合・観測・解放順序を移し、通常CIでは小入力を実行する。
+測定clockの境界、mask310のprefix・field・意味、ホスト48設定の順序は保ち、
+`combined → global → local`のArray解放後にcleanupする。製品演算・候補patch・runner・旧runは変更しない。
+ただしRust oracleのsourceは変わったため、過去の48設定成功を変更後の実行証拠としない。
+
+小入力は距離の独立した期待値でCPU/GPU双方の全要素を確認し、windowのoff-by-one、
+片方向化、0×-infによるNaN、padding位置の誤合成とshapeの誤りを検出する。
+ただし、この時点のpadding fill期待値は製品の`MASK_FILL`に追従し、0や正値への退行を見逃していた。
+既存ignoredの長さ5/window 1と長さ3/window 0を同じ条件を含む通常入口へ統合した。
+GPUのnegative dimension/window拒否を追加し、既存CPU拒否・global値・モデル出力・
+失敗時のArray寿命と両FFI clearの検証は維持する。
+統合した数値条件は失わないが、旧テスト名と`test-mlx`だけでの単独実行はなくなり、統合先には`smoke`も必要である。
+小入力でも実MLXのeval/readback/cleanupを通る追加保証に価値があり、大容量検証はホストだけに残す。
+実行時間・不安定さ・保守費の改善量は未測定で、行の圧縮や移動を改善の証拠にしない。
+
+関連Python14テストは成功した（3.180秒）。コマンドは
+`PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=scripts python3 -m unittest -v test_mask_cache_spike test_mask_cache_partitions test_bucket_tables`。
+候補分離・source drift、readback・cleanup、証拠結合、prepareと回収の既存保証を再利用し、Pythonの重複テストは追加しなかった。
+`cargo fmt -- --check`と`git diff --check`も成功した。これらは変更後Rustのコンパイル・GPU実行の証明ではない。
+
+ホスト担当AIは同じ未commit差分を2026-10-13に再検証した。
+最初の試行は起動直前のpressure=2で実行せず停止した。ユーザーのメモリ確保後、
+新規保存先で同じ30分・RSS 8 GiB・pressure=1・swap増分256 MiBのガードを使った。
+CIと同じfeature・除外regexでoracleだけを選択し、通常の全テストは後続checkと公開CIへ残した。
+小入力とnegative引数の2テストは成功し、大容量1テストは通常入口ではignoredを維持した。
+lcov生成はビルドを含め267.29秒、所有groupの最大RSSは約4.90 GiB、圧力悪化・swap増加による停止はなかった。
+開始commitからのPR全差分は80変更行中76行を測定し、95% gateを通った。
+未測定4行は大容量入口の呼出しとイベント出力で、共用oracleの演算・照合・解放は小入力で通っている。
+既存diff-coverコマンドはPython依存不足で失敗したため、依存のそろった既存環境で再実行して成功した。
+この失敗ログも残した。coverageの閾値・除外regex・期限は変更していない。
+
+同じinstrumented debug binaryでcurrentの大容量oracleを1回実行し、
+48設定と全要素照合、mask310のprefix・field、Array解放後cleanupを確認した。
+外側の監視・回収とイベント照合を含め25.04秒で終了0、内側・外側の所有groupはすべて回収済みである。
+この時間やイベント内のcostはinstrumentationとdebugの影響を含み、旧release性能比較の値を置き換えない。
+Rust oracleのSHA-256は`c9c42d30ad2200d0739da4d44e81c3fdf1d0a63a9de22548905a449d662ecb51`で、
+source・Cargo.lock・CI定義とbinaryの前後照合に不一致はなかった。
+環境・生ログ・lcov・未測定行・48イベント・監視・回収・hashをcheckoutと旧runの外へ保存した。
+モデル再取得や255processの性能再測定は実行していない。
+要約更新後、同じcheckout・差分基準の通常入口へ戻り、文書を含む新しい独立評価を受ける。
+このホスト成功や過去のacceptedを、新しいcheck・評価・公開CIの受入へ読み替えない。
+
+公開説明には冒頭の採用判断と制限、[報告](report.md)・[保存結果](results/comparison.json)・[再現手順](README.md)を残す。
+提供された以前のPR本文にアップロード済み添付URLはない。新しいassessments/handoffにも必要な文脈とリンクを明示し、旧修正履歴を累積しない。
+製品の新許容差・hard limit・consumer移行、無期限リーク、自然発生GPU障害、panic/backend abort、
+runnerのSIGKILL後回収、他所有者のGPU無負荷は引き続き未確認または未合意である。
+ホスト検証後の独立評価と全体check・同じ新headのCIは、この要約更新時点では未完了である。
+
+変更文の事実・数量・条件・範囲・権限・未確認事項と参照を上記コード・合意・ログへ手動照合した。
+natural-japanese固定版`9a78a42964096da509b8f3e011f0085a5f080151`のHEADと変更なしを確認し、
+クイック手順の執筆・通読・手動チェックを適用した。report.mdを指定したoffline lintは、
+一時cacheにsudachipyがなく依存解決で終了1となった。担当AIが依存のある既存環境で
+最新README・reportを再確認し、lint終了0と手動照合を確認した。指摘0件や欠陥不存在の保証にはしない。
+READMEの局所coverageと大容量入口は、上記のホスト検証で実行した。
+
+保存comparison.jsonの17ケース・255process・3,285call、512境界のMetal peak差320 MiBと
+mixed rerankerのwarm中央値の退行は機械照合して一致した。これは保存集計の整合確認で、
+原本全系列の再集計や変更後GPU実行ではない。変更文書の相対リンク先とREADMEのPython構文、CI除外regexの一致も確認した。
+
+### padding期待値の独立性
+
+共用oracleのwindow内masked keyを、製品定数への参照からADR-0010の固定値`-1e9_f32`へ変更した。
+原因は実値と期待値が同じ定数に追従する構造であり、定数変更時に再発し得る。
+期待値の独立性を説明するコメントと[現行の限定検証手順](README.md#coverage接続修正をホストで確認する)を更新した。
+既存入口内の照合を修正し、テスト・入力・Array演算・計時・イベント・解放順序は増減していない。
+追加の保証は、paddingを無効化する0や強調する正値への退行を通常CIの数値照合で検出することである。
+既存の距離・端点・対称性・negative引数とpadding位置の検出条件を保ち、失う条件はない。
+実行時間・不安定さ・保守費の改善は未測定である。新しいADRや一般lintの追加は不要と判断した。
+
+修正後oracleのSHA-256は`cb58911fc7d6db0f27d782f915cae5366c1785c9ca7058b43186588682f2e59c`。
+修正担当の算術診断では、CPU/GPU・2 batchを含む小入力の合成7,504要素で正常fillは一致し、
+0・1の各fillはwindow内masked keyの2,308要素で不一致となった。
+これは式の診断であり、Rust/GPUの変異実行ではない。`cargo fmt -- --check`と`git diff --check`は成功した。
+指定5資料のblobとCargo.lockは開始版に一致し、今回の期待値はaccepted ADR-0010のglobal fillに限って適用する。
+固定natural-japanese版のクイック手順で変更文を通読し、事実・条件・未確認事項をsourceと証拠へ照合した。
+修正担当のoffline lintはsudachipyのcache不足で終了1となった。
+担当AIが依存のある既存環境で変更後README・reportを同じ固定版から確認し、lint終了0と意味照合を確認した。
+修正前のlint成功を今回の証拠へ流用していない。
+
+修正前のホスト証拠と評価は過去の版の観測として保つ。
+担当AIは2026-10-13に新規外部保存先で同じ資源ガードを使い、修正後sourceを再検証した。
+正常小入力とnegative引数の2テスト、CIと同じfeature・除外regexのlcov生成は15.76秒で終了0。
+開始commitからPR全差分80行中76行の95% gateを再確認した。
+未測定4行はignored大容量入口の呼出しとイベント出力であり、通常CIの除外・閾値は変えていない。
+同じinstrumented debug binaryの大容量入口は監視・回収と照合を含め25.37秒で終了0、48設定が一致した。
+このdebug時間・costを旧release性能比較へ計上しない。
+
+現在のsourceを一時コピー2件へ複写し、製品定数だけを0.0・1.0へ変更した。
+共用oracleの独立期待値は同じままとし、既存small_mask_elementsを実MLXで実行した。
+両コピーとも数値assertionで、実値0.0または1.0と期待値-1000000000.0の不一致を検出し、終了101になった。
+ビルド失敗や別assertionの失敗を成功扱いせず、選択テストの1 failed・0 passedと失敗理由を照合した。
+ビルドを含む時間は14.81秒・6.75秒。この2件は期待した退行の拒否で、正常版の成功とは区別する。
+本体の製品定数を変更せず、コピーは検証後も証拠として残した。
+
+各phaseの所有RSSは最大約1.93 GiB、pressureは1を維持し、swap増分は256 MiB以内であった。
+正常2phaseと変異2phaseの所有groupはすべて回収済み。source・binary・lock・CI定義の前後hashも一致した。
+環境・生ログ・lcov・差分gate・48イベント・変異source・監視・回収・hashをcheckoutと旧runの外へ保存した。
+要約更新後、同じcheckoutと差分基準で全体checkと新しい独立評価へ戻す。
+旧評価や今回のホスト成功だけで受入・公開CI完了とはしない。
+
+モデル再取得・255processの再測定は不要で、保存release比較、採用見送り、固定モデル・有限系列の限界は維持する。
