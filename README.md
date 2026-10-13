@@ -580,6 +580,9 @@ benchmarkは性能を測定し、標準checkの合否や検索品質評価とは
 標準checkの成功は、その実モデル・速度・メモリ比較の完了を意味しない。
 4096・1024の固定区分追加は[Issue #308の3構成比較](docs/research/issue-308/README.md)で調査する。
 製品は4区分を維持し、比較の収集完了を区分採用として扱わない。
+attention mask共有・GPU生成・buffer/compile cacheの単独比較は
+[Issue #310のホスト検証手順](docs/research/issue-310/README.md)を参照する。
+製品policyは維持し、標準checkとは別に全mask・失敗時cleanup・実モデルの費用を確認する。
 
 検索品質の評価（Recall@k / MRR@k / nDCG@k）は [`amici`](https://github.com/thkt/amici) で行う。`CandidateSource` は `{ Fts, Vector }` の閉 enum に固定されている（prefix-ensemble は採用していない）。
 

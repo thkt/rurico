@@ -1,6 +1,7 @@
 """Model-free failures specific to the #308 three-table comparison."""
 import copy
 import importlib.util
+import hashlib
 import json
 from pathlib import Path
 import tempfile
@@ -88,7 +89,35 @@ class BucketTables(unittest.TestCase):
                     runner.prepare(output)
                     self.assertEqual(sum(call.args[0] == checkout for call in manifests.call_args_list), 2)
                     plan = json.loads((output / "plan.json").read_text())
-                    runner.verify_plan(output, plan)
+                    plan_path = output / "plan.json"
+                    plan_bytes = plan_path.read_bytes()
+                    reads = []
+                    original_read = Path.read_bytes
+                    original_text = Path.read_text
+
+                    def changing_plan(path):
+                        if path == plan_path:
+                            reads.append(path)
+                            return plan_bytes if len(reads) == 1 else b"{}"
+                        return original_read(path)
+
+                    def reopened_plan(path, *args, **kwargs):
+                        if path == plan_path:
+                            self.fail("plan was reopened for JSON parsing")
+                        return original_text(path, *args, **kwargs)
+
+                    with mock.patch.object(Path, "read_bytes", changing_plan), \
+                         mock.patch.object(Path, "read_text", reopened_plan), \
+                         mock.patch.object(runner.json, "loads", wraps=json.loads) as parses, \
+                         mock.patch.object(runner.hashlib, "sha256", wraps=hashlib.sha256) as hashes:
+                        observed, observed_hash = runner.verify_plan(output)
+                        self.assertEqual(sum(c.args[0] == plan_bytes for c in parses.call_args_list), 1)
+                        self.assertEqual(sum(c.args[0] == plan_bytes for c in hashes.call_args_list), 1)
+                        self.assertEqual(observed, plan)
+                        self.assertEqual(observed_hash, hashlib.sha256(plan_bytes).hexdigest())
+                        self.assertEqual(len(reads), 1)
+                        with self.assertRaisesRegex(ValueError, "plan changed"):
+                            runner.verify_plan(output, observed)
                     source.write_text("changed after preparation")
                     with self.assertRaisesRegex(ValueError, "checkout changed"):
                         runner.verify_plan(output, plan)
@@ -117,11 +146,16 @@ class BucketTables(unittest.TestCase):
         for bounds in probe.TABLES.values():
             data = embedding(bounds)
             probe.validate(data, "embedding", "mixed", bounds, 4)
-        data = embedding(probe.TABLES["1024-4096"])
-        # Hist and padded count can remain plausible while one shape is wrong.
-        data[1]["metrics"]["forwards"][1]["sequence_length"] = 2048
-        with self.assertRaisesRegex(ValueError, "forward/pause"):
-            probe.validate(data, "embedding", "mixed", probe.TABLES["1024-4096"], 4)
+            data[0]["chunks"][0] = [7] * (bounds[-1] + 1)
+            with self.assertRaises(StopIteration):
+                probe.validate(data, "embedding", "mixed", bounds, 4)
+        # Fixed expectations must still reject a wrong shape in every call,
+        # including later warm repetitions.
+        for index in (1, 4):
+            data = embedding(probe.TABLES["1024-4096"])
+            data[index]["metrics"]["forwards"][1]["sequence_length"] = 2048
+            with self.assertRaisesRegex(ValueError, "forward/pause"):
+                probe.validate(data, "embedding", "mixed", probe.TABLES["1024-4096"], 4)
         data = embedding(probe.TABLES["current"])
         data[2]["documents"][1]["id"] = 0
         with self.assertRaisesRegex(ValueError, "identity"):
