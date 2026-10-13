@@ -46,3 +46,7 @@ mod owned_process;
 #[cfg(test)]
 #[path = "../docs/research/issue-318/planner.rs"]
 mod runtime318_planner;
+
+#[cfg(all(test, feature = "smoke"))]
+#[path = "../docs/research/issue-317/host.rs"]
+mod host317;

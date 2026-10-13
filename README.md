@@ -528,6 +528,10 @@ let v = embedder.embed_query("テスト")?;
 assert_eq!(v.len(), 768);
 ```
 
+query batchと共通queryのtokenization再利用の未採用試作は
+[Issue #317の調査](docs/research/issue-317/README.md)を参照。
+製品の単件query APIとpair encodingの契約は維持する。
+
 ## Development
 
 ### Setup

@@ -16,6 +16,8 @@ use mlx_rs::{
 };
 
 use std::path::Path;
+#[cfg(all(test, feature = "smoke"))]
+use std::time::Instant;
 
 type EncodedPairs = (Vec<Vec<u32>>, Vec<Vec<u32>>);
 
@@ -410,5 +412,77 @@ mod bucket_probe {
                 .collect::<Vec<_>>(),
             serde_json::from_value::<Vec<usize>>(observed["order"].clone()).unwrap()
         );
+    }
+}
+
+#[cfg(all(test, feature = "smoke"))]
+#[path = "../../docs/research/issue-317/rerank.rs"]
+mod query_spike;
+
+#[cfg(all(test, feature = "smoke"))]
+pub(crate) fn observe317(case: &str, candidate: bool, record: &mut dyn FnMut(&serde_json::Value)) {
+    use crate::{
+        host317,
+        model_io::ModelArtifact,
+        reranker::{Reranker, RerankerModelId, cached_artifacts},
+        research::verify_paths,
+    };
+    use mlx_rs::memory;
+    use serde_json::json;
+    use std::time::Instant;
+    let id = RerankerModelId::RuriV3Reranker310m;
+    let artifacts = cached_artifacts(id)
+        .unwrap()
+        .expect("fixed reranker cache required");
+    verify_paths(&artifacts.paths);
+    let owned = host317::pair_workload(case);
+    let pairs: Vec<_> = owned
+        .iter()
+        .map(|(q, d)| (q.as_str(), d.as_str()))
+        .collect();
+    let load = Instant::now();
+    let mut model = RerankerInner::new(&artifacts).unwrap();
+    record(
+        &json!({"event":"load","ns":load.elapsed().as_nanos(),"repository":id.repo_id(),"revision":ModelArtifact::revision(id)}),
+    );
+    let first = host317::observe_pairs(
+        &artifacts.tokenizer,
+        &pairs,
+        candidate,
+        |inputs, reuse| model.pairs317(inputs, reuse),
+        || memory::reset_peak_memory().unwrap(),
+        || memory::peak_memory().unwrap(),
+        &mut *record,
+    );
+    let original = model.score_batch(&pairs).unwrap();
+    assert_eq!(first, original);
+    drop(model);
+    let public = Reranker::new(&artifacts).unwrap();
+    record(&host317::compare_public(
+        case,
+        &pairs,
+        &original,
+        |inputs| public.score_batch(inputs),
+        |query, docs| public.rerank(query, docs),
+    ));
+}
+
+#[cfg(all(test, feature = "smoke"))]
+impl RerankerInner {
+    pub(crate) fn pairs317(
+        &mut self,
+        pairs: &[(&str, &str)],
+        reuse: bool,
+    ) -> Result<(Vec<f32>, serde_json::Value), RerankerError> {
+        let start = Instant::now();
+        let (ids, masks) = if reuse {
+            query_spike::prepare_reused(&self.tokenizer, pairs)?
+        } else {
+            // Exact production preparation, including per-pair Encoding drops.
+            self.encode_pairs(pairs)?
+        };
+        query_spike::execute_pairs(&ids, &masks, start, |rows, masks, bucket| {
+            self.forward_sub_batch(rows, masks, bucket)
+        })
     }
 }
